@@ -1334,6 +1334,13 @@ SimpleIds :: { [RString] }
 SimpleIds : SimpleId { [$1] }
           | SimpleIds SimpleId {$1 ++ [$2]}
 
+-- The list should be reversed.
+
+SimpleIdsOrWildcards :: { List1 RString }
+SimpleIdsOrWildcards
+  : SimpleIdOrWildcard                      {List1.singleton $1}
+  | SimpleIdsOrWildcards SimpleIdOrWildcard {$2 <| $1}
+
 HoleNames :: { [NamedArg HoleName] }
 HoleNames :                    { [] }
           | HoleNames HoleName {$1 ++ [$2]}
@@ -1349,19 +1356,23 @@ HoleName
 SimpleTopHole :: { HoleName }
 SimpleTopHole
   : SimpleId { ExprHole $1 }
-  | '(' '\\' SimpleId '->' SimpleId ')' { LambdaHole $3 $5 }
-  | '(' '\\' '_'      '->' SimpleId ')' { LambdaHole (Ranged (getRange $3) "_") $5 }
+  | '(' '\\' SimpleIdsOrWildcards '->' SimpleId ')'
+    { LambdaHole (List1.reverse $3) $5 }
 
 SimpleHole :: { HoleName }
 SimpleHole
   : SimpleId { ExprHole $1 }
-  | '\\' SimpleId '->' SimpleId { LambdaHole $2 $4 }
-  | '\\' '_'      '->' SimpleId { LambdaHole (Ranged (getRange $3) "_") $4 }
--- Variable name hole to be implemented later.
+  | '\\' SimpleIdsOrWildcards '->' SimpleId
+    { LambdaHole (List1.reverse $2) $4 }
 
 -- Discard the interval.
 SimpleId :: { RString }
 SimpleId : id  { Ranged (getRange $ fst $1) (stringToRawName $ snd $1) }
+
+SimpleIdOrWildcard :: { RString }
+SimpleIdOrWildcard
+  : SimpleId { $1 }
+  | '_'      { Ranged (getRange $1) "_" }
 
 MaybeOpen :: { Maybe Range }
 MaybeOpen : 'open'      { Just (getRange $1) }
