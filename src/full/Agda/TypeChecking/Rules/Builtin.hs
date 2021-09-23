@@ -222,7 +222,8 @@ coreBuiltins =
                                                              ))
                                                               (const $ const $ return ()))
     
-  , (builtinBridgeInterval     |-> BuiltinData (return $ sort LockUniv) [builtinBIZero,builtinBIOne]) --TODO:requireBridges (cf requireCubical)
+  , (builtinBridgeInterval     |-> BuiltinData (requireBridges "" >> (return $ sort LockUniv))
+                                               [builtinBIZero,builtinBIOne])
   , (builtinBIZero                            |-> BuiltinDataCons primBridgeIntervalType)
   , (builtinBIOne                             |-> BuiltinDataCons primBridgeIntervalType)
   

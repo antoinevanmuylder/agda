@@ -159,6 +159,7 @@ data PragmaOptions = PragmaOptions
   , optRewriting                 :: Bool  -- ^ Can rewrite rules be added and used?
   , optCubical                   :: Maybe Cubical
   , optGuarded                   :: Bool
+  , optBridges                   :: Bool
   , optFirstOrder                :: Bool  -- ^ Should we speculatively unify function applications as if they were injective?
   , optPostfixProjections        :: Bool
       -- ^ Should system generated projections 'ProjSystem' be printed
@@ -289,6 +290,7 @@ defaultPragmaOptions = PragmaOptions
   , optRewriting                 = False
   , optCubical                   = Nothing
   , optGuarded                   = False
+  , optBridges                   = False
   , optFirstOrder                = False
   , optPostfixProjections        = False
   , optKeepPatternVariables      = False
@@ -399,6 +401,7 @@ restartOptions =
   , (B . (== Just CFull) . optCubical, "--cubical")
   , (B . (== Just CErased) . optCubical, "--erased-cubical")
   , (B . optGuarded, "--guarded")
+  , (B . optBridges, "--bridges")
   , (B . optOverlappingInstances, "--overlapping-instances")
   , (B . optQualifiedInstances, "--qualified-instances")
   , (B . not . optQualifiedInstances, "--no-qualified-instances")
@@ -432,6 +435,7 @@ infectiveOptions :: [(PragmaOptions -> Bool, String)]
 infectiveOptions =
   [ (isJust . optCubical, "--cubical/--erased-cubical")
   , (optGuarded, "--guarded")
+  , (optBridges, "--bridges")
   , (optProp, "--prop")
   , (collapseDefault . optTwoLevel, "--two-level")
   , (optRewriting, "--rewriting")
@@ -720,6 +724,10 @@ guardedFlag :: Flag PragmaOptions
 guardedFlag o = do
   return $ o { optGuarded  = True }
 
+bridgesFlag :: Flag PragmaOptions
+bridgesFlag o = do
+  return $ o { optBridges  = True }
+
 postfixProjectionsFlag :: Flag PragmaOptions
 postfixProjectionsFlag o = return $ o { optPostfixProjections = True }
 
@@ -979,6 +987,8 @@ pragmaOptions =
                     "enable cubical features (some only in erased settings), implies --without-K"
     , Option []     ["guarded"] (NoArg guardedFlag)
                     "enable @lock/@tick attributes"
+    , Option []     ["bridges"] (NoArg bridgesFlag)
+                    "enable bridge variables"
     , Option []     ["experimental-lossy-unification"] (NoArg firstOrderFlag)
                     "enable heuristically unifying `f es = f es'` by unifying `es = es'`, even when it could lose solutions."
     , Option []     ["postfix-projections"] (NoArg postfixProjectionsFlag)

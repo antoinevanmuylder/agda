@@ -52,24 +52,13 @@ import Agda.Utils.Size
 import qualified Agda.Utils.Pretty as P
 
 
--- (|) Checks that the correct variant of Cubical Agda is activated.
--- Note that @--erased-cubical@ \"counts as\" @--cubical@ in erased
--- contexts.
-
--- requireCubical
---   :: Cubical -- ^ Which variant of Cubical Agda is required?
---   -> String -> TCM ()
--- requireCubical wanted s = do
---   cubical         <- optCubical <$> pragmaOptions
---   inErasedContext <- hasQuantity0 <$> getEnv
---   case cubical of
---     Just CFull -> return ()
---     Just CErased | wanted == CErased || inErasedContext -> return ()
---     _ -> typeError $ GenericError $ "Missing option " ++ opt ++ s
---   where
---   opt = case wanted of
---     CFull   -> "--cubical"
---     CErased -> "--cubical or --erased-cubical"
+-- | Generates error if --bridges pragma option was not set
+-- Used when typechecking the bridge interval
+requireBridges :: String -> TCM ()
+requireBridges s = do
+  bridges <- optBridges <$> pragmaOptions
+  unless bridges $
+    typeError $ GenericError $ "Missing option --bridges " ++ s
 
 -- | Types are terms with a sort annotation.
 -- Here we turn the bridge interval (informally: BI) into such a type by specifying a sort for it.
