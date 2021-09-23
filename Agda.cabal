@@ -520,6 +520,7 @@ library
                     Agda.TypeChecking.Primitive
                     Agda.TypeChecking.Primitive.Base
                     Agda.TypeChecking.Primitive.Cubical
+                    Agda.TypeChecking.Primitive.Bridges
                     Agda.TypeChecking.ProjectionLike
                     Agda.TypeChecking.Quote
                     Agda.TypeChecking.ReconstructParameters
