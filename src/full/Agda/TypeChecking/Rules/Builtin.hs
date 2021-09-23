@@ -221,6 +221,11 @@ coreBuiltins =
                                                                fiber
                                                              ))
                                                               (const $ const $ return ()))
+    
+  , (builtinBridgeInterval     |-> BuiltinData (return $ sort LockUniv) [builtinBIZero,builtinBIOne]) --TODO:requireBridges (cf requireCubical)
+  , (builtinBIZero                            |-> BuiltinDataCons primBridgeIntervalType)
+  , (builtinBIOne                             |-> BuiltinDataCons primBridgeIntervalType)
+  
   , (builtinAgdaSort                         |-> BuiltinData tset
                                                    [ builtinAgdaSortSet, builtinAgdaSortLit
                                                    , builtinAgdaSortProp, builtinAgdaSortPropLit

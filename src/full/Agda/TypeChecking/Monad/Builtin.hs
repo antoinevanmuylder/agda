@@ -175,6 +175,7 @@ primInteger, primIntegerPos, primIntegerNegSuc,
     primGlue, prim_glue, prim_unglue,
     prim_glueU, prim_unglueU,
     primFaceForall,
+    primBridgeInterval, primBIZero, primBIOne,
     primNatPlus, primNatMinus, primNatTimes, primNatDivSucAux, primNatModSucAux,
     primNatEquality, primNatLess,
     -- Machine words
@@ -276,6 +277,9 @@ primIsOneEmpty                        = getBuiltin builtinIsOneEmpty
 primSub                               = getBuiltin builtinSub
 primSubIn                             = getBuiltin builtinSubIn
 primSubOut                            = getPrimitiveTerm builtinSubOut
+primBridgeInterval                    = getBuiltin builtinBridgeInterval
+primBIZero                            = getBuiltin builtinBIZero
+primBIOne                             = getBuiltin builtinBIOne
 primNat                               = getBuiltin builtinNat
 primSuc                               = getBuiltin builtinSuc
 primZero                              = getBuiltin builtinZero

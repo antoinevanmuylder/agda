@@ -4,6 +4,7 @@
 module Agda.TypeChecking.Primitive
        ( module Agda.TypeChecking.Primitive.Base
        , module Agda.TypeChecking.Primitive.Cubical
+       , module Agda.TypeChecking.Primitive.Bridges
        , module Agda.TypeChecking.Primitive
        ) where
 
@@ -36,6 +37,7 @@ import Agda.TypeChecking.Level
 import Agda.TypeChecking.Quote (quoteTermWithKit, quoteTypeWithKit, quotingKit)
 import Agda.TypeChecking.Primitive.Base
 import Agda.TypeChecking.Primitive.Cubical
+import Agda.TypeChecking.Primitive.Bridges
 import Agda.TypeChecking.Warnings
 
 import Agda.Utils.Char
