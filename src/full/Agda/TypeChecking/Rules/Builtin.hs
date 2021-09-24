@@ -224,9 +224,18 @@ coreBuiltins =
     
   , (builtinBridgeInterval     |-> BuiltinData (requireBridges "" >> (return $ sort LockUniv))
                                                [builtinBIZero,builtinBIOne])
+    
   , (builtinBIZero                            |-> BuiltinDataCons primBridgeIntervalType)
   , (builtinBIOne                             |-> BuiltinDataCons primBridgeIntervalType)
   
+  , (builtinBridgeP                           |-> builtinPostulate ( (>>) (requireBridges "") $ runNamesT [] $
+                                                  -- builtinPostulate expects a TCM Type. The following is ~ NamesT TCM Type
+                                                  hPi' "a" (el primLevel) $ \a -> -- {a:Level} ;  a: NameT m Term
+                                                  nPi' "A" (primBridgeIntervalType --> (sort . tmSort <$> a)) $ \bA -> -- (A : BI -> Ty_a)
+                                                   ( el' a (bA <@> primBIZero) ) --> -- A0 with sort annotation Ty_a
+                                                   ( el' a (bA <@> primBIOne) ) -->
+                                                   (sort . tmSort <$> a) ))
+    
   , (builtinAgdaSort                         |-> BuiltinData tset
                                                    [ builtinAgdaSortSet, builtinAgdaSortLit
                                                    , builtinAgdaSortProp, builtinAgdaSortPropLit

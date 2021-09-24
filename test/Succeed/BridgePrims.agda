@@ -14,8 +14,11 @@ open Prims renaming (primLockUniv to LockU) public
 {-# BUILTIN BIZERO    bi0 #-}
 {-# BUILTIN BIONE     bi1 #-}
 
-
-
 -- I is treated as the type of booleans.
 -- {-# COMPILE JS i0 = false #-}
 -- {-# COMPILE JS i1 = true  #-}
+
+postulate
+  BridgeP : ∀ {ℓ} (A : BI → Set ℓ) → A bi0 → A bi1 → Set ℓ
+
+-- {-# BUILTIN PATHP        PathP     #-}
