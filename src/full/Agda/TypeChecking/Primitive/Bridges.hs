@@ -23,7 +23,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Foldable hiding (null)
 
-import Agda.Interaction.Options ( optCubical )
+import Agda.Interaction.Options ( optBridges )
 
 import Agda.Syntax.Common
 import Agda.Syntax.Internal
