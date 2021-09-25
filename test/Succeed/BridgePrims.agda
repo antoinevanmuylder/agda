@@ -21,4 +21,4 @@ open Prims renaming (primLockUniv to LockU) public
 postulate
   BridgeP : ∀ {ℓ} (A : BI → Set ℓ) → A bi0 → A bi1 → Set ℓ
 
--- {-# BUILTIN PATHP        PathP     #-}
+{-# BUILTIN BRIDGEP        BridgeP     #-}
