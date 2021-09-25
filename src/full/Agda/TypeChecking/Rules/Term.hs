@@ -438,6 +438,26 @@ checkPath b@(A.TBind _ _ (x':|[]) typ) body ty = do
       equalTerm (btyp iOne) rhs' (unArg rhs)
       return t
 checkPath b body ty = __IMPOSSIBLE__
+
+checkBridge :: A.TypedBinding -> A.Expr -> Type -> TCM Term
+checkBridge b@(A.TBind _ _ (x':|[]) xtyp) body ty = do
+    let x    = updateNamedArg (A.unBind . A.binderName) x'
+        info = getArgInfo x
+    BridgeType s bridge level typ lhs rhs <- bridgeView ty --typ is underlying type line for het. bridge
+    bridgeInterval <- primBridgeIntervalType
+    v <- addContext ([x], bridgeInterval) $
+           checkExpr body (El (raise 1 s) (raise 1 (unArg typ) `apply` [argN $ var 0]))
+    biZero <- primBIZero
+    biOne  <- primBIOne
+    let lhs' = subst 0 biZero v -- TODO-antva: can we subst bridge vars already?
+        rhs' = subst 0 biOne  v
+    let t = Lam info $ Abs (namedArgName x) v --we must return internal syntax (not abstract syntax)
+    let btyp i = El s (unArg typ `apply` [argN i]) --type of left or right endpoint
+    locallyTC eRange (const noRange) $ blockTerm ty $ traceCall (SetRange $ getRange body) $ do
+      equalTerm (btyp biZero) lhs' (unArg lhs)
+      equalTerm (btyp biOne) rhs' (unArg rhs)
+      return t
+checkBridge b body ty = __IMPOSSIBLE__
 ---------------------------------------------------------------------------
 -- * Lambda abstractions
 ---------------------------------------------------------------------------
@@ -467,7 +487,7 @@ checkLambda'
 checkLambda' cmp b xps typ body target = do
   reportSDoc "tc.term.lambda" 30 $ vcat
     [ "checkLambda xs =" <+> prettyA xps
-    , "possiblePath   =" <+> prettyTCM possiblePath
+    , "possiblePath   =" <+> prettyTCM possiblePath --TODO-antva: should add a clause here for bridges?
     , "numbinds       =" <+> prettyTCM numbinds
     , "typ            =" <+> prettyA   (unScope typ)
     ]

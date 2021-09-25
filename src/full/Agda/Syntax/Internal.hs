@@ -745,6 +745,37 @@ isIOne :: IntervalView -> Bool
 isIOne IOne = True
 isIOne _ = False
 
+-- | View type as bridge type. Human readable representation of (fully applied) bridge types (@BridgeP {l:Level} i.A a0 a1@).
+
+data BridgeView
+  = BridgeType
+    { bridgeSort  :: Sort     -- ^ Sort of this bridge type. Baiscally @Set l@.
+    , bridgeName  :: QName    -- ^ Builtin BRIDGEP.
+    , bridgeLevel :: Arg Term -- ^ Hidden, level l
+    , bridgeType  :: Arg Term -- ^ Hidden, the type line i.A
+    , bridgeLhs   :: Arg Term -- ^ NotHidden, left endpoint a0
+    , bridgeRhs   :: Arg Term -- ^ NotHidden, right endpoint a1
+    }
+  | BOType Type -- ^ reduced
+
+isBridgeType :: BridgeView -> Bool
+isBridgeType BridgeType{} = True
+isBridgeType BOType{}    = False
+
+data BridgeIntervalView
+      = BIZero
+      | BIOne
+      | BOTerm Term
+      deriving Show
+
+isBIOne :: BridgeIntervalView -> Bool
+isBIOne BIOne = True
+isBIOne _ = False
+
+isBIZero :: BridgeIntervalView -> Bool
+isBIZero BIZero = True
+isBIZero _ = False
+
 ---------------------------------------------------------------------------
 -- * Absurd Lambda
 ---------------------------------------------------------------------------

@@ -599,6 +599,62 @@ pathUnview (PathType s path l t lhs rhs) =
   El s $ Def path $ map Apply [l, t, lhs, rhs]
 
 ------------------------------------------------------------------------
+-- * Bridges. View functions for interval, BridgeP types
+------------------------------------------------------------------------
+
+bridgeIntervalView' :: HasBuiltins m => m (Term -> BridgeIntervalView)
+bridgeIntervalView' = do
+  biz <- getBuiltinName' builtinIZero
+  bio <- getBuiltinName' builtinIOne
+  return $ \ t ->
+    case t of
+      Con q _ [] | Just (conName q) == biz -> BIZero
+                 | Just (conName q) == bio -> BIOne
+      _ -> BOTerm t
+
+bridgeIntervalView :: HasBuiltins m => Term -> m BridgeIntervalView
+bridgeIntervalView t = do
+  f <- bridgeIntervalView'
+  return (f t)
+
+bridgeIntervalUnview :: HasBuiltins m => BridgeIntervalView -> m Term
+bridgeIntervalUnview t = do
+  f <- bridgeIntervalUnview'
+  return (f t)
+
+bridgeIntervalUnview' :: HasBuiltins m => m (BridgeIntervalView -> Term)
+bridgeIntervalUnview' = do
+  biz <- fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinIZero -- should it be a type error instead?
+  bio <- fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinIOne
+  return $ \ v -> case v of
+             BIZero -> biz
+             BIOne  -> bio
+             BOTerm t -> t
+
+-- | Check whether the type is actually an applied BridgeP type
+--   @BridgeP {l:Level} i.A a0 a1@ (meaning a0 a1 are in relation)
+--   and extract a0 a1 and their type i.A
+--
+--   Precondition: type is reduced.
+
+bridgeView :: HasBuiltins m => Type -> m BridgeView
+bridgeView t0 = do
+  view <- bridgeView'
+  return $ view t0
+
+bridgeView' :: HasBuiltins m => m (Type -> BridgeView)
+bridgeView' = do
+ mbridgep <- getBuiltinName' builtinBridgeP
+ return $ \ t0@(El s t) ->
+  case t of
+    Def bridge' [ Apply level , Apply typ , Apply lhs , Apply rhs ]
+      | Just bridge' == mbridgep -> BridgeType s bridge' level typ lhs rhs
+      --TODO-antva: does the guard make sense. do we need an abstraction on typ (cf one case of pathView')
+    _ -> BOType t0
+
+
+
+------------------------------------------------------------------------
 -- * Swan's Id Equality
 ------------------------------------------------------------------------
 
