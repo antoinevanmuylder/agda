@@ -645,6 +645,7 @@ checkArgumentsE' chk cmp exh r args0@(arg@(Arg info e) : args) t0 mt1 =
               | otherwise = lift $ typeError $ WrongNamedArgument arg xs
 
         viewPath <- lift pathView'
+        viewBridge <- lift bridgeView'
 
         -- Check the target type if we can get away with it.
         chk' <- lift $
@@ -655,6 +656,7 @@ checkArgumentsE' chk cmp exh r args0@(arg@(Arg info e) : args) t0 mt1 =
               let dep = any (< n) $ IntSet.toList $ freeVars tgt
                   vis = all visible (telToList tel)
                   isRigid t | PathType{} <- viewPath t = return False -- Path is not rigid!
+                  isRigid t | BridgeType{} <- viewBridge t = return False -- Bridge is not rigid
                   isRigid (El _ (Pi dom _)) = return $ visible dom
                   isRigid (El _ (Def d _))  = getConstInfo d <&> theDef <&> \ case
                     Axiom{}                   -> True
@@ -735,6 +737,13 @@ checkArgumentsE' chk cmp exh r args0@(arg@(Arg info e) : args) t0 mt1 =
                 lift $ reportSDoc "tc.term.args" 30 $ text $ show bA
                 u <- lift $ checkExpr (namedThing e) =<< primIntervalType
                 addCheckedArgs us (getRange e) (IApply (unArg x) (unArg y) u) Nothing $
+                  checkArgumentsE cmp exh (fuseRange r e) args (El s $ unArg bA `apply` [argN u]) mt1
+          _
+            | visible info
+            , BridgeType s _ _ bA x y <- viewBridge t0' -> do
+                lift $ reportSDoc "tc.term.args" 30 $ text $ show bA
+                u <- lift $ checkExpr (namedThing e) =<< primBridgeIntervalType --u : BI in internal syntax
+                addCheckedArgs us (getRange e) (IApply (unArg x) (unArg y) u) Nothing $ -- TODO-antva: can I add the u elim as an IApply?
                   checkArgumentsE cmp exh (fuseRange r e) args (El s $ unArg bA `apply` [argN u]) mt1
           _ -> shouldBePi
   where
@@ -911,6 +920,7 @@ checkConstructorApplication cmp org t c args = do
         dropPar _ [] = Nothing
 
 -- | Returns an unblocking action in case of failure.
+--   TODO-antva: duplicate path code in the case of bridge if relevant?
 disambiguateConstructor :: List1 QName -> Type -> TCM (Either Blocker ConHead)
 disambiguateConstructor cs0 t = do
   reportSLn "tc.check.term.con" 40 $ "Ambiguous constructor: " ++ prettyShow cs0
@@ -1474,6 +1484,7 @@ blockArg :: HasRange r => Type -> r -> Arg Term -> TCM () -> TCM (Arg Term)
 blockArg t r a m =
   setCurrentRange (getRange $ r) $ fmap (a $>) $ blockTerm t $ m >> return (unArg a)
 
+-- | TODO-antva: duplicate path code for bridges if relevant?
 checkConId :: QName -> MaybeRanges -> Args -> Type -> TCM Args
 checkConId c rs vs t1 = do
   case vs of

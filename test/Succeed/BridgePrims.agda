@@ -1,4 +1,4 @@
-{-# OPTIONS --cubical --guarded --bridges -v tc.term:20 #-}
+{-# OPTIONS --cubical --guarded --bridges -v tc.term:60 #-}
 module BridgePrims where
 
 -- this is a reproduction of test/Succeed/LaterPrims.agda and-or Agda.Primitive.Cubical
@@ -35,20 +35,48 @@ postulate
 
 {-# BUILTIN BRIDGEP        BridgeP     #-}
 
--- how to introduce such a bridge? we somehow need a function p : (i:BI) → A i
+-- INTRO
+-- how to INTRO such a bridge? we somehow need a function p : (i:BI) → A i
 -- such that p 0 = a0 and p 1 = a1 definitionally.
 -- For paths, see checkPath defined in TypeChecking/Rules/Term.hs
 -- It indeed checks the body p i of p in augmented context Gamma, i and ensures that endpoints are correct.
 
 
 
-cstbridge-true : BridgeP (λ i → Bool) true true
-cstbridge-true = λ i → true
+cst-t : BridgeP (λ i → Bool) true true
+cst-t = λ i → true
 
-cstbridge-false : BridgeP (λ i → Bool) false false
-cstbridge-false = λ i → false
+cst-f : BridgeP (λ i → Bool) false false
+cst-f = λ i → false
 
 -- fail-cstbridge : BridgeP (λ i → Bool) true true
 -- fail-cstbridge = λ i → false
+
+
+-- ELIM
+-- had to make BridgeP "non rigid" fwiw
+-- had to add a BridgeP case when infering applications (similar to paths)
+-- will it typecheck cartesian application? (non fresh subst)
+
+applied-bridge : Bool
+applied-bridge = cst-t bi0
+
+-- | the type of 1 bridges with endpoints true true
+bdg-t = BridgeP (λ i → Bool) true true
+
+-- | the type of 2-bridges with endpoints cst-t ; cst-t
+bdg-bdg-t = BridgeP (λ i → bdg-t) cst-t cst-t
+
+cst-cst-t : bdg-bdg-t
+cst-cst-t = λ i → cst-t
+
+
+-- | should typecheck. but we don't have the border computation rule yet
+-- disguised-id : bdg-bdg-t → bdg-bdg-t
+-- disguised-id x = λ i → x i
+
+-- should not typecheck? does not typecheck but for the wrong reason (missing border computation rule)
+-- problem : bdg-bdg-t → bdg-t
+-- problem = λ x → λ i → x i i
 
 
