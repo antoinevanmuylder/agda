@@ -439,6 +439,11 @@ checkPath b@(A.TBind _ _ (x':|[]) typ) body ty = do
       return t
 checkPath b body ty = __IMPOSSIBLE__
 
+ifBridge :: Type -> TCM a -> TCM a -> TCM a
+ifBridge ty fallback work = do
+  bv <- bridgeView ty
+  if isBridgeType bv then work else fallback
+
 checkBridge :: A.TypedBinding -> A.Expr -> Type -> TCM Term
 checkBridge b@(A.TBind _ _ (x':|[]) xtyp) body ty = do
     let x    = updateNamedArg (A.unBind . A.binderName) x'
@@ -486,17 +491,17 @@ checkLambda'
   -> TCM Term
 checkLambda' cmp b xps typ body target = do
   reportSDoc "tc.term.lambda" 30 $ vcat
-    [ "checkLambda xs =" <+> prettyA xps
-    , "possiblePath   =" <+> prettyTCM possiblePath --TODO-antva: should add a clause here for bridges?
-    , "numbinds       =" <+> prettyTCM numbinds
-    , "typ            =" <+> prettyA   (unScope typ)
+    [ "checkLambda xs ="       <+> prettyA xps
+    , "possiblePathBridge   =" <+> prettyTCM possiblePathBridge
+    , "numbinds       ="       <+> prettyTCM numbinds
+    , "typ            ="       <+> prettyA   (unScope typ)
     ]
   reportSDoc "tc.term.lambda" 60 $ vcat
     [ "info           =" <+> (text . show) info
     ]
   TelV tel btyp <- telViewUpTo numbinds target
   if size tel < numbinds || numbinds /= 1
-    then (if possiblePath then trySeeingIfPath else dontUseTargetType)
+    then (if possiblePathBridge then trySeeingIfPathBridge else dontUseTargetType)
     else useTargetType tel btyp
 
   where
@@ -504,21 +509,56 @@ checkLambda' cmp b xps typ body target = do
     xs = fmap (updateNamedArg (A.unBind . A.binderName)) xps
     numbinds = length xps
     isUnderscore = \case { A.Underscore{} -> True; _ -> False }
-    possiblePath = numbinds == 1 && isUnderscore (unScope typ)
-                   && isRelevant info && visible info
+    possiblePathBridge = numbinds == 1 && isUnderscore (unScope typ)
+                       && isRelevant info && visible info
     info = getArgInfo $ List1.head xs
 
-    trySeeingIfPath = do
+    trySeeingIfPathBridge = do
       cubical <- optCubical <$> pragmaOptions
-      reportSLn "tc.term.lambda" 60 $ "trySeeingIfPath for " ++ show xps
-      let postpone' = if isJust cubical then postpone else \ _ _ -> dontUseTargetType
+      bridges <- optBridges <$> pragmaOptions
+      reportSLn "tc.term.lambda" 60 $ "trySeeingIfPathBridge for " ++ show xps
+      let postpone' = if (isJust cubical || bridges) then postpone else \ _ _ -> dontUseTargetType
       ifBlocked target postpone' $ \ _ t -> do
-        ifPath t dontUseTargetType $ if isJust cubical
+        ifPath t (bridgeFallback bridges t) $ if isJust cubical --TODO-antva: change fallback (after t param)
           then checkPath b body t
           else genericError $ unwords
                  [ "Option --cubical/--erased-cubical needed to build"
                  , "a path with a lambda abstraction"
                  ]
+
+    bridgeFallback bridges t = do
+      ifBridge t dontUseTargetType $ if bridges
+        then checkBridge b body t
+        else genericError $ unwords
+               [ "Option --bridges needed to build"
+               , "a bridge with a lambda abstraction"
+               ]
+
+    -- TODO-antva: delete following comments
+
+    -- trySeeingIfPath = do
+    --   cubical <- optCubical <$> pragmaOptions
+    --   reportSLn "tc.term.lambda" 60 $ "trySeeingIfPath for " ++ show xps
+    --   let postpone' = if isJust cubical then postpone else \ _ _ -> dontUseTargetType
+    --   ifBlocked target postpone' $ \ _ t -> do
+    --     ifPath t dontUseTargetType $ if isJust cubical
+    --       then checkPath b body t
+    --       else genericError $ unwords
+    --              [ "Option --cubical/--erased-cubical needed to build"
+    --              , "a path with a lambda abstraction"
+    --              ]
+
+    -- trySeeingIfBridge = do
+    --   bridges <- optBridges <$> pragmaOptions
+    --   reportSLn "tc.term.lambda" 60 $ "trySeeingIfBridge for " ++ show xps
+    --   let postpone' = if bridges then postpone else \ _ _ -> dontUseTargetType
+    --   ifBlocked target postpone' $ \ _ t -> do
+    --     ifBridge t dontUseTargetType $ if bridges
+    --       then checkBridge b body t
+    --       else genericError $ unwords
+    --              [ "Option --bridges needed to build"
+    --              , "a bridge with a lambda abstraction"
+    --              ]
 
     postpone blocker tgt = flip postponeTypeCheckingProblem blocker $
       CheckExpr cmp (A.Lam A.exprNoRange (A.DomainFull b) body) tgt
