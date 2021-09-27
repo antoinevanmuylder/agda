@@ -431,6 +431,11 @@ compareAtom cmp t m n =
       mb' <- etaExpandBlocked =<< reduceB m
       nb' <- etaExpandBlocked =<< reduceB n
       return (mb', nb')
+    reportSDoc "tc.conv" 30 $
+      "TODO-antva:" <+> fsep [ prettyTCM mb' <+> prettyTCM cmp
+                             , prettyTCM nb'
+                             , prettyTCM t
+                             ]
     let getBlocker (Blocked b _) = b
         getBlocker NotBlocked{}  = neverUnblock
         blocker = unblockOnEither (getBlocker mb') (getBlocker nb')

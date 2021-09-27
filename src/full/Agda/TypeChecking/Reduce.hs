@@ -409,14 +409,25 @@ reduceIApply = reduceIApply' reduceB'
 
 reduceIApply' :: (Term -> ReduceM (Blocked Term)) -> ReduceM (Blocked Term) -> [Elim] -> ReduceM (Blocked Term)
 reduceIApply' red d (IApply x y r : es) = do
+  insided <- d --TODO-antva
+  reportSDoc "tc.reduce" 30 $ "reduceIApply' d : " <+> pretty (ignoreBlocking insided) --TODO-antva:
   view <- intervalView'
+  bView <- bridgeIntervalView'
   r <- reduceB' r
+  reportSDoc "tc.reduce" 30 $ "reduceIApply' r :" <+> pretty (ignoreBlocking r) --TODO-antva
   -- We need to propagate the blocking information so that e.g.
   -- we postpone "someNeutralPath ?0 = a" rather than fail.
   case view (ignoreBlocking r) of
    IZero -> red (applyE x es)
    IOne  -> red (applyE y es)
-   _     -> fmap (<* r) (reduceIApply' red d es)
+   _ -> case bView (ignoreBlocking r) of
+          BIZero -> red (applyE x es) --TODO-antva: why not mentionning d here???
+          BIOne -> red (applyE y es)
+          _     -> fmap (<* r) (reduceIApply' red d es)
+  -- case view (ignoreBlocking r) of
+  --  IZero -> red (applyE x es)
+  --  IOne  -> red (applyE y es)
+  --  _     -> fmap (<* r) (reduceIApply' red d es)
 reduceIApply' red d (_ : es) = reduceIApply' red d es
 reduceIApply' _   d [] = d
 
@@ -452,7 +463,9 @@ maybeFastReduceTerm v = do
 
 slowReduceTerm :: Term -> ReduceM (Blocked Term)
 slowReduceTerm v = do
+    reportSDoc "tc.reduce" 30 $ "slowReduceTerm on : " <+> (prettyTCM v) --TODO-antva
     v <- instantiate' v
+    reportSDoc "tc.reduce" 30 $ "slowReduceTerm after inst : " <+> (prettyTCM v) --TODO-antva
     let done | MetaV x _ <- v = return $ blocked x v
              | otherwise      = return $ notBlocked v
         iapp = reduceIApply done
@@ -475,7 +488,9 @@ slowReduceTerm v = do
                     {- else -} done
       Pi _ _   -> done
       Lit _    -> done
-      Var _ es  -> iapp es
+      Var _ es  ->
+        ( reportSDoc "tc.reduce" 30 $ "slowReduceTerm,Var case : " <+> (prettyTCM v) <+> (text "blasep") <+> (text $ show es) ) >> --TODO-antva
+        reduceIApply' reduceB' (return $ notBlocked v) es -- iapp es
       Lam _ _  -> done
       DontCare _ -> done
       Dummy{}    -> done
