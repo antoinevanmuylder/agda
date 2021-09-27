@@ -80,3 +80,9 @@ cst-cst-t = λ i → cst-t
 -- problem = λ x → λ i → x i i
 
 
+-- x ⊢ x   (BI weakening?)
+-- x , i ⊢ x                                   constraints i ∉ x                OK
+-- x : bdg-bdg-t, i : BI ⊢ x i : bdg-t         constraints i ∉ x i              hopefully affine constr gets gen
+-- x : bdg-bdg-t, i : BI ⊢ (x i) i : bdg-t     constraints x i i[0/i] = true    need border rule!
+-- x : bdg-bdg-t ⊢ λ i → x i i : bdg-t
+-- ⊢ λ x i → x i i : bdg-bdg-t → bdg-t
