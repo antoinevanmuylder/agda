@@ -743,7 +743,7 @@ checkArgumentsE' chk cmp exh r args0@(arg@(Arg info e) : args) t0 mt1 =
             , BridgeType s _ _ bA x y <- viewBridge t0' -> do
                 lift $ reportSDoc "tc.term.args" 30 $ text $ show bA
                 u <- lift $ checkExpr (namedThing e) =<< primBridgeIntervalType --u : BI in internal syntax
-                addCheckedArgs us (getRange e) (IApply (unArg x) (unArg y) u) Nothing $ -- TODO-antva: IApply contains endpoints
+                addCheckedArgs us (getRange e) (IApply (unArg x) (unArg y) u) Nothing $ -- TODO-antva: IApply attaches endpoints to bridge var (or cst)
                   checkArgumentsE cmp exh (fuseRange r e) args (El s $ unArg bA `apply` [argN u]) mt1
           _ -> shouldBePi
   where
