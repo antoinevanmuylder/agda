@@ -113,6 +113,8 @@ eta-rule = λ bdg i → bdg
 
 
 -- should not typecheck? does not typecheck but for the wrong reason
+
+
 problem : bdg-bdg-t → bdg-t
 problem = λ x i → x i i
 
