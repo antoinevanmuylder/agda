@@ -9,7 +9,11 @@ module Prims where
     primLockUniv : Set₁
 
 open Prims renaming (primLockUniv to LockU)
+open import Agda.Primitive
 open import Agda.Builtin.Bool
+open import Agda.Primitive.Cubical using (PathP)
+
+
 
 ------------------------------------------------------------------------
 -- Bridge interval BI and endpoints bi0 bi1
@@ -78,6 +82,32 @@ compute-border x = x bi0
 -- | This one should typecheck.
 disguised-id : bdg-bdg-t → bdg-bdg-t
 disguised-id = λ x i → x i
+
+-- we try to state the rule and prove it up to path equality
+-- the proof should go by computation
+-- ATTEMPT1 can not take paths over a bridgy line A : BI → Set ℓ
+-- would be interesting to know if there are maps I -- BI in some models
+-- border-rule : 
+--   {ℓ : Level} {A : BI → Set ℓ} {a0 : A bi0} {a1 : A bi1}
+--   (bdg : BridgeP A a0 a1) →
+--   PathP A (bdg bi0) a0
+-- border-rule = ?
+
+-- ATTEMPT2 (constant bridgy line)
+border-rule : 
+  {ℓ : Level} {A : Set ℓ} {a0 a1 : A}
+  (bdg : BridgeP (λ bi → A) a0 a1) →
+  PathP (λ i → A) (bdg bi0) a0
+border-rule = λ bdg i → bdg bi0
+
+
+
+-- ETA computation rule.
+eta-rule : 
+  {ℓ : Level} {A : Set ℓ} {a0 a1 : A}
+  (bdg : BridgeP (λ bi → A) a0 a1) →
+  PathP (λ i → BridgeP (λ bi → A) a0 a1) bdg (λ bi → bdg bi)
+eta-rule = λ bdg i → bdg
 
 
 -- should not typecheck? does not typecheck but for the wrong reason
