@@ -409,27 +409,16 @@ reduceIApply = reduceIApply' reduceB'
 
 reduceIApply' :: (Term -> ReduceM (Blocked Term)) -> ReduceM (Blocked Term) -> [Elim] -> ReduceM (Blocked Term)
 reduceIApply' red d (IApply x y r : es) = do
-  insided <- d --TODO-antva
-  reportSDoc "tc.reduce" 30 $ "reduceIApply', here is d : " <+> pretty (ignoreBlocking insided) --TODO-antva
-  reportSDoc "tc.reduce" 30 $ "reduceIApply', here is x : " <+> pretty  x --TODO-antva
-  reportSDoc "tc.reduce" 30 $ "reduceIApply', here is y : " <+> pretty  y --TODO-antva
-  reportSDoc "tc.reduce" 30 $ "reduceIApply', here is r : " <+> pretty  r --TODO-antva
   view <- intervalView'
   bView <- bridgeIntervalView'
   r <- reduceB' r
-  reportSDoc "tc.reduce" 30 $ "reduceIApply', here is 2nd time r :" <+> pretty (ignoreBlocking r) --TODO-antva
-  reportSDoc "tc.reduce" 30 $ "reduceIApply', here is view r : " <+> (text $ show $ view (ignoreBlocking r)) --TODO-antva
-  reportSDoc "tc.reduce" 30 $ "reduceIApply', here is  r 3rd time : " <+> (text $ show (ignoreBlocking r)) --TODO-antva
-  reportSDoc "tc.reduce" 30 $ "reduceIApply', here is bview r : " <+> (text $ show $ bView (ignoreBlocking r)) --TODO-antva
   -- We need to propagate the blocking information so that e.g.
   -- we postpone "someNeutralPath ?0 = a" rather than fail.
   case view (ignoreBlocking r) of
    IZero -> red (applyE x es)
    IOne  -> red (applyE y es)
    _ -> case bView (ignoreBlocking r) of
-          BIZero ->
-            (reportSDoc "tc.reduce" 30 $ "BIZero case! here is d : " <+> pretty (ignoreBlocking insided)) >> --TODO-antva
-            red (applyE x es)
+          BIZero -> red (applyE x es)
           BIOne -> red (applyE y es)
           _     -> fmap (<* r) (reduceIApply' red d es)
   -- case view (ignoreBlocking r) of
@@ -471,9 +460,7 @@ maybeFastReduceTerm v = do
 
 slowReduceTerm :: Term -> ReduceM (Blocked Term)
 slowReduceTerm v = do
-    reportSDoc "tc.reduce" 30 $ "slowReduceTerm on : " <+> (prettyTCM v) --TODO-antva
     v <- instantiate' v
-    reportSDoc "tc.reduce" 30 $ "slowReduceTerm after inst : " <+> (prettyTCM v) --TODO-antva
     let done | MetaV x _ <- v = return $ blocked x v
              | otherwise      = return $ notBlocked v
         iapp = reduceIApply done
@@ -496,9 +483,7 @@ slowReduceTerm v = do
                     {- else -} done
       Pi _ _   -> done
       Lit _    -> done
-      Var _ es  ->
-        ( reportSDoc "tc.reduce" 30 $ "slowReduceTerm,Var case : " <+> (prettyTCM v) <+> (text "blasep") <+> (text $ show es) ) >> --TODO-antva
-        reduceIApply' reduceB' (return $ notBlocked v) es -- iapp es
+      Var _ es  -> iapp es
       Lam _ _  -> done
       DontCare _ -> done
       Dummy{}    -> done

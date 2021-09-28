@@ -454,16 +454,12 @@ checkBridge b@(A.TBind _ _ (x':|[]) xtyp) body ty = do
            checkExpr body (El (raise 1 s) (raise 1 (unArg typ) `apply` [argN $ var 0]))
     biZero <- primBIZero
     biOne  <- primBIOne
-    let lhs' = subst 0 biZero v -- TODO-antva: can we subst bridge vars already?
+    let lhs' = subst 0 biZero v
         rhs' = subst 0 biOne  v
     let t = Lam info $ Abs (namedArgName x) v --we must return internal syntax (not abstract syntax)
     let btyp i = El s (unArg typ `apply` [argN i]) --type of left or right endpoint
     locallyTC eRange (const noRange) $ blockTerm ty $ traceCall (SetRange $ getRange body) $ do
-      reportSDoc "tc.reduce" 30 $ "checkBridge, here is  lhs' : " <+> prettyTCM lhs' --TODO-antva
-      reportSDoc "tc.reduce" 30 $ "checkBridge, here is  lhs : " <+> prettyTCM (unArg lhs) --TODO-antva
       equalTerm (btyp biZero) lhs' (unArg lhs)
-      reportSDoc "tc.reduce" 30 $ "checkBridge, here is  lhs' 2nd : " <+> prettyTCM lhs' --TODO-antva
-      reportSDoc "tc.reduce" 30 $ "checkBridge, here is  lhs 2nd : " <+> prettyTCM (unArg lhs) --TODO-antva
       equalTerm (btyp biOne) rhs' (unArg rhs)
       return t
 checkBridge b body ty = __IMPOSSIBLE__
@@ -523,7 +519,7 @@ checkLambda' cmp b xps typ body target = do
       reportSLn "tc.term.lambda" 60 $ "trySeeingIfPathBridge for " ++ show xps
       let postpone' = if (isJust cubical || bridges) then postpone else \ _ _ -> dontUseTargetType
       ifBlocked target postpone' $ \ _ t -> do
-        ifPath t (bridgeFallback bridges t) $ if isJust cubical --TODO-antva: change fallback (after t param)
+        ifPath t (bridgeFallback bridges t) $ if isJust cubical
           then checkPath b body t
           else genericError $ unwords
                  [ "Option --cubical/--erased-cubical needed to build"
@@ -537,32 +533,6 @@ checkLambda' cmp b xps typ body target = do
                [ "Option --bridges needed to build"
                , "a bridge with a lambda abstraction"
                ]
-
-    -- TODO-antva: delete following comments
-
-    -- trySeeingIfPath = do
-    --   cubical <- optCubical <$> pragmaOptions
-    --   reportSLn "tc.term.lambda" 60 $ "trySeeingIfPath for " ++ show xps
-    --   let postpone' = if isJust cubical then postpone else \ _ _ -> dontUseTargetType
-    --   ifBlocked target postpone' $ \ _ t -> do
-    --     ifPath t dontUseTargetType $ if isJust cubical
-    --       then checkPath b body t
-    --       else genericError $ unwords
-    --              [ "Option --cubical/--erased-cubical needed to build"
-    --              , "a path with a lambda abstraction"
-    --              ]
-
-    -- trySeeingIfBridge = do
-    --   bridges <- optBridges <$> pragmaOptions
-    --   reportSLn "tc.term.lambda" 60 $ "trySeeingIfBridge for " ++ show xps
-    --   let postpone' = if bridges then postpone else \ _ _ -> dontUseTargetType
-    --   ifBlocked target postpone' $ \ _ t -> do
-    --     ifBridge t dontUseTargetType $ if bridges
-    --       then checkBridge b body t
-    --       else genericError $ unwords
-    --              [ "Option --bridges needed to build"
-    --              , "a bridge with a lambda abstraction"
-    --              ]
 
     postpone blocker tgt = flip postponeTypeCheckingProblem blocker $
       CheckExpr cmp (A.Lam A.exprNoRange (A.DomainFull b) body) tgt

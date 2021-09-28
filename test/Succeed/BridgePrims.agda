@@ -109,6 +109,8 @@ eta-rule :
   PathP (λ i → BridgeP (λ bi → A) a0 a1) bdg (λ bi → bdg bi)
 eta-rule = λ bdg i → bdg
 
+-- BETA computation rule
+
 
 -- should not typecheck? does not typecheck but for the wrong reason
 problem : bdg-bdg-t → bdg-t

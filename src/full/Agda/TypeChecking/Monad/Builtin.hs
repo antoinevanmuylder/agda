@@ -649,7 +649,6 @@ bridgeView' = do
   case t of
     Def bridge' [ Apply level , Apply typ , Apply lhs , Apply rhs ]
       | Just bridge' == mbridgep -> BridgeType s bridge' level typ lhs rhs
-      --TODO-antva: does the guard make sense. do we need an abstraction on typ (cf one case of pathView')
     _ -> BOType t0
 
 
