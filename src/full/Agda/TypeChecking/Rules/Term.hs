@@ -459,7 +459,11 @@ checkBridge b@(A.TBind _ _ (x':|[]) xtyp) body ty = do
     let t = Lam info $ Abs (namedArgName x) v --we must return internal syntax (not abstract syntax)
     let btyp i = El s (unArg typ `apply` [argN i]) --type of left or right endpoint
     locallyTC eRange (const noRange) $ blockTerm ty $ traceCall (SetRange $ getRange body) $ do
+      reportSDoc "tc.reduce" 30 $ "checkBridge, here is  lhs' : " <+> prettyTCM lhs' --TODO-antva
+      reportSDoc "tc.reduce" 30 $ "checkBridge, here is  lhs : " <+> prettyTCM (unArg lhs) --TODO-antva
       equalTerm (btyp biZero) lhs' (unArg lhs)
+      reportSDoc "tc.reduce" 30 $ "checkBridge, here is  lhs' 2nd : " <+> prettyTCM lhs' --TODO-antva
+      reportSDoc "tc.reduce" 30 $ "checkBridge, here is  lhs 2nd : " <+> prettyTCM (unArg lhs) --TODO-antva
       equalTerm (btyp biOne) rhs' (unArg rhs)
       return t
 checkBridge b body ty = __IMPOSSIBLE__

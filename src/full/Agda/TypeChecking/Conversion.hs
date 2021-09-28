@@ -254,6 +254,7 @@ compareTerm' :: forall m. MonadConversion m => Comparison -> Type -> Term -> Ter
 compareTerm' cmp a m n =
   verboseBracket "tc.conv.term" 20 "compareTerm" $ do
   (ba, a') <- reduceWithBlocker a
+  reportSDoc "tc.conv.term" 20 $ "compareTerm', here is a' : " <+> (prettyTCM a') --TODO-antva
   (catchConstraint (ValueCmp cmp (AsTermsOf a') m n) :: m () -> m ()) $ blockOnError ba $ do
     reportSDoc "tc.conv.term" 30 $ fsep
       [ "compareTerm", prettyTCM m, prettyTCM cmp, prettyTCM n, ":", prettyTCM a' ]
@@ -261,6 +262,7 @@ compareTerm' cmp a m n =
     isSize   <- isJust <$> isSizeType a'
     (bs, s)  <- reduceWithBlocker $ getSort a'
     mlvl     <- getBuiltin' builtinLevel
+    reportSLn "tc.conv.term" 30 "tick" --TODO-antva
     reportSDoc "tc.conv.level" 60 $ nest 2 $ sep
       [ "a'   =" <+> pretty a'
       , "mlvl =" <+> pretty mlvl
@@ -269,7 +271,9 @@ compareTerm' cmp a m n =
     blockOnError bs $ case s of
       Prop{} | propIrr -> compareIrrelevant a' m n
       _    | isSize   -> compareSizes cmp m n
-      _               -> case unEl a' of
+      _               -> (reportSDoc "tc.conv.term" 30 $ "compareTerm', here is unEl a' : " <+> (text $ show $ unEl a')) >>
+                         --TODO-antva
+                         case unEl a' of
         a | Just a == mlvl -> do
           a <- levelView m
           b <- levelView n
@@ -321,7 +325,9 @@ compareTerm' cmp a m n =
                   compareArgs (repeat $ polFromCmp cmp) [] (telePi_ tel __DUMMY_TYPE__) (Con c ConOSystem []) m' n'
 
             else (do pathview <- pathView a'
-                     equalPath pathview a' m n)
+                     bridgeview <- bridgeView a'
+                     --equalPath pathview a' m n) --TODO-antva: remove this
+                     equalPathBridge pathview bridgeview a' m n) --if m n are paths or bridges compare them
         _ -> compareAtom cmp (AsTermsOf a') m n
   where
     -- equality at function type (accounts for eta)
@@ -339,13 +345,26 @@ compareTerm' cmp a m n =
         (m',n') = raise 1 (m,n) `apply` [Arg info $ var 0]
     equalFun _ _ _ _ = __IMPOSSIBLE__
 
-    equalPath :: (MonadConversion m) => PathView -> Type -> Term -> Term -> m ()
-    equalPath (PathType s _ l a x y) _ m n = do
+    equalPathBridge :: (MonadConversion m) => PathView -> BridgeView -> Type -> Term -> Term -> m ()
+    equalPathBridge (PathType s _ l a x y) BOType{} _ m n = do --the provided type is a path type
         let name = "i" :: String
         interval <- el primInterval
         let (m',n') = raise 1 (m, n) `applyE` [IApply (raise 1 $ unArg x) (raise 1 $ unArg y) (var 0)]
         addContext (name, defaultDom interval) $ compareTerm cmp (El (raise 1 s) $ raise 1 (unArg a) `apply` [argN $ var 0]) m' n'
-    equalPath OType{} a' m n = cmpDef a' m n
+    equalPathBridge OType{} (BridgeType s _ l a x y) _ m n = do --the provided type is a bridge type
+        let name = "i" :: String
+        binterval <- el primBridgeInterval
+        let (m',n') = raise 1 (m, n) `applyE` [IApply (raise 1 $ unArg x) (raise 1 $ unArg y) (var 0)] --m' i  vs. n' i
+        addContext (name, defaultDom binterval) $ compareTerm cmp (El (raise 1 s) $ raise 1 (unArg a) `apply` [argN $ var 0]) m' n'--in wk ctxt i
+    equalPathBridge _ _ a' m n = cmpDef a' m n --the provided type is smth else
+
+    -- equalPath :: (MonadConversion m) => PathView -> Type -> Term -> Term -> m () --TODO-antva: remove this
+    -- equalPath (PathType s _ l a x y) _ m n = do
+    --     let name = "i" :: String
+    --     interval <- el primInterval
+    --     let (m',n') = raise 1 (m, n) `applyE` [IApply (raise 1 $ unArg x) (raise 1 $ unArg y) (var 0)]
+    --     addContext (name, defaultDom interval) $ compareTerm cmp (El (raise 1 s) $ raise 1 (unArg a) `apply` [argN $ var 0]) m' n'
+    -- equalPath OType{} a' m n = cmpDef a' m n
 
     cmpDef a'@(El s ty) m n = do
        mI     <- getBuiltinName'   builtinInterval

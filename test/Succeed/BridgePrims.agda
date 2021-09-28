@@ -1,4 +1,4 @@
-{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.reduce:31 #-}
+{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.conv.term:60 #-}
 module BridgePrims where
 
 -- this is a reproduction of test/Succeed/LaterPrims.agda and-or Agda.Primitive.Cubical
@@ -71,13 +71,18 @@ cst-cst-t : bdg-bdg-t
 cst-cst-t = λ i → cst-t
 
 
--- | should typecheck. but we don't have the border computation rule yet
-disguised-id : bdg-bdg-t → bdg-bdg-t
-disguised-id x = λ i → x i
+-- BORDER computation rule. Try C-c C-n this (normalize)
+compute-border : bdg-bdg-t → bdg-t
+compute-border x = x bi0
 
--- should not typecheck? does not typecheck but for the wrong reason (missing border computation rule)
--- problem : bdg-bdg-t → bdg-t
--- problem = λ x → λ i → x i i
+-- | This one should typecheck.
+disguised-id : bdg-bdg-t → bdg-bdg-t
+disguised-id = λ x i → x i
+
+
+-- should not typecheck? does not typecheck but for the wrong reason
+problem : bdg-bdg-t → bdg-t
+problem = λ x i → x i i
 
 
 -- x ⊢ x   (BI weakening?)
