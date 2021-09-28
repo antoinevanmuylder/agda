@@ -419,6 +419,7 @@ reduceIApply' red d (IApply x y r : es) = do
   r <- reduceB' r
   reportSDoc "tc.reduce" 30 $ "reduceIApply', here is 2nd time r :" <+> pretty (ignoreBlocking r) --TODO-antva
   reportSDoc "tc.reduce" 30 $ "reduceIApply', here is view r : " <+> (text $ show $ view (ignoreBlocking r)) --TODO-antva
+  reportSDoc "tc.reduce" 30 $ "reduceIApply', here is  r 3rd time : " <+> (text $ show (ignoreBlocking r))
   reportSDoc "tc.reduce" 30 $ "reduceIApply', here is bview r : " <+> (text $ show $ bView (ignoreBlocking r)) --TODO-antva
   -- We need to propagate the blocking information so that e.g.
   -- we postpone "someNeutralPath ?0 = a" rather than fail.

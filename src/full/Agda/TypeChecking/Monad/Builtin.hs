@@ -604,8 +604,8 @@ pathUnview (PathType s path l t lhs rhs) =
 
 bridgeIntervalView' :: HasBuiltins m => m (Term -> BridgeIntervalView)
 bridgeIntervalView' = do
-  biz <- getBuiltinName' builtinIZero
-  bio <- getBuiltinName' builtinIOne
+  biz <- getBuiltinName' builtinBIZero
+  bio <- getBuiltinName' builtinBIOne
   return $ \ t ->
     case t of
       Con q _ [] | Just (conName q) == biz -> BIZero
