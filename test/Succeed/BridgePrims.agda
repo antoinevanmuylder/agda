@@ -88,8 +88,8 @@ cst-cst-t : bdg-bdg-t
 cst-cst-t = λ i → cst-t
 
 -- the following should not typecheck. i not fresh for x i.
-problem : bdg-bdg-t → bdg-t
-problem = λ x i → x i i
+-- problem : bdg-bdg-t → bdg-t
+-- problem = λ x i → x i i
 
 
 -- x ⊢ x   (BI weakening?)
@@ -184,15 +184,15 @@ module BridgeVBridge {ℓ} (BB : BI → BI → Set ℓ) (a : (i j : BI) → BB i
    BridgeP (λ j →  BridgeP (λ i → BB i j) (a bi0 j)  (a bi1 j)) (λ i → a i bi0) (λ i → a i bi1)
   exch-bdg p = λ j i → p i j
 
--- -- the following should indeed raise I think
--- -- but not with an error 
--- -- " The following vars are not allowed in a later value applied to i : [j]
--- --   when checking that the expression bdg-bdg j i has type A j "
+-- the following should indeed raise I think
+-- but not with an error 
+-- " The following vars are not allowed in a later value applied to i : [j]
+--   when checking that the expression bdg-bdg j i has type A j "
 -- exchange-bdg : ∀ {ℓ} {A : BI → Set ℓ} {a0 : A bi0} {a1 : A bi1}
 --                {bdg1 bdg2 : BridgeP A a0 a1}
 --                (bdg-bdg : BridgeP (λ bi → BridgeP A a0 a1) bdg1 bdg2) →
 --                BridgeP (λ bi → BridgeP A a0 a1) bdg1 bdg2
--- exchange-bdg = λ bdg-bdg → {!λ i j → bdg-bdg j i!}
+-- exchange-bdg = λ bdg-bdg → λ i j → bdg-bdg j i
 
 
 -- BRIDGES vs PATHS

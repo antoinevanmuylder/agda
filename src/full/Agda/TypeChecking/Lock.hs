@@ -79,6 +79,9 @@ checkLockedVars t ty lk lk_ty = catchConstraint (CheckLockedVars t ty lk lk_ty) 
         (return $ Just j)
         (return $ Nothing)
 
+  reportSLn "tc.term.lock" 60 $ "display checks"
+  reportSLn "tc.term.lock" 60 $ (show checked)
+
   let allowedVars = ISet.union earlierVars (ISet.fromList checked)
 
   if termVars `ISet.isSubsetOf` allowedVars then return () else do
