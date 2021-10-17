@@ -123,7 +123,7 @@ getLockVar lk = do
 isTimeless :: Type -> TCM Bool
 isTimeless t = do
   t <- abortIfBlocked t
-  timeless <- mapM getName' [builtinInterval, builtinIsOne]
+  timeless <- mapM getName' [builtinInterval, builtinIsOne, builtinBridgeInterval]
   case unEl t of
     Def q _ | Just q `elem` timeless -> return True
     _                                -> return False
