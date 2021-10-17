@@ -109,14 +109,19 @@ eta-rule :
   PathP (λ i → BridgeP (λ bi → A) a0 a1) bdg (λ bi → bdg bi)
 eta-rule = λ bdg i → bdg
 
--- BETA computation rule
+-- BETA computation rule. how can I check that BETA is valid??
+-- beta-rule :
+--   {ℓ : Level} {A : BI → Set ℓ}
+--   (bi : BI) (M : BI → A i)
+
+-- dummy-rel : BridgeP (λ bi → BI) bi0 bi1
+-- dummy-rel = λ bi → bi
+  
 
 
--- should not typecheck? does not typecheck but for the wrong reason
-
-
-problem : bdg-bdg-t → bdg-t
-problem = λ x i → x i i
+-- should not typecheck. i not fresh for x i.
+-- problem : bdg-bdg-t → bdg-t
+-- problem = λ x i → x i i
 
 
 -- x ⊢ x   (BI weakening?)
