@@ -1,4 +1,4 @@
-{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.conv.term:60 #-}
+{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.term.lock:60 #-}
 module BridgePrims where
 
 -- this is a reproduction of test/Succeed/LaterPrims.agda and-or Agda.Primitive.Cubical
@@ -88,8 +88,8 @@ cst-cst-t : bdg-bdg-t
 cst-cst-t = λ i → cst-t
 
 -- the following should not typecheck. i not fresh for x i.
--- problem : bdg-bdg-t → bdg-t
--- problem = λ x i → x i i
+problem : bdg-bdg-t → bdg-t
+problem = λ x i → x i i
 
 
 -- x ⊢ x   (BI weakening?)
@@ -199,5 +199,13 @@ module BridgeVBridge {ℓ} (BB : BI → BI → Set ℓ) (a : (i j : BI) → BB i
 -- module BridgeVPath {ℓ} {A : I → Set ℓ} {B : BI → Set ℓ} {AA : I → I → Set ℓ} {BB : BI → BI → Set ℓ} where
   
 
+-- module PlayLater where
+
+--   open import LaterPrims
   
+  -- --there is no exchange rule for tick vars
+  -- later-exch : ∀ {ℓ} {A : Set ℓ} →
+  --              (  (@tick x : Tick) → (@tick y : Tick) → A ) →
+  --              (  (@tick y : Tick) → (@tick x : Tick) → A )
+  -- later-exch laxy = λ y x → laxy x y
   
