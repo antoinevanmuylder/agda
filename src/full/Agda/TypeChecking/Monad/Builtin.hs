@@ -600,7 +600,7 @@ pathUnview (PathType s path l t lhs rhs) =
   El s $ Def path $ map Apply [l, t, lhs, rhs]
 
 ------------------------------------------------------------------------
--- * Bridges. View functions for interval, BridgeP types
+-- * Bridges. View functions for bridge interval, BridgeP types
 ------------------------------------------------------------------------
 
 bridgeIntervalView' :: HasBuiltins m => m (Term -> BridgeIntervalView)
@@ -653,6 +653,26 @@ bridgeView' = do
     _ -> BOType t0
 
 
+
+------------------------------------------------------------------------
+-- * Simultaneous path/bridge view
+------------------------------------------------------------------------
+
+pathBridgeView :: HasBuiltins m => Type -> m PathBridgeView
+pathBridgeView t0 = do
+  view <- pathBridgeView'
+  return $ view t0
+
+pathBridgeView' :: HasBuiltins m => m (Type -> PathBridgeView)
+pathBridgeView' = do
+  pView' <- pathView'
+  bView' <- bridgeView'
+  return $ \t0 ->
+    case (pView' t0, bView' t0) of
+      (PathType s pathn level typ lhs rhs, _) -> UPathType s pathn level typ lhs rhs
+      (_, BridgeType s bridgen level line lhs rhs) -> UBridgeType s bridgen level line lhs rhs
+      (_ , _) -> UOType t0
+    
 
 ------------------------------------------------------------------------
 -- * Swan's Id Equality

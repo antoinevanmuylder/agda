@@ -776,6 +776,37 @@ isBIZero :: BridgeIntervalView -> Bool
 isBIZero BIZero = True
 isBIZero _ = False
 
+-- | Simultaneous view for bridges/types.
+
+data PathBridgeView
+  = UBridgeType
+    { ubridgeSort  :: Sort     -- ^ Sort of this bridge type. Baiscally @Set l@.
+    , ubridgeName  :: QName    -- ^ Builtin BRIDGEP.
+    , ubridgeLevel :: Arg Term -- ^ Hidden, level l
+    , ubridgeType  :: Arg Term -- ^ Hidden, the type line i.A
+    , ubridgeLhs   :: Arg Term -- ^ NotHidden, left endpoint a0
+    , ubridgeRhs   :: Arg Term -- ^ NotHidden, right endpoint a1
+    }
+  | UPathType
+    { upathSort  :: Sort     -- ^ Sort of this type.
+    , upathName  :: QName    -- ^ Builtin PATH.
+    , upathLevel :: Arg Term -- ^ Hidden
+    , upathType  :: Arg Term -- ^ Hidden
+    , upathLhs   :: Arg Term -- ^ NotHidden
+    , upathRhs   :: Arg Term -- ^ NotHidden
+    }
+  | UOType Type -- ^ reduced
+
+uisBridgeType :: PathBridgeView -> Bool
+uisBridgeType UBridgeType{} = True
+uisBridgeType _    = False
+
+uisPathType :: PathBridgeView -> Bool
+uisPathType UPathType{} = True
+uisPathType _ = False
+
+
+
 ---------------------------------------------------------------------------
 -- * Absurd Lambda
 ---------------------------------------------------------------------------
