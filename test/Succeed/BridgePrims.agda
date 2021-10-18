@@ -153,6 +153,8 @@ eta-rule = λ bdg i → bdg
 -- the exchange rule should hold for bridge vars
 module BridgeVBridge {ℓ} (BB : BI → BI → Set ℓ) (a : (i j : BI) → BB i j) where
 
+  open import Agda.Builtin.Cubical.Path
+
   -- we compare the types of λ i j → a i j and λ j i → a i j and
   -- try to establish an equiuvalence between them
 
@@ -184,6 +186,15 @@ module BridgeVBridge {ℓ} (BB : BI → BI → Set ℓ) (a : (i j : BI) → BB i
    BridgeP (λ j →  BridgeP (λ i → BB i j) (a bi0 j)  (a bi1 j)) (λ i → a i bi0) (λ i → a i bi1)
   exch-bdg p = λ j i → p i j
 
+  exch-bdg' :
+    BridgeP (λ j →  BridgeP (λ i → BB i j) (a bi0 j)  (a bi1 j)) (λ i → a i bi0) (λ i → a i bi1) → 
+    BridgeP (λ i →  BridgeP (λ j → BB i j) (a i bi0)  (a i bi1)) (λ j → a bi0 j) (λ j → a bi1 j)
+  exch-bdg' p = λ i j → p j i
+
+  -- TODO this should work but generate meaningless constraints
+  bdgVbdg : ∀ p →  p ≡ (exch-bdg' (exch-bdg p) )
+  bdgVbdg p = λ i → p
+
 -- the following should indeed raise I think
 -- but not with an error 
 -- " The following vars are not allowed in a later value applied to i : [j]
@@ -196,12 +207,45 @@ module BridgeVBridge {ℓ} (BB : BI → BI → Set ℓ) (a : (i j : BI) → BB i
 
 
 -- BRIDGES vs PATHS
--- module BridgeVPath {ℓ} {A : I → Set ℓ} {B : BI → Set ℓ} {AA : I → I → Set ℓ} {BB : BI → BI → Set ℓ} where
+module BridgeVPath {ℓ} {A : BI → I → Set ℓ} {a : (r : BI) (i : I) → A r i} where
+  
+  -- λ r i → a r i is a bridge between paths
+  lari : BridgeP
+         (λ r →  PathP (λ i → A r i) (a r i0)  (a r i1))
+         (λ i → a bi0 i)
+         (λ i → a bi1 i)
+  lari = λ r i → a r i
+
+  
+  -- λ i r → a r i is a path between bridges
+  lair : PathP
+         (λ i →  BridgeP (λ r → A r i) (a bi0 i)  (a bi1 i))
+         (λ r → a r i0)
+         (λ r → a r i1)
+  lair = λ i r → a r i
+
+  bdgPath-to-pathBdg :
+    BridgeP (λ r →  PathP (λ i → A r i) (a r i0)  (a r i1)) (λ i → a bi0 i) (λ i → a bi1 i) →
+    PathP (λ i →  BridgeP (λ r → A r i) (a bi0 i)  (a bi1 i)) (λ r → a r i0) (λ r → a r i1)
+  bdgPath-to-pathBdg bp = λ i r → bp r i
+
+  pathBdg-to-bdgPth :
+    PathP (λ i →  BridgeP (λ r → A r i) (a bi0 i)  (a bi1 i)) (λ r → a r i0) (λ r → a r i1) →
+    BridgeP (λ r →  PathP (λ i → A r i) (a r i0)  (a r i1)) (λ i → a bi0 i) (λ i → a bi1 i)
+  pathBdg-to-bdgPth = λ pb → λ r i → pb i r
+
+  -- TODO there is a bug there. unsatisfiable constraints 
+  -- same kind of bug than bdgVbdg
+  -- bridgevPath : ∀ bp → PathP
+  --                       (λ _ → BridgeP (λ r →  PathP (λ i → A r i) (a r i0)  (a r i1)) (λ i → a bi0 i) (λ i → a bi1 i) )
+  --                       bp (pathBdg-to-bdgPth (bdgPath-to-pathBdg bp))
+  -- bridgevPath bp = λ x → bp
+
   
 
--- module PlayLater where
+module PlayLater where
 
---   open import LaterPrims
+  open import LaterPrims
   
   -- --there is no exchange rule for tick vars
   -- later-exch : ∀ {ℓ} {A : Set ℓ} →
