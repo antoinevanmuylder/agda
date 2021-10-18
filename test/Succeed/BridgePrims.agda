@@ -138,6 +138,12 @@ eta-rule :
   PathP (λ i → BridgeP (λ bi → A) a0 a1) bdg (λ bi → bdg bi)
 eta-rule = λ bdg i → bdg
 
+eta-rule' : 
+  {ℓ : Level} {A : BI → Set ℓ} {a0 : A bi0} {a1 : A bi1}
+  (bdg : BridgeP (λ i → A i) a0 a1) →
+  bdg ≡ λ i → bdg i
+eta-rule' bdg = λ j → bdg
+
 
 -- BETA COMPUTATION RULE
 
