@@ -858,11 +858,11 @@ compareElims pols0 fors0 a v els01 els02 =
        -- Andrea: copying stuff from the Apply case..
       let (pol, pols) = nextPolarity pols0
       a  <- abortIfBlocked a
-      va <- pathView a
+      pbva <- pathBridgeView a -- : PathBridgeView
       reportSDoc "tc.conv.elim.iapply" 60 $ "compareElims IApply" $$ do
-        nest 2 $ "va =" <+> text (show (isPathType va))
-      case va of
-        PathType s path l bA x y -> do
+        nest 2 $ "pbva path/bridge" <+> text (show (uisPathType pbva)) <+> text (show (uisBridgeType pbva))
+      case pbva of
+        UPathType s path l bA x y -> do
           b <- primIntervalType
           compareWithPol pol (flip compareTerm b)
                               r1 r2
@@ -873,9 +873,17 @@ compareElims pols0 fors0 a v els01 els02 =
                             (applyE v [e]) els1 els2
         -- We allow for functions (i : I) -> ... to also be heads of a IApply,
         -- because @etaContract@ can produce such terms
-        OType t@(El _ Pi{}) -> compareElims pols0 fors0 t v (Apply (defaultArg r1) : els1) (Apply (defaultArg r2) : els2)
+        UBridgeType s bridgen l bA x y -> do --same but for bridges
+          b <- primBridgeIntervalType
+          compareWithPol pol (flip compareTerm b)
+                              r1 r2
+          let r = r1
+          codom <- el' (pure . unArg $ l) ((pure . unArg $ bA) <@> pure r)
+          compareElims pols [] codom
+                            (applyE v [e]) els1 els2
+        UOType t@(El _ Pi{}) -> compareElims pols0 fors0 t v (Apply (defaultArg r1) : els1) (Apply (defaultArg r2) : els2)
 
-        OType t -> patternViolation (unblockOnAnyMetaIn t) -- Can we get here? We know a is not blocked.
+        UOType t -> patternViolation (unblockOnAnyMetaIn t) -- Can we get here? We know a is not blocked.
 
     (Apply arg1 : els1, Apply arg2 : els2) ->
       (verboseBracket "tc.conv.elim" 20 "compare Apply" :: m () -> m ()) $ do
