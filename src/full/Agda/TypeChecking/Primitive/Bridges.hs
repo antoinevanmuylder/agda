@@ -93,9 +93,19 @@ extentType = do
        nPi' "NN"
         (nPi' "a0" (el' lA (bA <@> cl primBIZero)) $ \a0 ->
          nPi' "a1" (el' lA (bA <@> cl primBIOne)) $ \a1 ->
-         primBridgeIntervalType) $ \nn ->
-       primBridgeIntervalType)
+         --todo make line argument bA implicit for primBridgeP? see Rules/Builtin.hs to do so
+         nPi' "aa" (el' lA $ cl primBridgeP <#> lA <@> bA <@> a0 <@> a1) $ \aa ->
+         (el' lB $ cl primBridgeP <#> lB <@> newBline bB aa <@> (n0 <@> a0) <@> (n1 <@> a1)) ) $ \nn ->
+       el' lB $ cl primBridgeP <#> lB <@> newABline lA lB bA bB <@> n0 <@> n1 ) --applied newABline is really at level lB?
   return t
+  where
+    newBline bB aa = lam "i" (\i -> bB <@> i <@> (aa <@> i)) --want an IApply here?
+    newABline lA lB bA bB = lam "i"  $ \i -> do              -- want IApply's here as well??
+      typ <- nPi' "ai" (el' lA $ bA <@> i) $ \ai -> el' lB $ bB <@> i <@> ai
+      return $ unEl typ
+
+-- (λ i → (ai : A i) → B i ai)
+-- (el' a $ cl primPath <#> a <#> bA <@> x <@> y)
                                          
 -- prim_glue' :: TCM PrimitiveImpl
 -- prim_glue' = do
