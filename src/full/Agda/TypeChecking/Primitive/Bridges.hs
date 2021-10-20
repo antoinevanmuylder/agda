@@ -95,14 +95,24 @@ extentType = do
          --todo make line argument bA implicit for primBridgeP? see Rules/Builtin.hs
          nPi' "aa" (el' lA $ cl primBridgeP <#> lA <@> bA <@> a0 <@> a1) $ \aa ->
          (el' lB $ cl primBridgeP <#> lB <@> newBline bB aa a0 a1 <@> (n0 <@> a0) <@> (n1 <@> a1)) ) $ \nn ->
-       --applied newABline is really at level lB? should use mkPiSort :: Dom Type -> Abs Type -> Sort
-       el' lB $ cl primBridgeP <#> lB <@> newABline lA lB bA bB <@> n0 <@> n1 )
+       -- findLevel lA lB = level of this pi type newABline(i) = (a:A i) -> B i a
+       -- given that A i : Set lA and B i a : Set lB ...
+       el' (findLevel lA lB) $ cl primBridgeP <#> (findLevel lA lB) <@> newABline lA lB bA bB <@> n0 <@> n1 )
   return t
   where
     newBline bB aa a0 a1 = lam "i" (\i -> bB <@> i <@> (aa <@@> (a0, a1, i) )) -- i is a bridge elim hence the double "at".
     newABline lA lB bA bB = lam "i"  $ \i -> do
       typ <- nPi' "ai" (el' lA $ bA <@> i) $ \ai -> el' lB $ bB <@> i <@> ai
       return $ unEl typ
+    -- | @findLevel lA lB :: m Term@ for relevant m. lA lB are effectful as well.
+    -- computes the supremum of the Level-Term's lA lB and yields a term.
+    findLevel lA lB = do
+      tlA <- lA
+      tlB <- lB -- :: Term
+      case (tlA, tlB) of
+        (Level llA, Level llB) -> return $ levelTm $ levelLub llA llB
+        (_ , _) -> typeError $ GenericError "Level sup for things that are not levels in extentType"
+
 
 dummyRedTerm :: ReduceM( Reduced MaybeReducedArgs Term)
 dummyRedTerm = do
