@@ -55,15 +55,19 @@ gpi info name a b = do
   return $ El (mkPiSort dom (Abs y b))
               (Pi dom (Abs y b))
 
-hPi, nPi :: (MonadAddContext m, MonadDebug m)
+-- | hidden pi, normal pi, pi with tick/lock annotation
+hPi, nPi, lPi :: (MonadAddContext m, MonadDebug m)
          => String -> m Type -> m Type -> m Type
 hPi = gpi $ setHiding Hidden defaultArgInfo
 nPi = gpi defaultArgInfo
+lPi = gpi $ setLock IsLock defaultArgInfo
 
-hPi', nPi' :: (MonadFail m, MonadAddContext m, MonadDebug m)
+-- | the above type combinators in hoas style
+hPi', nPi' , lPi' :: (MonadFail m, MonadAddContext m, MonadDebug m)
            => String -> NamesT m Type -> (NamesT m Term -> NamesT m Type) -> NamesT m Type
 hPi' s a b = hPi s a (bind' s (\ x -> b x))
 nPi' s a b = nPi s a (bind' s (\ x -> b x))
+lPi' s a b = lPi s a (bind' s (\ x -> b x))
 
 pPi' :: (MonadAddContext m, HasBuiltins m, MonadDebug m)
      => String -> NamesT m Term -> (NamesT m Term -> NamesT m Type) -> NamesT m Type

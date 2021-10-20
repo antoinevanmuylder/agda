@@ -82,24 +82,25 @@ extentType = do
   t <- runNamesT [] $
        hPi' "lA" (el $ cl primLevel) (\ lA ->
        hPi' "lB" (el $ cl primLevel) $ \ lB ->
-       hPi' "A" (primBridgeIntervalType --> (sort . tmSort <$> lA)) $ \ bA ->
-       hPi' "B" (nPi' "x" primBridgeIntervalType $ \ x -> (el' lA (bA <@> x)) --> (sort . tmSort <$> lB) ) $ \bB ->
+       -- We want lines A B to use their bridge var affinely, hence the tick annotation lPi' vs nPi'
+       hPi' "A"  (lPi' "x" primBridgeIntervalType $ \x -> (sort . tmSort <$> lA)) $ \ bA ->
+       hPi' "B" (lPi' "x" primBridgeIntervalType $ \ x -> (el' lA (bA <@> x)) --> (sort . tmSort <$> lB) ) $ \bB ->
        nPi' "r" primBridgeIntervalType $ \ r ->
-       -- below A r is an IApply elim instead of std argument, might come in handy?
-       nPi' "M" (el' lA (bA <@@> (bA <@> cl primBIZero, bA <@> cl primBIOne, r) )) $ \bM ->
+       nPi' "M" (el' lA (bA <@> r)) $ \bM ->
        nPi' "N0" (nPi' "a0" (el' lA (bA <@> cl primBIZero)) $ \a0 -> (el' lB (bB <@> cl primBIZero <@> a0))) $ \n0 ->
        nPi' "N1" (nPi' "a1" (el' lA (bA <@> cl primBIOne)) $ \a1 -> (el' lB (bB <@> cl primBIOne <@> a1))) $ \n1 ->
        nPi' "NN"
         (nPi' "a0" (el' lA (bA <@> cl primBIZero)) $ \a0 ->
          nPi' "a1" (el' lA (bA <@> cl primBIOne)) $ \a1 ->
-         --todo make line argument bA implicit for primBridgeP? see Rules/Builtin.hs to do so
+         --todo make line argument bA implicit for primBridgeP? see Rules/Builtin.hs
          nPi' "aa" (el' lA $ cl primBridgeP <#> lA <@> bA <@> a0 <@> a1) $ \aa ->
-         (el' lB $ cl primBridgeP <#> lB <@> newBline bB aa <@> (n0 <@> a0) <@> (n1 <@> a1)) ) $ \nn ->
-       el' lB $ cl primBridgeP <#> lB <@> newABline lA lB bA bB <@> n0 <@> n1 ) --applied newABline is really at level lB?
+         (el' lB $ cl primBridgeP <#> lB <@> newBline bB aa a0 a1 <@> (n0 <@> a0) <@> (n1 <@> a1)) ) $ \nn ->
+       --applied newABline is really at level lB? should use mkPiSort :: Dom Type -> Abs Type -> Sort
+       el' lB $ cl primBridgeP <#> lB <@> newABline lA lB bA bB <@> n0 <@> n1 )
   return t
   where
-    newBline bB aa = lam "i" (\i -> bB <@> i <@> (aa <@> i)) --want an IApply here?
-    newABline lA lB bA bB = lam "i"  $ \i -> do              -- want IApply's here as well??
+    newBline bB aa a0 a1 = lam "i" (\i -> bB <@> i <@> (aa <@@> (a0, a1, i) )) -- i is a bridge elim hence the double "at".
+    newABline lA lB bA bB = lam "i"  $ \i -> do
       typ <- nPi' "ai" (el' lA $ bA <@> i) $ \ai -> el' lB $ bB <@> i <@> ai
       return $ unEl typ
 
