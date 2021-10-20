@@ -70,7 +70,7 @@ primBridgeIntervalType = El LockUniv <$> primBridgeInterval
 
 
 -- | type for extent primitive.
--- We use the hoas style functions like hPi' (hidden pi) to specifiy types in internal syntax.
+-- We use hoas style functions like hPi' to specifiy types in internal syntax.
 -- primExtent : ∀ {ℓA ℓB} {A : BI → Set ℓA} {B : (x : BI) (a : A x) → Set ℓB}
 --              (r : BI) (M : A r)
 --              (N0 : (a0 : A bi0) → B bi0 a0)
@@ -79,7 +79,6 @@ primBridgeIntervalType = El LockUniv <$> primBridgeInterval
 --              BridgeP (λ x → (a : A x) → B x a) N0 N1
 extentType :: TCM Type
 extentType = do
-  requireBridges "in extentType"
   t <- runNamesT [] $
        hPi' "lA" (el $ cl primLevel) (\ lA ->
        hPi' "lB" (el $ cl primLevel) $ \ lB ->
@@ -104,8 +103,18 @@ extentType = do
       typ <- nPi' "ai" (el' lA $ bA <@> i) $ \ai -> el' lB $ bB <@> i <@> ai
       return $ unEl typ
 
--- (λ i → (ai : A i) → B i ai)
--- (el' a $ cl primPath <#> a <#> bA <@> x <@> y)
+dummyRedTerm :: ReduceM( Reduced MaybeReducedArgs Term)
+dummyRedTerm = do
+  return $ YesReduction NoSimplification $ Dummy "something" []
+
+primExtent' :: TCM PrimitiveImpl
+primExtent' = do
+  requireBridges "in extentType"
+  t <- extentType
+  return $ PrimImpl t $ primFun __IMPOSSIBLE__ 9 $ \extentArgs -> --goal ReduceM(Reduced MaybeReducedArgs Term)
+    dummyRedTerm
+    
+
                                          
 -- prim_glue' :: TCM PrimitiveImpl
 -- prim_glue' = do
