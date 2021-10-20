@@ -95,7 +95,7 @@ extentType = do
          --todo make line argument bA implicit for primBridgeP? see Rules/Builtin.hs
          nPi' "aa" (el' lA $ cl primBridgeP <#> lA <@> bA <@> a0 <@> a1) $ \aa ->
          (el' lB $ cl primBridgeP <#> lB <@> newBline bB aa a0 a1 <@> (n0 <@> a0) <@> (n1 <@> a1)) ) $ \nn ->
-       -- findLevel lA lB = level of this pi type newABline(i) = (a:A i) -> B i a
+       -- findLevel lA lB = level of this pi-type: @newABline(i) = (a:A i) -> B i a@
        -- given that A i : Set lA and B i a : Set lB ...
        el' (findLevel lA lB) $ cl primBridgeP <#> (findLevel lA lB) <@> newABline lA lB bA bB <@> n0 <@> n1 )
   return t
@@ -113,17 +113,34 @@ extentType = do
         (Level llA, Level llB) -> return $ levelTm $ levelLub llA llB
         (_ , _) -> typeError $ GenericError "Level sup for things that are not levels in extentType"
 
-
-dummyRedTerm :: ReduceM( Reduced MaybeReducedArgs Term)
-dummyRedTerm = do
+-- | two functions to fill implementations holes
+dummyRedTerm0 :: ReduceM( Reduced MaybeReducedArgs Term)
+dummyRedTerm0 = do
   return $ YesReduction NoSimplification $ Dummy "something" []
 
+dummyRedTerm :: Term -> ReduceM( Reduced MaybeReducedArgs Term)
+dummyRedTerm t = return $ YesReduction NoSimplification t
+
+-- | boundary rule for extent primitive
+extentBoundary :: [Arg Term] -> ReduceM( Reduced MaybeReducedArgs Term )
+extentBoundary extentArgs@[lA, lB, bA, bB, r@(Arg rinfo rtm), bM, n0, n1, nn] = do
+  viewr <- bridgeIntervalView rtm --should I reduce rtm before?
+  case viewr of
+    BIZero ->  dummyRedTerm rtm
+    BIOne ->   dummyRedTerm rtm
+    _ -> __IMPOSSIBLE__ --TODO meaningful error
+
+extentBoundary _ = __IMPOSSIBLE__ --TODO meaningful error
+
+-- | Formation rule (extentType) and computation rule for the extent primitive.
+-- For extent this include a boundary and beta rule.
 primExtent' :: TCM PrimitiveImpl
 primExtent' = do
-  requireBridges "in extentType"
+  requireBridges "in primExtent'"
   t <- extentType
-  return $ PrimImpl t $ primFun __IMPOSSIBLE__ 9 $ \extentArgs -> --goal ReduceM(Reduced MaybeReducedArgs Term)
-    dummyRedTerm
+  return $ PrimImpl t $ primFun __IMPOSSIBLE__ 9 $ \extentArgs@[lA, lB, bA, bB, r@(Arg rinfo rtm), bM, n0, n1, nn] ->
+    --goal ReduceM(Reduced MaybeReducedArgs Term)
+    dummyRedTerm0
     
 
                                          
