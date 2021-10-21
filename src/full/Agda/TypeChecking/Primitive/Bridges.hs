@@ -146,7 +146,7 @@ primExtent' = do
         redReturn $ nntm `applyE` [Apply $ argN $ (lamM bMtm) `apply` [argN bi0],
                                    Apply $ argN $ (lamM bMtm) `apply` [argN bi1],
                                    Apply $ argN $ lamM bMtm,
-                                   IApply (n0tm, n1tm, rtm)  ]
+                                   IApply n0tm n1tm rtm  ]
       _ -> __IMPOSSIBLE__
   where
     lamM bMtm = ( Lam ldArgInfo $ Abs "r" bMtm ) -- Lam ArgInfo (Abs Term)
