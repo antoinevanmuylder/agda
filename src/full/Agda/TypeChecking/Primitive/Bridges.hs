@@ -95,7 +95,7 @@ extentType = do
          --todo make line argument bA implicit for primBridgeP? see Rules/Builtin.hs
          nPi' "aa" (el' lA $ cl primBridgeP <#> lA <@> bA <@> a0 <@> a1) $ \aa ->
          (el' lB $ cl primBridgeP <#> lB <@> newBline bB aa a0 a1 <@> (n0 <@> a0) <@> (n1 <@> a1)) ) $ \nn ->
-       -- findLevel lA lB = level of this pi-type: @newABline(i) = (a:A i) -> B i a@
+       -- findLevel lA lB = level of this pi-type: @newABline(i) := (a:A i) -> B i a@
        -- given that A i : Set lA and B i a : Set lB ...
        el' (findLevel lA lB) $ cl primBridgeP <#> (findLevel lA lB) <@> newABline lA lB bA bB <@> n0 <@> n1 )
   return t
@@ -121,27 +121,24 @@ dummyRedTerm0 = do
 dummyRedTerm :: Term -> ReduceM( Reduced MaybeReducedArgs Term)
 dummyRedTerm t = return $ YesReduction NoSimplification t
 
--- | boundary rule for extent primitive
-extentBoundary :: [Arg Term] -> ReduceM( Reduced MaybeReducedArgs Term )
-extentBoundary extentArgs@[lA, lB, bA, bB, r@(Arg rinfo rtm), bM, n0, n1, nn] = do
-  viewr <- bridgeIntervalView rtm --should I reduce rtm before?
-  case viewr of
-    BIZero ->  dummyRedTerm rtm
-    BIOne ->   dummyRedTerm rtm
-    _ -> __IMPOSSIBLE__ --TODO meaningful error
-
-extentBoundary _ = __IMPOSSIBLE__ --TODO meaningful error
 
 -- | Formation rule (extentType) and computation rule for the extent primitive.
--- For extent this include a boundary and beta rule.
+-- For extent this include a boundary (BIZero, BIOne case) and beta rule.
 primExtent' :: TCM PrimitiveImpl
 primExtent' = do
   requireBridges "in primExtent'"
-  t <- extentType
-  return $ PrimImpl t $ primFun __IMPOSSIBLE__ 9 $ \extentArgs@[lA, lB, bA, bB, r@(Arg rinfo rtm), bM, n0, n1, nn] ->
+  typ <- extentType
+  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 9 $ \extentArgs@[lA, lB, bA, bB,
+                                                      r@(Arg rinfo rtm), bM@(Arg bMinfo bMtm),
+                                                      n0@(Arg n0info n0tm), n1@(Arg n1info n1tm),
+                                                      nn@(Arg nninfo nntm)] -> do --TODO: non exh pattern match?
     --goal ReduceM(Reduced MaybeReducedArgs Term)
-    dummyRedTerm0
-    
+    viewr <- bridgeIntervalView rtm --should I reduce r?
+    case viewr of
+      BIZero ->  redReturn $ n0tm `apply` [bM] -- YesReduction/YesSimplification in redReturn:
+      BIOne ->   redReturn $ n1tm `apply` [bM] -- the head @extent@ disappeared/reduction leads to a simpler term
+      BOTerm v@(Var i []) -> dummyRedTerm0
+      _ -> __IMPOSSIBLE__
 
                                          
 -- prim_glue' :: TCM PrimitiveImpl
