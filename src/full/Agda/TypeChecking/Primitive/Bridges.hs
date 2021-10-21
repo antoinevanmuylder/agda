@@ -137,7 +137,8 @@ primExtent' = do
     case viewr of
       BIZero ->  redReturn $ n0tm `apply` [bM] -- YesReduction/YesSimplification in redReturn:
       BIOne ->   redReturn $ n1tm `apply` [bM] -- the head @extent@ disappeared/reduction leads to a simpler term
-      -- todo: fv analysis in M for rv? if needed I could ask whether lamM : (@tick r : BI) -> A r
+      -- todo: fv analysis in M for rv? condition: the free vars of M should not be later-r's
+      -- if needed I could ask whether lamM : (@tick r : BI) -> A r. Andrea: bad idea
       -- also: not sure all the cases are treated correctly (what about metas)
       BOTerm rv@(Var ri []) -> do
         bi0 <- getTerm "primExtent" builtinBIZero --first arg to spec location
