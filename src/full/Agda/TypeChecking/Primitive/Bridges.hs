@@ -121,6 +121,20 @@ dummyRedTerm0 = do
 dummyRedTerm :: Term -> ReduceM( Reduced MaybeReducedArgs Term)
 dummyRedTerm t = return $ YesReduction NoSimplification t
 
+--  call @semiFreshForFvars fvs lk@ where fvs = fv(M) typically, lk locked var
+-- checks whether the following condition holds:
+-- forall j in fvs, lk <=_time j -> timeless(j)
+-- where <=_time is left to right context order
+-- In other words checks that M does not contain "r-laters" (except timeless)
+-- "semi" because if lk is bridge var, M may contain lk.
+-- semiFreshForFvars :: VarSet -> Term -> Bool
+-- semiFreshForFvars fvs lk@(Var i []) = __IMPOSSIBLE__
+    -- let problems = filter (<= i) $ VSet.toList fvs -- lk-laters, including timeless
+    -- for problems $ \ j -> do
+    --   ty <- typeOfBV j
+    --   unlessM (isTimeless ty) $
+    --     notAllowedVarsError lk [j]
+-- semiFreshForFvars fvs _ = __IMPOSSIBLE__
 
 -- | Formation rule (extentType) and computation rule for the extent primitive.
 -- For extent this include a boundary (BIZero, BIOne case) and beta rule.
@@ -137,9 +151,11 @@ primExtent' = do
     case viewr of
       BIZero ->  redReturn $ n0tm `apply` [bM] -- YesReduction/YesSimplification in redReturn:
       BIOne ->   redReturn $ n1tm `apply` [bM] -- the head @extent@ disappeared/reduction leads to a simpler term
-      -- todo: fv analysis in M for rv? condition: the free vars of M should not be later-r's
-      -- if needed I could ask whether lamM : (@tick r : BI) -> A r. Andrea: bad idea
-      -- also: not sure all the cases are treated correctly (what about metas)
+      -- TODO: fv analysis in M for rv? condition: forall v in fv(M), r < v -> timeless(v)
+      -- r < v means r left to v in context
+      -- QST: no need to check that #occ of r in M <= 1 because this will be checked later?
+      -- QST: once a term is converted is it typechecked again
+      -- TODO: not sure all the cases are treated correctly (what about metas)
       BOTerm rv@(Var ri []) -> do
         bi0 <- getTerm "primExtent" builtinBIZero --first arg to spec location
         bi1 <- getTerm "primExtent" builtinBIOne
@@ -149,7 +165,7 @@ primExtent' = do
                                    IApply n0tm n1tm rtm  ]
       _ -> __IMPOSSIBLE__
   where
-    lamM bMtm = ( Lam ldArgInfo $ Abs "r" bMtm ) -- Lam ArgInfo (Abs Term)
+    lamM bMtm = ( Lam ldArgInfo $ Abs "r" bMtm ) -- QST: how do we know that "r" is bound in M though?
     ldArgInfo = setLock IsLock defaultArgInfo
                                          
 -- prim_glue' :: TCM PrimitiveImpl
