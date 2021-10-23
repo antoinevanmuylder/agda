@@ -106,10 +106,11 @@ extentType = do
     -- | Computes the supremum of the Level-Term's lA lB and yields a term.
     findLevel lA lB = do
       tlA <- lA
-      tlB <- lB -- :: Term
+      -- prettylA <- prettyTCM tlA             bug here
+      tlB <- lB
       case (tlA, tlB) of
         (Level llA, Level llB) -> return $ levelTm $ levelLub llA llB
-        (_ , _) -> typeError $ GenericError "Level sup for things that are not levels in extentType"
+        (_ , _) -> typeError $ GenericError $ "Level sup for things that are not levels in extentType"
 
 -- | two functions to fill implementations holes
 dummyRedTerm0 :: ReduceM( Reduced MaybeReducedArgs Term)
@@ -128,8 +129,8 @@ isTimeless' typ@(El stype ttyp) = do
     _                                -> return False
 
 -- | @semiFreshForFvars fvs lk@ checks whether the following condition holds:
---   forall j in fvs, lk <=_time j -> timeless(j)
---   where <=_time is left to right context order
+--   forall j in fvs, lk <=_time j -> timeless(j) where <=_time is left to right context order
+--   precond: lk is a variable (no elims)
 semiFreshForFvars :: PureTCM m => VarSet -> Term -> m Bool
 semiFreshForFvars fvs lk@(Var i []) = do
   let lkLaters = filter (<= i) (VSet.toList fvs) -- lk-laters, including lk itself and timeless vars
@@ -147,27 +148,37 @@ primExtent' = do
   requireBridges "in primExtent'"
   typ <- extentType
   return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 9 $ \extentArgs@[lA, lB, bA, bB,
-                                                      r@(Arg rinfo rtm), bM@(Arg bMinfo bMtm),
+                                                      r@(Arg rinfo rtm), bM,
                                                       n0@(Arg n0info n0tm), n1@(Arg n1info n1tm),
                                                       nn@(Arg nninfo nntm)] -> do --TODO: non exh pattern match?
     --goal ReduceM(Reduced MaybeReducedArgs Term)
-    viewr <- bridgeIntervalView rtm --should I reduce r?
+    viewr <- bridgeIntervalView rtm
     case viewr of
-      BIZero ->  redReturn $ n0tm `apply` [bM] -- YesReduction/YesSimplification in redReturn:
-      BIOne ->   redReturn $ n1tm `apply` [bM] -- the head @extent@ disappeared/reduction leads to a simpler term
-      -- TODO: fv analysis in M for rv? condition: forall v in fv(M), r < v -> timeless(v)
-      -- r < v means r left to v in context
+      BIZero ->  redReturn $ n0tm `apply` [bM] -- YesReduction, YesSimplification
+      BIOne ->   redReturn $ n1tm `apply` [bM]
+      -- TODO: fv analysis in M for rv? condition: forall v in fv(M), r <=_time v -> timeless(v)
       -- QST: no need to check that #occ of r in M <= 1 because this will be checked later?
       -- QST: once a term is converted is it typechecked again
       -- TODO: not sure all the cases are treated correctly (what about metas). maybe use BlockT ReduceM instead?
-      BOTerm rv@(Var ri []) -> do
-        bi0 <- getTerm "primExtent" builtinBIZero --first arg to spec location
-        bi1 <- getTerm "primExtent" builtinBIOne
-        redReturn $ nntm `applyE` [Apply $ argN $ (lamM bMtm) `apply` [argN bi0],
-                                   Apply $ argN $ (lamM bMtm) `apply` [argN bi1],
-                                   Apply $ argN $ lamM bMtm,
-                                   IApply n0tm n1tm rtm  ]
+      BOTerm rtm@(Var ri []) -> do
+        bM' <- reduceB' bM
+        let bMtm' = unArg $ ignoreBlocking $ bM'
+        let fvM0 = freeVarsIgnore IgnoreNot $ bMtm' -- correct ignore flag?
+        let fvM = allVars $ fvM0
+        let flex = flexibleVars fvM0 --free vars appearing under a meta
+        shouldRedExtent <- andM [return $ null flex, semiFreshForFvars fvM rtm] --might be more cmplx than this
+        case shouldRedExtent of
+          False ->
+            return $ NoReduction $ map notReduced [lA, lB, bA, bB, r] ++
+                                   [reduced bM'] ++ map notReduced [n0, n1, nn]
+          True -> do
+            bi0 <- getTerm "primExtent" builtinBIZero --use getBuiltinThing instead?
+            bi1 <- getTerm "primExtent" builtinBIOne
+            redReturn $ nntm `applyE` [Apply $ argN $ (lamM bMtm') `apply` [argN bi0],
+                                       Apply $ argN $ (lamM bMtm') `apply` [argN bi1],
+                                       Apply $ argN $ lamM  $ bMtm',
+                                       IApply n0tm n1tm rtm  ]
       _ -> __IMPOSSIBLE__
   where
-    lamM bMtm = ( Lam ldArgInfo $ Abs "r" bMtm ) -- QST: how do we know that "r" is bound in M though?
+    lamM m = ( Lam ldArgInfo $ Abs "r" m ) -- QST: how do we know that "r" is bound in M though --> de bruijn
     ldArgInfo = setLock IsLock defaultArgInfo
