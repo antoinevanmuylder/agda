@@ -1,7 +1,7 @@
 {-# LANGUAGE NondecreasingIndentation #-}
 {-# LANGUAGE TypeFamilies #-}
 {-|
-Description : Auxiliary functions for internal syntax bridges. Inspired from `TypeChecking/Primitive/Cubical.hs`.
+Description : Primitive definitions (formation/computation). Inspired from `TypeChecking/Primitive/Cubical.hs`.
 
 -}
 module Agda.TypeChecking.Primitive.Bridges where
@@ -38,6 +38,7 @@ import Agda.TypeChecking.Substitute
 import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Telescope
+import Agda.TypeChecking.Lock
 
 import Agda.Utils.Either
 import Agda.Utils.Functor
@@ -50,33 +51,32 @@ import Agda.Utils.Null
 import Agda.Utils.Tuple
 import Agda.Utils.Size
 import qualified Agda.Utils.Pretty as P
+import Agda.Utils.VarSet as VSet hiding (null)
 
 
 -- | Generates error if --bridges pragma option was not set
--- Used when typechecking the bridge interval
 requireBridges :: String -> TCM ()
 requireBridges s = do
   bridges <- optBridges <$> pragmaOptions
   unless bridges $
     typeError $ GenericError $ "Missing option --bridges " ++ s
 
--- | Types are terms with a sort annotation.
--- Here we turn the bridge interval (informally: BI) into such a type by specifying a sort for it.
--- This sort is LockUniv. The intent is that bridge variables x : BI should be treated affinely,
--- as it is the case for tick variables.
+-- | Bridge interval as a type, i.e. as a term and a sort annotation
+--   We use the LockUniv sort because bridge variables x : BI should be treated affinely,
 primBridgeIntervalType :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m) => m Type
 primBridgeIntervalType = El LockUniv <$> primBridgeInterval
 
 
 
--- | type for extent primitive.
--- We use hoas style functions like hPi' to specifiy types in internal syntax.
--- primExtent : ∀ {ℓA ℓB} {A : BI → Set ℓA} {B : (x : BI) (a : A x) → Set ℓB}
---              (r : BI) (M : A r)
---              (N0 : (a0 : A bi0) → B bi0 a0)
---              (N1 : (a1 : A bi1) → B bi1 a1)
---              (NN : (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) → BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1)) →
---              BridgeP (λ x → (a : A x) → B x a) N0 N1
+-- | Type for extent primitive.
+--   We use hoas style functions like hPi' to specifiy types in internal syntax.
+--   primExtent : ∀ {ℓA ℓB} {A : BI → Set ℓA} {B : (x : BI) (a : A x) → Set ℓB}
+--                (r : BI) (M : A r)
+--                (N0 : (a0 : A bi0) → B bi0 a0)
+--                (N1 : (a1 : A bi1) → B bi1 a1)
+--                (NN : (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) →
+--                      BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1)) →
+--                BridgeP (λ x → (a : A x) → B x a) N0 N1
 extentType :: TCM Type
 extentType = do
   t <- runNamesT [] $
@@ -96,7 +96,6 @@ extentType = do
          nPi' "aa" (el' lA $ cl primBridgeP <#> lA <@> bA <@> a0 <@> a1) $ \aa ->
          (el' lB $ cl primBridgeP <#> lB <@> newBline bB aa a0 a1 <@> (n0 <@> a0) <@> (n1 <@> a1)) ) $ \nn ->
        -- findLevel lA lB = level of this pi-type: @newABline(i) := (a:A i) -> B i a@
-       -- given that A i : Set lA and B i a : Set lB ...
        el' (findLevel lA lB) $ cl primBridgeP <#> (findLevel lA lB) <@> newABline lA lB bA bB <@> n0 <@> n1 )
   return t
   where
@@ -104,8 +103,7 @@ extentType = do
     newABline lA lB bA bB = lam "i"  $ \i -> do
       typ <- nPi' "ai" (el' lA $ bA <@> i) $ \ai -> el' lB $ bB <@> i <@> ai
       return $ unEl typ
-    -- | @findLevel lA lB :: m Term@ for relevant m. lA lB are effectful as well.
-    -- computes the supremum of the Level-Term's lA lB and yields a term.
+    -- | Computes the supremum of the Level-Term's lA lB and yields a term.
     findLevel lA lB = do
       tlA <- lA
       tlB <- lB -- :: Term
@@ -121,23 +119,29 @@ dummyRedTerm0 = do
 dummyRedTerm :: Term -> ReduceM( Reduced MaybeReducedArgs Term)
 dummyRedTerm t = return $ YesReduction NoSimplification t
 
---  call @semiFreshForFvars fvs lk@ where fvs = fv(M) typically, lk locked var
--- checks whether the following condition holds:
--- forall j in fvs, lk <=_time j -> timeless(j)
--- where <=_time is left to right context order
--- In other words checks that M does not contain "r-laters" (except timeless)
--- "semi" because if lk is bridge var, M may contain lk.
--- semiFreshForFvars :: VarSet -> Term -> Bool
--- semiFreshForFvars fvs lk@(Var i []) = __IMPOSSIBLE__
-    -- let problems = filter (<= i) $ VSet.toList fvs -- lk-laters, including timeless
-    -- for problems $ \ j -> do
-    --   ty <- typeOfBV j
-    --   unlessM (isTimeless ty) $
-    --     notAllowedVarsError lk [j]
--- semiFreshForFvars fvs _ = __IMPOSSIBLE__
+
+isTimeless' :: PureTCM m => Type -> m Bool
+isTimeless' typ@(El stype ttyp) = do
+  timeless <- mapM getName' timelessThings
+  case ttyp of
+    Def q _ | Just q `elem` timeless -> return True
+    _                                -> return False
+
+-- | @semiFreshForFvars fvs lk@ checks whether the following condition holds:
+--   forall j in fvs, lk <=_time j -> timeless(j)
+--   where <=_time is left to right context order
+semiFreshForFvars :: PureTCM m => VarSet -> Term -> m Bool
+semiFreshForFvars fvs lk@(Var i []) = do
+  let lkLaters = filter (<= i) (VSet.toList fvs) -- lk-laters, including lk itself and timeless vars
+  timefullLkLaters <- flip filterM lkLaters $ \ j -> do
+    tyj <- typeOfBV j
+    resj <- isTimeless' tyj
+    return $ not resj
+  return $ null timefullLkLaters
+semiFreshForFvars fvs _ = __IMPOSSIBLE__
 
 -- | Formation rule (extentType) and computation rule for the extent primitive.
--- For extent this include a boundary (BIZero, BIOne case) and beta rule.
+--   For extent this include a boundary (BIZero, BIOne case) and beta rule.
 primExtent' :: TCM PrimitiveImpl
 primExtent' = do
   requireBridges "in primExtent'"
@@ -155,7 +159,7 @@ primExtent' = do
       -- r < v means r left to v in context
       -- QST: no need to check that #occ of r in M <= 1 because this will be checked later?
       -- QST: once a term is converted is it typechecked again
-      -- TODO: not sure all the cases are treated correctly (what about metas)
+      -- TODO: not sure all the cases are treated correctly (what about metas). maybe use BlockT ReduceM instead?
       BOTerm rv@(Var ri []) -> do
         bi0 <- getTerm "primExtent" builtinBIZero --first arg to spec location
         bi1 <- getTerm "primExtent" builtinBIOne
@@ -167,25 +171,3 @@ primExtent' = do
   where
     lamM bMtm = ( Lam ldArgInfo $ Abs "r" bMtm ) -- QST: how do we know that "r" is bound in M though?
     ldArgInfo = setLock IsLock defaultArgInfo
-                                         
--- prim_glue' :: TCM PrimitiveImpl
--- prim_glue' = do
---   requireCubical CFull ""
---   t <- runNamesT [] $
---        hPi' "la" (el $ cl primLevel) (\ la ->
---        hPi' "lb" (el $ cl primLevel) $ \ lb ->
---        hPi' "A" (sort . tmSort <$> la) $ \ a ->
---        hPi' "φ" primIntervalType $ \ φ ->
---        hPi' "T" (pPi' "o" φ $ \ o ->  el' (cl primLevelSuc <@> lb) (Sort . tmSort <$> lb)) $ \ t ->
---        hPi' "e" (pPi' "o" φ $ \ o -> el' (cl primLevelMax <@> la <@> lb) $ cl primEquiv <#> lb <#> la <@> (t <@> o) <@> a) $ \ e ->
---        pPi' "o" φ (\ o -> el' lb (t <@> o)) --> (el' la a --> el' lb (cl primGlue <#> la <#> lb <@> a <#> φ <@> t <@> e)))
---   view <- intervalView'
---   one <- primItIsOne
---   return $ PrimImpl t $ primFun __IMPOSSIBLE__ 8 $ \ts ->
---     case ts of
---       [la,lb,bA,phi,bT,e,t,a] -> do
---        sphi <- reduceB' phi
---        case view $ unArg $ ignoreBlocking $ sphi of
---          IOne -> redReturn $ unArg t `apply` [argN one]
---          _    -> return (NoReduction $ map notReduced [la,lb,bA] ++ [reduced sphi] ++ map notReduced [bT,e,t,a])
---       _ -> __IMPOSSIBLE__
