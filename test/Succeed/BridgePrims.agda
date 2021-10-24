@@ -267,15 +267,29 @@ module BridgeVPath {ℓ} {A : BI → I → Set ℓ} {a : (r : BI) (i : I) → A 
 --  primComp : ∀ {ℓ} (A : (i : I) → Set (ℓ i)) {φ : I} (u : ∀ i → Partial φ (A i)) (a : A i0) → A i1
 
 primitive
-  
-  -- wondering what exact universe levels should I be using 
 
   primExtent : ∀ {ℓA ℓB : Level} {A : BI → Set ℓA} {B : (x : BI) (a : A x) → Set ℓB}
                (r : BI) (M : A r)
                (N0 : (a0 : A bi0) → B bi0 a0)
                (N1 : (a1 : A bi1) → B bi1 a1)
                (NN : (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) → BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1)) →
-               BridgeP (λ x → (a : A x) → B x a) N0 N1               
+               BridgeP (λ x → (a : A x) → B x a) N0 N1 --wrong codomain! should be B r M
+
+
+module PlayExtent {ℓA ℓB : Level} {A : BI → Set ℓA} {B : (x : BI) (a : A x) → Set ℓB}
+                  (N0 : (a0 : A bi0) → B bi0 a0) (N1 : (a1 : A bi1) → B bi1 a1) where
+  
+  pointwise-related = (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) → BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1)
+
+  related-sections = BridgeP (λ x → (a : A x) → B x a) N0 N1
+
+  
+  pointwise-then-related : pointwise-related → related-sections
+  pointwise-then-related NN = λ r M → {!!}
+  
+
+  
+
 
   
 
