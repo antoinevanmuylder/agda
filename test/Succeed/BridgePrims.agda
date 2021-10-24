@@ -297,7 +297,8 @@ module PlayExtent {ℓA ℓB : Level} {A : BI → Set ℓA} {B : (x : BI) (a : A
   -- λ H → PlayExtent.bf-easy ( PlayExtent.bf-hard H )
   -- pointwise-related-retract : (H : pointwise-related) -> H ≡ bf-easy (bf-hard H)
   -- pointwise-related-retract H = λ i → H
-  
+  -- TODO: fix beta reduction. the principal arguement M of (extent_r M ..) needs to be abstracted over its bridge var
+  -- variable r, not over the top free var of M like it is done now 
     
   
 
