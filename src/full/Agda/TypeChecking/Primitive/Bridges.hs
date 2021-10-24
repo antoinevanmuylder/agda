@@ -151,22 +151,23 @@ primExtent' = do
       -- TODO: fv analysis in M for rv? condition: forall v in fv(M), r <=_time v -> timeless(v)
       -- QST: no need to check that #occ of r in M <= 1 because this will be checked later?
       -- QST: once a term is converted is it typechecked again
-      -- TODO: not sure all the cases are treated correctly (what about metas). maybe use BlockT ReduceM instead?
+      -- TODO: not sure all the cases are treated correctly (what about metas).
       BOTerm rtm@(Var ri []) -> do
         bM' <- reduceB' bM
-        let bMtm' = unArg $ ignoreBlocking $ bM'
-        let fvM0 = freeVarsIgnore IgnoreNot $ bMtm' -- correct ignore flag?
-        let fvM = allVars $ fvM0
-        let flex = flexibleVars fvM0 --free vars appearing under a meta
-        shouldRedExtent <- andM [return $ null flex, semiFreshForFvars fvM rtm] --might be more cmplx than this
-        case shouldRedExtent of
-          False ->
-            return $ NoReduction $ map notReduced [lA, lB, bA, bB, r] ++
-                                   [reduced bM'] ++ map notReduced [n0, n1, nn]
-          True -> do
-            bi0 <- getTerm "primExtent" builtinBIZero --use getBuiltinThing instead?
-            bi1 <- getTerm "primExtent" builtinBIOne
-            redReturn $ nntm `applyE` [Apply $ argN $ (lamM bMtm') `apply` [argN bi0],
+        case bM' of
+          Blocked{} -> fallback lA lB bA bB r bM' n0 n1 nn
+          NotBlocked{} -> do -- means no metas at all?
+            let bMtm' = unArg $ ignoreBlocking $ bM'
+            let fvM0 = freeVarsIgnore IgnoreNot $ bMtm' -- correct ignore flag?
+            let fvM = allVars fvM0
+            -- let flex = flexibleVars fvM0 --free vars appearing under a meta
+            shouldRedExtent <- semiFreshForFvars fvM rtm -- andM [return $ null flex, semiFreshForFvars fvM rtm]
+            case shouldRedExtent of
+              False -> fallback lA lB bA bB r bM' n0 n1 nn
+              True -> do
+                bi0 <- getTerm "primExtent" builtinBIZero --use getBuiltinThing instead?
+                bi1 <- getTerm "primExtent" builtinBIOne
+                redReturn $ nntm `applyE` [Apply $ argN $ (lamM bMtm') `apply` [argN bi0],
                                        Apply $ argN $ (lamM bMtm') `apply` [argN bi1],
                                        Apply $ argN $ lamM  $ bMtm',
                                        IApply n0tm n1tm rtm  ]
@@ -174,3 +175,8 @@ primExtent' = do
   where
     lamM m = ( Lam ldArgInfo $ Abs "r" m ) -- QST: how do we know that "r" is bound in M though --> de bruijn
     ldArgInfo = setLock IsLock defaultArgInfo
+    fallback lA lB bA bB r bM' n0 n1 nn =
+      return $ NoReduction $ map notReduced [lA, lB, bA, bB, r] ++
+                                   [reduced bM'] ++ map notReduced [n0, n1, nn]
+
+
