@@ -270,13 +270,12 @@ primitive
   
   -- wondering what exact universe levels should I be using 
 
-  primExtent : ∀ {ℓA ℓB} {A : BI → Set ℓA} {B : (x : BI) (a : A x) → Set ℓB}
+  primExtent : ∀ {ℓA ℓB : Level} {A : BI → Set ℓA} {B : (x : BI) (a : A x) → Set ℓB}
                (r : BI) (M : A r)
                (N0 : (a0 : A bi0) → B bi0 a0)
                (N1 : (a1 : A bi1) → B bi1 a1)
                (NN : (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) → BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1)) →
-               BridgeP (λ x → (a : A x) → B x a) N0 N1
-               
+               BridgeP (λ x → (a : A x) → B x a) N0 N1               
 
   
 

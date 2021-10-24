@@ -82,6 +82,22 @@ pPi' n phi b = toFinitePi <$> nPi' n (elSSet $ cl isOne <@> phi) b
 el' :: Applicative m => m Term -> m Term -> m Type
 el' l a = El <$> (tmSort <$> l) <*> a
 
+levelLubTm :: Term -> Term -> Term
+levelLubTm l0 l1 = levelTm $ levelLub (atomicLevel l0) (atomicLevel l1)
+
+levelLubTmM :: Applicative m => m Term -> m Term -> m Term
+levelLubTmM ml0 ml1 = do
+  l0 <- ml0
+  l1 <- ml1
+  return $ levelLubTm l0 l1
+
+tmSortLub :: Term -> Term -> Sort
+tmSortLub l0 l1 =
+  Type $ levelLub (atomicLevel l0) (atomicLevel l1)
+
+elLub' :: Applicative m => m Term -> m Term -> m Term -> m Type
+elLub' l0 l1 a = El <$> (tmSortLub <$> l0 <*> l1) <*> a
+
 el's :: Applicative m => m Term -> m Term -> m Type
 el's l a = El <$> (SSet . atomicLevel <$> l) <*> a
 

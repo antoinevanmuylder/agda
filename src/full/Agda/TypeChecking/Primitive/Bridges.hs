@@ -96,21 +96,13 @@ extentType = do
          nPi' "aa" (el' lA $ cl primBridgeP <#> lA <@> bA <@> a0 <@> a1) $ \aa ->
          (el' lB $ cl primBridgeP <#> lB <@> newBline bB aa a0 a1 <@> (n0 <@> a0) <@> (n1 <@> a1)) ) $ \nn ->
        -- findLevel lA lB = level of this pi-type: @newABline(i) := (a:A i) -> B i a@
-       el' (findLevel lA lB) $ cl primBridgeP <#> (findLevel lA lB) <@> newABline lA lB bA bB <@> n0 <@> n1 )
+       el' (lA `levelLubTmM` lB) $ cl primBridgeP <#> (lA `levelLubTmM` lB) <@> newABline lA lB bA bB <@> n0 <@> n1 )
   return t
   where
     newBline bB aa a0 a1 = lam "i" (\i -> bB <@> i <@> (aa <@@> (a0, a1, i) )) -- i is a bridge elim hence the double "at".
     newABline lA lB bA bB = lam "i"  $ \i -> do
       typ <- nPi' "ai" (el' lA $ bA <@> i) $ \ai -> el' lB $ bB <@> i <@> ai
       return $ unEl typ
-    -- | Computes the supremum of the Level-Term's lA lB and yields a term.
-    findLevel lA lB = do
-      tlA <- lA
-      -- prettylA <- prettyTCM tlA             bug here
-      tlB <- lB
-      case (tlA, tlB) of
-        (Level llA, Level llB) -> return $ levelTm $ levelLub llA llB
-        (_ , _) -> typeError $ GenericError $ "Level sup for things that are not levels in extentType"
 
 -- | two functions to fill implementations holes
 dummyRedTerm0 :: ReduceM( Reduced MaybeReducedArgs Term)
