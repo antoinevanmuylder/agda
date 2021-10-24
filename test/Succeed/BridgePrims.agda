@@ -268,28 +268,38 @@ module BridgeVPath {ℓ} {A : BI → I → Set ℓ} {a : (r : BI) (i : I) → A 
 
 primitive
 
-  primExtent : ∀ {ℓA ℓB : Level} {A : BI → Set ℓA} {B : (x : BI) (a : A x) → Set ℓB}
+  primExtent : ∀ {ℓA ℓB : Level} {A : (@tick x : BI) → Set ℓA} {B : (@tick x : BI) (a : A x) → Set ℓB} -- should spec. @tick here?
                (r : BI) (M : A r)
                (N0 : (a0 : A bi0) → B bi0 a0)
                (N1 : (a1 : A bi1) → B bi1 a1)
                (NN : (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) → BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1)) →
-               BridgeP (λ x → (a : A x) → B x a) N0 N1 --wrong codomain! should be B r M
+               B r M
 
 
 module PlayExtent {ℓA ℓB : Level} {A : BI → Set ℓA} {B : (x : BI) (a : A x) → Set ℓB}
                   (N0 : (a0 : A bi0) → B bi0 a0) (N1 : (a1 : A bi1) → B bi1 a1) where
   
+  -- we wish to show bridge-funext: an equivalence btw the two foll. types
+  -- pointwise-related is a retract thanks to extent beta rule
+  -- related-sections is a retract thanks to extent eta rule
   pointwise-related = (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) → BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1)
 
   related-sections = BridgeP (λ x → (a : A x) → B x a) N0 N1
 
-  
-  pointwise-then-related : pointwise-related → related-sections
-  pointwise-then-related NN = λ r M → {!!}
-  
+  -- bridge-funext, hard direction
+  bf-hard : pointwise-related → related-sections
+  bf-hard NN = λ r M → primExtent r M N0 N1 NN
 
-  
 
+  bf-easy : related-sections -> pointwise-related
+  bf-easy p = λ a0 a1 aa x → p x (aa x)
+
+  -- λ H → PlayExtent.bf-easy ( PlayExtent.bf-hard H )
+  -- pointwise-related-retract : (H : pointwise-related) -> H ≡ bf-easy (bf-hard H)
+  -- pointwise-related-retract H = λ i → H
+  
+    
+  
 
   
 

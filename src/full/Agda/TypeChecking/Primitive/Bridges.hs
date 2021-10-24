@@ -76,7 +76,7 @@ primBridgeIntervalType = El LockUniv <$> primBridgeInterval
 --                (N1 : (a1 : A bi1) → B bi1 a1)
 --                (NN : (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) →
 --                      BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1)) →
---                BridgeP (λ x → (a : A x) → B x a) N0 N1
+--                B r M
 extentType :: TCM Type
 extentType = do
   t <- runNamesT [] $
@@ -95,14 +95,15 @@ extentType = do
          --todo make line argument bA implicit for primBridgeP? see Rules/Builtin.hs
          nPi' "aa" (el' lA $ cl primBridgeP <#> lA <@> bA <@> a0 <@> a1) $ \aa ->
          (el' lB $ cl primBridgeP <#> lB <@> newBline bB aa a0 a1 <@> (n0 <@> a0) <@> (n1 <@> a1)) ) $ \nn ->
-       -- findLevel lA lB = level of this pi-type: @newABline(i) := (a:A i) -> B i a@
-       el' (lA `levelLubTmM` lB) $ cl primBridgeP <#> (lA `levelLubTmM` lB) <@> newABline lA lB bA bB <@> n0 <@> n1 )
+       el' lB $ bB <@> r <@> bM )
+       -- el' (lA `levelLubTmM` lB) $ cl primBridgeP <#> (lA `levelLubTmM` lB) <@> newABline lA lB bA bB <@> n0 <@> n1 )
   return t
   where
     newBline bB aa a0 a1 = lam "i" (\i -> bB <@> i <@> (aa <@@> (a0, a1, i) )) -- i is a bridge elim hence the double "at".
-    newABline lA lB bA bB = lam "i"  $ \i -> do
-      typ <- nPi' "ai" (el' lA $ bA <@> i) $ \ai -> el' lB $ bB <@> i <@> ai
-      return $ unEl typ
+    -- -- use level of this pi-type: @newABline(i) := (a:A i) -> B i a@  ?
+    -- newABline lA lB bA bB = lam "i"  $ \i -> do
+    --   typ <- nPi' "ai" (el' lA $ bA <@> i) $ \ai -> el' lB $ bB <@> i <@> ai
+    --   return $ unEl typ
 
 -- | two functions to fill implementations holes
 dummyRedTerm0 :: ReduceM( Reduced MaybeReducedArgs Term)
