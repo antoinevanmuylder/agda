@@ -164,8 +164,9 @@ primExtent' = do
             -- let flex = flexibleVars fvM0 --free vars appearing under a meta
             shouldRedExtent <- semiFreshForFvars fvM rtm -- andM [return $ null flex, semiFreshForFvars fvM rtm]
             case shouldRedExtent of
-              False -> fallback lA lB bA bB r bM' n0 n1 nn
-              True -> do
+              False -> traceDebugMessage "tc.prim" 20 "not semifresh" $
+                fallback lA lB bA bB r bM' n0 n1 nn --should throw error?
+              True -> traceDebugMessage "tc.prim" 20 "is semifresh" $ do
                 bi0 <- getTerm "primExtent" builtinBIZero --use getBuiltinThing instead?
                 bi1 <- getTerm "primExtent" builtinBIOne
                 redReturn $ nntm `applyE` [Apply $ argN $ (lamM bMtm') `apply` [argN bi0],
@@ -175,6 +176,7 @@ primExtent' = do
       _ -> __IMPOSSIBLE__
   where
     lamM m = ( Lam ldArgInfo $ Abs "r" m ) -- QST: how do we know that "r" is bound in M though --> de bruijn
+    -- captureIn m r@(Var ri []) =      
     ldArgInfo = setLock IsLock defaultArgInfo
     fallback lA lB bA bB r bM' n0 n1 nn =
       return $ NoReduction $ map notReduced [lA, lB, bA, bB, r] ++

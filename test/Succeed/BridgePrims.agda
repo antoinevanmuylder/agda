@@ -1,4 +1,4 @@
-{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.term.lock:60 #-}
+{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.prim:20 #-}
 module BridgePrims where
 
 -- this is a reproduction of test/Succeed/LaterPrims.agda and-or Agda.Primitive.Cubical
@@ -294,9 +294,10 @@ module PlayExtent {ℓA ℓB : Level} {A : BI → Set ℓA} {B : (x : BI) (a : A
   bf-easy : related-sections -> pointwise-related
   bf-easy p = λ a0 a1 aa x → p x (aa x)
 
+
   -- λ H → PlayExtent.bf-easy ( PlayExtent.bf-hard H )
-  -- pointwise-related-retract : (H : pointwise-related) -> H ≡ bf-easy (bf-hard H)
-  -- pointwise-related-retract H = λ i → H
+  pointwise-related-retract : (H : pointwise-related) -> H ≡ bf-easy (bf-hard H)
+  pointwise-related-retract H = λ i a0 a1 aa r → {!!}
   -- TODO: fix beta reduction. the principal arguement M of (extent_r M ..) needs to be abstracted over its bridge var
   -- variable r, not over the top free var of M like it is done now 
     
