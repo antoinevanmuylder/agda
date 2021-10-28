@@ -124,15 +124,14 @@ isTimeless' typ@(El stype ttyp) = do
 -- | @semiFreshForFvars fvs lk@ checks whether the following condition holds:
 --   forall j in fvs, lk <=_time j -> timeless(j) where <=_time is left to right context order
 --   precond: lk is a variable (no elims)
-semiFreshForFvars :: PureTCM m => VarSet -> Term -> m Bool
-semiFreshForFvars fvs lk@(Var i []) = do
-  let lkLaters = filter (<= i) (VSet.toList fvs) -- lk-laters, including lk itself and timeless vars
+semiFreshForFvars :: PureTCM m => VarSet -> Int -> m Bool
+semiFreshForFvars fvs lki = do
+  let lkLaters = filter (<= lki) (VSet.toList fvs) -- lk-laters, including lk itself and timeless vars
   timefullLkLaters <- flip filterM lkLaters $ \ j -> do
     tyj <- typeOfBV j
     resj <- isTimeless' tyj
     return $ not resj
   return $ null timefullLkLaters
-semiFreshForFvars fvs _ = __IMPOSSIBLE__
 
 -- | Formation rule (extentType) and computation rule for the extent primitive.
 --   For extent this include a boundary (BIZero, BIOne case) and beta rule.
@@ -143,44 +142,40 @@ primExtent' = do
   return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 9 $ \extentArgs@[lA, lB, bA, bB,
                                                       r@(Arg rinfo rtm), bM,
                                                       n0@(Arg n0info n0tm), n1@(Arg n1info n1tm),
-                                                      nn@(Arg nninfo nntm)] -> do --TODO: non exh pattern match?
+                                                      nn@(Arg nninfo nntm)] -> do
     --goal ReduceM(Reduced MaybeReducedArgs Term)
     viewr <- bridgeIntervalView rtm
     case viewr of
       BIZero ->  redReturn $ n0tm `apply` [bM] -- YesReduction, YesSimplification
       BIOne ->   redReturn $ n1tm `apply` [bM]
-      -- TODO: fv analysis in M for rv? condition: forall v in fv(M), r <=_time v -> timeless(v)
       -- QST: no need to check that #occ of r in M <= 1 because this will be checked later?
-      -- QST: once a term is converted is it typechecked again
-      -- TODO: not sure all the cases are treated correctly (what about metas).
+      -- in order to reduce extent_r(M ; ..) we need to check that M has no timefull r-laters
       BOTerm rtm@(Var ri []) -> do
-        bM' <- reduceB' bM
-        case bM' of
-          Blocked{} -> fallback lA lB bA bB r bM' n0 n1 nn
-          NotBlocked{} -> do -- means no metas at all?
-            let bMtm' = unArg $ ignoreBlocking $ bM'
-            let fvM0 = freeVarsIgnore IgnoreNot $ bMtm' -- correct ignore flag?
-            let fvM = allVars fvM0
-            -- flex = flexibleVars fvM0 --free vars appearing under a meta
-            shouldRedExtent <- semiFreshForFvars fvM rtm -- andM [return $ null flex, semiFreshForFvars fvM rtm] extent_r ( M ; ...)
-            case shouldRedExtent of
-              False -> traceDebugMessage "tc.prim" 20 "not semifresh" $
-                fallback lA lB bA bB r bM' n0 n1 nn --should throw error?
-              True -> traceDebugMessage "tc.prim" 20 "is semifresh" $ do
-                bi0 <- getTerm "primExtent" builtinBIZero --use getBuiltinThing instead?
-                bi1 <- getTerm "primExtent" builtinBIOne
-                redReturn $ nntm `applyE` [Apply $ argN $ (lamM bMtm') `apply` [argN bi0],
-                                       Apply $ argN $ (lamM bMtm') `apply` [argN bi1],
-                                       Apply $ argN $ lamM  $ bMtm',
-                                       IApply n0tm n1tm rtm  ]
+        bM' <- reduceB' bM --because some timefull r-laters may disappear
+        let bMtm' = unArg $ ignoreBlocking $ bM'
+        let fvM0 = freeVarsIgnore IgnoreNot $ bMtm' -- correct ignore flag?
+        -- let rigidFvM = rigidVars fvM0
+        -- let flexFvM = flexibleVars fvM0 --free vars appearing under a meta
+        let fvM = allVars fvM0
+        shouldRedExtent <- semiFreshForFvars fvM ri -- andM [return $ null flex, semiFreshForFvars fvM rtm]
+        case shouldRedExtent of
+          False -> traceDebugMessage "tc.prim" 20 "not semifresh" $
+            fallback lA lB bA bB r bM' n0 n1 nn --should throw error?
+          True -> traceDebugMessage "tc.prim" 20 "is semifresh" $ do
+            bi0 <- getTerm "primExtent" builtinBIZero
+            bi1 <- getTerm "primExtent" builtinBIOne
+            let lamM = captureIn bMtm' ri   -- λ r. M
+            redReturn $ nntm `applyE` [Apply $ argN $ lamM `apply` [argN bi0],
+                                   Apply $ argN $ lamM `apply` [argN bi1],
+                                   Apply $ argN $ lamM,
+                                   IApply n0tm n1tm rtm  ]
       _ -> __IMPOSSIBLE__
   where
-    -- QST: how do we know that "r" is bound in M though --> de bruijn
-    -- for capturing I want m to be in context @gamma\r, r |- m : Ar@
-    -- Monad/Context.hs seems to be the relevant file, together with the @instance MonadAddContext ReduceM@
-    -- there is also the @instance MonadTCEnv ReduceM@ and the localTC method that could be interesting
-    lamM m = ( Lam ldArgInfo $ Abs "r" m )
-    -- captureIn m r@(Var ri []) =      
+    -- | captures r in M, ie returns λ r. M. This is sound thanks to the fv-analysis.
+    --  Γ0 , r:BI , Γ1, r''   --σ-->   Γ0 , r:BI , Γ1 ⊢ M   where    r[σ] = r''
+    captureIn m ri =
+      let sigma = ([var (i+1) | i <- [0 .. ri - 1] ] ++ [var 0]) ++# raiseS (ri + 1) in
+      Lam ldArgInfo $ Abs "r" $ applySubst sigma m
     ldArgInfo = setLock IsLock defaultArgInfo
     fallback lA lB bA bB r bM' n0 n1 nn =
       return $ NoReduction $ map notReduced [lA, lB, bA, bB, r] ++
