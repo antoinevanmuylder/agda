@@ -71,7 +71,7 @@ primBridgeIntervalType = El LockUniv <$> primBridgeInterval
 -- | Type for extent primitive.
 --   We use hoas style functions like hPi' to specifiy types in internal syntax.
 --   primExtent : ∀ {ℓA ℓB} {A : BI → Set ℓA} {B : (x : BI) (a : A x) → Set ℓB}
---                (r : BI) (M : A r)
+--                (r : BI) (M : A r)                 should those r and M be there
 --                (N0 : (a0 : A bi0) → B bi0 a0)
 --                (N1 : (a1 : A bi1) → B bi1 a1)
 --                (NN : (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) →
@@ -161,8 +161,8 @@ primExtent' = do
             let bMtm' = unArg $ ignoreBlocking $ bM'
             let fvM0 = freeVarsIgnore IgnoreNot $ bMtm' -- correct ignore flag?
             let fvM = allVars fvM0
-            -- let flex = flexibleVars fvM0 --free vars appearing under a meta
-            shouldRedExtent <- semiFreshForFvars fvM rtm -- andM [return $ null flex, semiFreshForFvars fvM rtm]
+            -- flex = flexibleVars fvM0 --free vars appearing under a meta
+            shouldRedExtent <- semiFreshForFvars fvM rtm -- andM [return $ null flex, semiFreshForFvars fvM rtm] extent_r ( M ; ...)
             case shouldRedExtent of
               False -> traceDebugMessage "tc.prim" 20 "not semifresh" $
                 fallback lA lB bA bB r bM' n0 n1 nn --should throw error?
@@ -175,7 +175,11 @@ primExtent' = do
                                        IApply n0tm n1tm rtm  ]
       _ -> __IMPOSSIBLE__
   where
-    lamM m = ( Lam ldArgInfo $ Abs "r" m ) -- QST: how do we know that "r" is bound in M though --> de bruijn
+    -- QST: how do we know that "r" is bound in M though --> de bruijn
+    -- for capturing I want m to be in context @gamma\r, r |- m : Ar@
+    -- Monad/Context.hs seems to be the relevant file, together with the @instance MonadAddContext ReduceM@
+    -- there is also the @instance MonadTCEnv ReduceM@ and the localTC method that could be interesting
+    lamM m = ( Lam ldArgInfo $ Abs "r" m )
     -- captureIn m r@(Var ri []) =      
     ldArgInfo = setLock IsLock defaultArgInfo
     fallback lA lB bA bB r bM' n0 n1 nn =

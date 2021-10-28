@@ -307,7 +307,7 @@ module PlayExtent {ℓA ℓB : Level} {A : BI → Set ℓA} {B : (x : BI) (a : A
 
 module PlayLater where
 
-  -- open import LaterPrims
+  -- open import LaterPrims Γ ⊢ M:A(r)    Γ\r, r:I ⊢ M:A(r)
   
   -- --there is no exchange rule for tick vars
   -- later-exch : ∀ {ℓ} {A : Set ℓ} →
