@@ -126,11 +126,18 @@ isTimeless' typ@(El stype ttyp) = do
 --   precond: lk is a variable (no elims)
 semiFreshForFvars :: PureTCM m => VarSet -> Int -> m Bool
 semiFreshForFvars fvs lki = do
+  reportSLn "tc.prim" 40 $ "semiFreshForFvars, fvs & lki: " ++ P.prettyShow fvs ++ " " ++ P.prettyShow lki
   let lkLaters = filter (<= lki) (VSet.toList fvs) -- lk-laters, including lk itself and timeless vars
   timefullLkLaters <- flip filterM lkLaters $ \ j -> do
-    tyj <- typeOfBV j
+    tyj <- typeOfBV j --problem: can yield dummy type when it should not
+    look' <- lookupBV' j -- TODO remove this
+    lookHigher' <- typeOfBV $ j + 1
     resj <- isTimeless' tyj
+    reportSLn "tc.prim" 40 $ "timefullLkLaters, tyj & resj: " ++ P.prettyShow tyj ++ " " ++ P.prettyShow resj
+    reportSLn "tc.prim" 40 $ "timefullLkLaters, lookup: " ++ P.prettyShow look'
+    reportSLn "tc.prim" 40 $ "timefullLkLaters, lookHigher': " ++ P.prettyShow lookHigher'
     return $ not resj
+  reportSLn "tc.prim" 40 $ "semiFreshForFvars, timefullLkLaters: " ++ P.prettyShow timefullLkLaters
   return $ null timefullLkLaters
 
 -- | Formation rule (extentType) and computation rule for the extent primitive.
@@ -159,12 +166,17 @@ primExtent' = do
         let fvM = allVars fvM0
         shouldRedExtent <- semiFreshForFvars fvM ri -- andM [return $ null flex, semiFreshForFvars fvM rtm]
         case shouldRedExtent of
-          False -> traceDebugMessage "tc.prim" 20 "not semifresh" $
+          False -> do
+            reportSLn "tc.prim" 20 $ P.prettyShow rtm ++ " not semifresh for " ++ P.prettyShow bMtm'
+            reportSLn "tc.prim" 20 $ "because fvs are " ++ P.prettyShow fvM
             fallback lA lB bA bB r bM' n0 n1 nn --should throw error?
-          True -> traceDebugMessage "tc.prim" 20 "is semifresh" $ do
+          True -> do
+            reportSLn "tc.prim" 20 $ P.prettyShow rtm ++ " is semifresh for " ++ P.prettyShow bMtm'
             bi0 <- getTerm "primExtent" builtinBIZero
             bi1 <- getTerm "primExtent" builtinBIOne
             let lamM = captureIn bMtm' ri   -- λ r. M
+            reportSLn "tc.prim" 30 $ "captureIn (( " ++ P.prettyShow bMtm' ++" )) (( " ++ P.prettyShow ri ++ " ))"
+            reportSLn "tc.prim" 30 $ "captureIn ((M)) ((r)) is " ++ P.prettyShow lamM
             redReturn $ nntm `applyE` [Apply $ argN $ lamM `apply` [argN bi0],
                                    Apply $ argN $ lamM `apply` [argN bi1],
                                    Apply $ argN $ lamM,
@@ -173,8 +185,12 @@ primExtent' = do
   where
     -- | captures r in M, ie returns λ r. M. This is sound thanks to the fv-analysis.
     --  Γ0 , r:BI , Γ1, r''   --σ-->   Γ0 , r:BI , Γ1 ⊢ M   where    r[σ] = r''
+    -- idea: sigma is a stack of :# (see Substitution'). leaves of sigma:
+    -- Γ0, r:BI , Γ1, r'' ⊢ r''        Γ0, r:BI , Γ1, r'' ⊢ Γ0
+    -- --------------------------------------------------------
+    -- Γ0, r:BI , Γ1, r'' ⊢ Γ0, r    where r mapsto r''
     captureIn m ri =
-      let sigma = ([var (i+1) | i <- [0 .. ri - 1] ] ++ [var 0]) ++# raiseS (ri + 1) in
+      let sigma = ([var (i+1) | i <- [0 .. ri - 1] ] ++ [var 0]) ++# raiseS (ri + 2) in
       Lam ldArgInfo $ Abs "r" $ applySubst sigma m
     ldArgInfo = setLock IsLock defaultArgInfo
     fallback lA lB bA bB r bM' n0 n1 nn =
