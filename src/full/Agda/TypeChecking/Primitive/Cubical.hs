@@ -1600,12 +1600,12 @@ prim_unglueU' = do
                _ -> return (NoReduction $ map notReduced [la] ++ [reduced sphi] ++ map notReduced [bT,bA] ++ [reduced sb])
       _ -> __IMPOSSIBLE__
 
-
+-- | primGlue    : ∀ {ℓ ℓ'} (A : Set ℓ) {φ : I}
+--   → (T : Partial φ (Set ℓ')) →
+--   (e : PartialP φ (λ o → T o ≃ A)) → Set ℓ'
 primGlue' :: TCM PrimitiveImpl
 primGlue' = do
   requireCubical CFull ""
-  -- Glue' : ∀ {l} (A : Set l) → ∀ φ → (T : Partial (Set a) φ) (f : (PartialP φ \ o → (T o) -> A))
-  --            ([f] : PartialP φ \ o → isEquiv (T o) A (f o)) → Set l
   t <- runNamesT [] $
        hPi' "la" (el $ cl primLevel) (\ la ->
        hPi' "lb" (el $ cl primLevel) $ \ lb ->
@@ -1625,6 +1625,9 @@ primGlue' = do
          _    -> return (NoReduction $ map notReduced [la,lb,a] ++ [reduced sphi] ++ map notReduced [t,e])
      _ -> __IMPOSSIBLE__
 
+-- | prim^glue   : ∀ {ℓ ℓ'} {A : Set ℓ} {φ : I}
+-- → {T : Partial φ (Set ℓ')} → {e : PartialP φ (λ o → T o ≃ A)}
+-- → (t : PartialP φ T) → (a : A) → primGlue A T e
 prim_glue' :: TCM PrimitiveImpl
 prim_glue' = do
   requireCubical CFull ""
@@ -1647,6 +1650,9 @@ prim_glue' = do
          _    -> return (NoReduction $ map notReduced [la,lb,bA] ++ [reduced sphi] ++ map notReduced [bT,e,t,a])
       _ -> __IMPOSSIBLE__
 
+-- | prim^unglue : ∀ {ℓ ℓ'} {A : Set ℓ} {φ : I}
+--   → {T : Partial φ (Set ℓ')} → {e : PartialP φ (λ o → T o ≃ A)}
+--   → primGlue A T e → A
 prim_unglue' :: TCM PrimitiveImpl
 prim_unglue' = do
   requireCubical CFull ""
