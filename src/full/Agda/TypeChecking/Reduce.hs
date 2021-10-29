@@ -368,7 +368,7 @@ instance Reduce PlusLevel where
 instance (Subst a, Reduce a) => Reduce (Abs a) where
   reduce' b@(Abs x _) =
     reportSLn "tc.prim.extent" 60 ( "reduce: adding " ++ x ++ " to ctx as dummy" ) >>
-    Abs x <$> underAbstraction_ b reduce'
+    Abs x <$> underAbstraction_ b reduce' --TODO-antva: remove my reportS msg in that file
   reduce' (NoAbs x v) = NoAbs x <$> reduce' v
 
 -- Lists are never blocked

@@ -308,10 +308,14 @@ module PlayExtent {ℓA ℓB : Level} {A : BI → Set ℓA} {B : (x : BI) (a : A
 ------------------------------------------------------------------------
 
 
-postulate
-  Gel : ∀ {ℓA ℓ} (r : BI) (A0 A1 : Set ℓA) (R : A0 → A1 → Set ℓ) → Set ℓ
+primitive
+  primGel : ∀ {ℓA ℓ} (r : BI) (A0 A1 : Set ℓA) (R : A0 → A1 → Set ℓ) → Set ℓ
 
-{-# BUILTIN GEL Gel #-}
+
+-- primitive
+--   primgel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
+--         (r : BI) (M0 : A0) (M1 : A1) (P : R M0 M1) →
+--         Gel r A0 A1 R 
 
 
 
