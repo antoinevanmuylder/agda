@@ -25,7 +25,7 @@ builtinNat, builtinSuc, builtinZero, builtinNatPlus, builtinNatMinus,
   builtinFaceForall,
   builtinId, builtinReflId, builtinConId, builtinIdElim,
   builtinBridgeInterval, builtinBIZero, builtinBIOne, builtinBridgeP,
-  builtinExtent,
+  builtinExtent, builtinGelType,
   builtinSizeUniv, builtinSize, builtinSizeLt,
   builtinSizeSuc, builtinSizeInf, builtinSizeMax,
   builtinInf, builtinSharp, builtinFlat,
@@ -147,6 +147,7 @@ builtinBIOne                             = "BIONE"
 builtinBIZero                            = "BIZERO"
 builtinBridgeP                           = "BRIDGEP"
 builtinExtent                            = "primExtent"
+builtinGelType                           = "GEL"
 builtinSub                               = "SUB"
 builtinSubIn                             = "SUBIN"
 builtinSubOut                            = "primSubOut"

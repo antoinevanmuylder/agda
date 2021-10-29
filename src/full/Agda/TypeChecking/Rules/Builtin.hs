@@ -228,6 +228,17 @@ coreBuiltins =
   , (builtinBIZero                            |-> BuiltinDataCons primBridgeIntervalType)
   , (builtinBIOne                             |-> BuiltinDataCons primBridgeIntervalType)
   
+  , (builtinGelType                           |-> builtinPostulate ( (>>) (requireBridges "") $ runNamesT [] $
+                                                  --   Gel : ∀ {ℓA ℓR} (r : BI) (A0 : Set ℓA) (A1 : Set ℓA) (R : A0 → A1 → Set ℓR) → Set ℓR
+                                                  hPi' "lA" (el primLevel) $ \lA ->
+                                                  hPi' "lR" (el primLevel) $ \lR ->
+                                                  lPi' "r" primBridgeIntervalType $ \r ->
+                                                  nPi' "A0" (sort . tmSort <$> lA) $ \bA0 ->
+                                                  nPi' "A1" (sort . tmSort <$> lA) $ \bA1 ->
+                                                  nPi' "R" ( (el' lA bA0) --> (el' lA bA1) --> (sort . tmSort <$> lR) ) $ \bR ->
+                                                  sort . tmSort <$> lR
+                                                  ))
+    
   , (builtinBridgeP                           |-> builtinPostulate ( (>>) (requireBridges "") $ runNamesT [] $
                                                   -- builtinPostulate expects a TCM Type. The following is ~ NamesT TCM Type
                                                   hPi' "a" (el primLevel) $ \a -> -- {a:Level} ;  a: NameT m Term

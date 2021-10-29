@@ -62,7 +62,7 @@ requireBridges s = do
     typeError $ GenericError $ "Missing option --bridges " ++ s
 
 -- | Bridge interval as a type, i.e. as a term and a sort annotation
---   We use the LockUniv sort because bridge variables x : BI should be treated affinely,
+--   We use the LockUniv sort because bridge variables x : BI should be treated affinely
 primBridgeIntervalType :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m) => m Type
 primBridgeIntervalType = El LockUniv <$> primBridgeInterval
 
@@ -96,14 +96,9 @@ extentType = do
          nPi' "aa" (el' lA $ cl primBridgeP <#> lA <@> bA <@> a0 <@> a1) $ \aa ->
          (el' lB $ cl primBridgeP <#> lB <@> newBline bB aa a0 a1 <@> (n0 <@> a0) <@> (n1 <@> a1)) ) $ \nn ->
        el' lB $ bB <@> r <@> bM )
-       -- el' (lA `levelLubTmM` lB) $ cl primBridgeP <#> (lA `levelLubTmM` lB) <@> newABline lA lB bA bB <@> n0 <@> n1 )
   return t
   where
     newBline bB aa a0 a1 = lam "i" (\i -> bB <@> i <@> (aa <@@> (a0, a1, i) )) -- i is a bridge elim hence the double "at".
-    -- -- use level of this pi-type: @newABline(i) := (a:A i) -> B i a@  ?
-    -- newABline lA lB bA bB = lam "i"  $ \i -> do
-    --   typ <- nPi' "ai" (el' lA $ bA <@> i) $ \ai -> el' lB $ bB <@> i <@> ai
-    --   return $ unEl typ
 
 -- | two functions to fill implementations holes
 dummyRedTerm0 :: ReduceM( Reduced MaybeReducedArgs Term)
@@ -123,21 +118,14 @@ isTimeless' typ@(El stype ttyp) = do
 
 -- | @semiFreshForFvars fvs lk@ checks whether the following condition holds:
 --   forall j in fvs, lk <=_time j -> timeless(j) where <=_time is left to right context order
---   precond: lk is a variable (no elims)
 semiFreshForFvars :: PureTCM m => VarSet -> Int -> m Bool
 semiFreshForFvars fvs lki = do
-  reportSLn "tc.prim" 40 $ "semiFreshForFvars, fvs & lki: " ++ P.prettyShow fvs ++ " " ++ P.prettyShow lki
   let lkLaters = filter (<= lki) (VSet.toList fvs) -- lk-laters, including lk itself and timeless vars
   timefullLkLaters <- flip filterM lkLaters $ \ j -> do
     tyj <- typeOfBV j --problem: can yield dummy type when it should not
-    look' <- lookupBV' j -- TODO remove this
-    lookHigher' <- typeOfBV $ j + 1
     resj <- isTimeless' tyj
-    reportSLn "tc.prim" 40 $ "timefullLkLaters, tyj & resj: " ++ P.prettyShow tyj ++ " " ++ P.prettyShow resj
-    reportSLn "tc.prim" 40 $ "timefullLkLaters, lookup: " ++ P.prettyShow look'
-    reportSLn "tc.prim" 40 $ "timefullLkLaters, lookHigher': " ++ P.prettyShow lookHigher'
     return $ not resj
-  reportSLn "tc.prim" 40 $ "semiFreshForFvars, timefullLkLaters: " ++ P.prettyShow timefullLkLaters
+  reportSLn "tc.prim" 60 $ "semiFreshForFvars, timefullLkLaters: " ++ P.prettyShow timefullLkLaters
   return $ null timefullLkLaters
 
 -- | Formation rule (extentType) and computation rule for the extent primitive.
@@ -164,19 +152,19 @@ primExtent' = do
         -- let rigidFvM = rigidVars fvM0
         -- let flexFvM = flexibleVars fvM0 --free vars appearing under a meta
         let fvM = allVars fvM0
-        shouldRedExtent <- semiFreshForFvars fvM ri -- andM [return $ null flex, semiFreshForFvars fvM rtm]
+        shouldRedExtent <- semiFreshForFvars fvM ri
         case shouldRedExtent of
           False -> do
-            reportSLn "tc.prim" 20 $ P.prettyShow rtm ++ " not semifresh for " ++ P.prettyShow bMtm'
-            reportSLn "tc.prim" 20 $ "because fvs are " ++ P.prettyShow fvM
+            reportSLn "tc.prim.extent" 30 $ P.prettyShow rtm ++ " not semifresh for " ++ P.prettyShow bMtm'
+            reportSLn "tc.prim.extent" 30 $ "because fvs are " ++ P.prettyShow fvM
             fallback lA lB bA bB r bM' n0 n1 nn --should throw error?
           True -> do
-            reportSLn "tc.prim" 20 $ P.prettyShow rtm ++ " is semifresh for " ++ P.prettyShow bMtm'
+            reportSLn "tc.prim.extent" 30 $ P.prettyShow rtm ++ " is semifresh for " ++ P.prettyShow bMtm'
             bi0 <- getTerm "primExtent" builtinBIZero
             bi1 <- getTerm "primExtent" builtinBIOne
             let lamM = captureIn bMtm' ri   -- λ r. M
-            reportSLn "tc.prim" 30 $ "captureIn (( " ++ P.prettyShow bMtm' ++" )) (( " ++ P.prettyShow ri ++ " ))"
-            reportSLn "tc.prim" 30 $ "captureIn ((M)) ((r)) is " ++ P.prettyShow lamM
+            reportSLn "tc.prim.extent" 30 $ "captureIn (( " ++ P.prettyShow bMtm' ++" )) (( " ++ P.prettyShow ri ++ " ))"
+            reportSLn "tc.prim.extent" 30 $ "captureIn ((M)) ((r)) is " ++ P.prettyShow lamM
             redReturn $ nntm `applyE` [Apply $ argN $ lamM `apply` [argN bi0],
                                    Apply $ argN $ lamM `apply` [argN bi1],
                                    Apply $ argN $ lamM,
