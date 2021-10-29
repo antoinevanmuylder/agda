@@ -366,7 +366,9 @@ instance Reduce PlusLevel where
   reduceB' (Plus n l) = fmap (Plus n) <$> reduceB' l
 
 instance (Subst a, Reduce a) => Reduce (Abs a) where
-  reduce' b@(Abs x _) = Abs x <$> underAbstraction_ b reduce'
+  reduce' b@(Abs x _) =
+    reportSLn "tc.prim.extent" 60 ( "reduce: adding " ++ x ++ " to ctx as dummy" ) >>
+    Abs x <$> underAbstraction_ b reduce'
   reduce' (NoAbs x v) = NoAbs x <$> reduce' v
 
 -- Lists are never blocked
@@ -963,7 +965,9 @@ instance Simplify PlusLevel where
   simplify' (Plus n l) = Plus n <$> simplify' l
 
 instance (Subst a, Simplify a) => Simplify (Abs a) where
-    simplify' a@(Abs x _) = Abs x <$> underAbstraction_ a simplify'
+    simplify' a@(Abs x _) =
+      reportSLn "tc.prim.extent" 60 ("simplify: adding " ++ x ++ " to ctx as dummy") >>
+      Abs x <$> underAbstraction_ a simplify'
     simplify' (NoAbs x v) = NoAbs x <$> simplify' v
 
 instance Simplify t => Simplify (Dom t) where
@@ -1138,7 +1142,9 @@ instance Normalise PlusLevel where
   normalise' (Plus n l) = Plus n <$> normalise' l
 
 instance (Subst a, Normalise a) => Normalise (Abs a) where
-    normalise' a@(Abs x _) = Abs x <$> underAbstraction_ a normalise'
+    normalise' a@(Abs x _) =
+      reportSLn "tc.prim.extent" 60 ("normalise: adding " ++ x ++ " to ctx as dummy") >>
+      Abs x <$> underAbstraction_ a normalise'
     normalise' (NoAbs x v) = NoAbs x <$> normalise' v
 
 instance Normalise t => Normalise (Arg t) where
@@ -1365,7 +1371,9 @@ instance InstantiateFull a => InstantiateFull (Pattern' a) where
     instantiateFull' (IApplyP o t u x) = IApplyP o <$> instantiateFull' t <*> instantiateFull' u <*> instantiateFull' x
 
 instance (Subst a, InstantiateFull a) => InstantiateFull (Abs a) where
-    instantiateFull' a@(Abs x _) = Abs x <$> underAbstraction_ a instantiateFull'
+    instantiateFull' a@(Abs x _) =
+      reportSLn "tc.prim.extent" 60 ("instantiateFull: adding " ++ x ++ " to ctx as dummy") >>
+      Abs x <$> underAbstraction_ a instantiateFull'
     instantiateFull' (NoAbs x a) = NoAbs x <$> instantiateFull' a
 
 instance (InstantiateFull t, InstantiateFull e) => InstantiateFull (Dom' t e) where
