@@ -139,7 +139,7 @@ primExtent' = do
                                                       n0@(Arg n0info n0tm), n1@(Arg n1info n1tm),
                                                       nn@(Arg nninfo nntm)] -> do
     --goal ReduceM(Reduced MaybeReducedArgs Term)
-    viewr <- bridgeIntervalView rtm
+    viewr <- bridgeIntervalView rtm --should reduceB because of metas
     case viewr of
       BIZero ->  redReturn $ n0tm `apply` [bM] -- YesReduction, YesSimplification
       BIOne ->   redReturn $ n1tm `apply` [bM]
@@ -194,14 +194,31 @@ primExtent' = do
 -- the Glue beta rule is part of the unglue PrimitiveImpl
 -- the Glue eta rule is specified elsewhere
 
-  -- , (builtinGelType                           |-> builtinPostulate ( (>>) (requireBridges "") $ runNamesT [] $
-  --                                                 --   Gel : ∀ {ℓA ℓ} (r : BI) (A0 : Set ℓA) (A1 : Set ℓA) (R : A0 → A1 → Set ℓ) → Set ℓ
-  --                                                 -- TODO-antva: should I check that A0 A1 R are apart from r?
-  --                                                 hPi' "lA" (el primLevel) $ \lA ->
-  --                                                 hPi' "lR" (el primLevel) $ \lR ->
-  --                                                 lPi' "r" primBridgeIntervalType $ \r ->
-  --                                                 nPi' "A0" (sort . tmSort <$> lA) $ \bA0 ->
-  --                                                 nPi' "A1" (sort . tmSort <$> lA) $ \bA1 ->
-  --                                                 nPi' "R" ( (el' lA bA0) --> (el' lA bA1) --> (sort . tmSort <$> lR) ) $ \bR ->
-  --                                                 sort . tmSort <$> lR
-  --                                                 ))
+
+-- | Gel : ∀ {ℓA ℓ} (r : BI) (A0 : Set ℓA) (A1 : Set ℓA) (R : A0 → A1 → Set ℓ) → Set ℓ
+-- TODO-antva: should I check that A0 A1 R are apart from r?
+gelType :: TCM Type
+gelType = do
+  t <- runNamesT [] $
+       hPi' "lA" (el primLevel) $ \lA ->
+       hPi' "lR" (el primLevel) $ \lR ->
+       lPi' "r" primBridgeIntervalType $ \r ->
+       nPi' "A0" (sort . tmSort <$> lA) $ \bA0 ->
+       nPi' "A1" (sort . tmSort <$> lA) $ \bA1 ->
+       nPi' "R" ( (el' lA bA0) --> (el' lA bA1) --> (sort . tmSort <$> lR) ) $ \bR ->
+       sort . tmSort <$> lR
+  return t
+
+
+-- | Formation rule for Gel type + boundary rule
+primGel' :: TCM PrimitiveImpl
+primGel' = do
+  requireBridges "in primGel'"
+  typ <- gelType
+  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 6 $ \gelTypeArgs@[lA, lR, r@(Arg rinfo rtm), bA0, bA1, bR]-> do
+    --goal ReduceM(Reduced MaybeReducedArgs Term)
+    viewr <- bridgeIntervalView rtm --should reduceB because of metas
+    case viewr of
+      BIZero -> dummyRedTerm0
+      BIOne -> dummyRedTerm0
+      BOTerm {} -> dummyRedTerm0
