@@ -313,7 +313,10 @@ primitive
   primGel : ∀ {ℓA ℓ} (r : BI) (A0 A1 : Set ℓA) (R : A0 → A1 → Set ℓ) → Set ℓ
 
 
-
+primitive
+  prim^gel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
+               (r : BI) (M0 : A0) (M1 : A1) (P : R M0 M1) →
+               primGel r A0 A1 R
 
 
   

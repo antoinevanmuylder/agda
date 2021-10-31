@@ -175,7 +175,7 @@ primInteger, primIntegerPos, primIntegerNegSuc,
     primGlue, prim_glue, prim_unglue,
     prim_glueU, prim_unglueU,
     primFaceForall,
-    primBridgeInterval, primBIZero, primBIOne, primBridgeP, primExtent, primGel,
+    primBridgeInterval, primBIZero, primBIOne, primBridgeP, primExtent, primGel, prim_gel,
     primNatPlus, primNatMinus, primNatTimes, primNatDivSucAux, primNatModSucAux,
     primNatEquality, primNatLess,
     -- Machine words
@@ -283,6 +283,7 @@ primBIOne                             = getBuiltin builtinBIOne
 primBridgeP                           = getBuiltin builtinBridgeP
 primExtent                            = getPrimitiveTerm builtinExtent
 primGel                               = getPrimitiveTerm builtinGel
+prim_gel                              = getPrimitiveTerm builtin_gel
 primNat                               = getBuiltin builtinNat
 primSuc                               = getBuiltin builtinSuc
 primZero                              = getBuiltin builtinZero
@@ -750,7 +751,7 @@ constrainedPrims =
   , builtinComp
   , builtinHComp
   , builtinTrans
-  , builtin_glue
+  , builtin_glue --TODO-antva extent, Gel, gel, ungel should be in that list?
   , builtin_glueU
   ]
 

@@ -58,7 +58,8 @@ import Agda.Utils.VarSet as VSet hiding (null)
 --   - see github issues for more severe issues
 --   - should write unit tests
 --   - there are TODO-antva's lying around
---   - pre bridges must be lock annoted? eg bridge form, intro
+--   - pre bridges must be lock annoted? eg bridge form, intro. what matters is the internal lPi' vs nPi'
+--     but could make that explicit in the Agda file declaring the primitive.
 --   - sometimes rules in CH ask for apartedness (freshness) but no check is performed here
 --   - bunch of unsettled questions in code below
 
@@ -144,6 +145,7 @@ semiFreshForFvars fvs lki = do
 
 -- | Formation rule (extentType) and computation rule for the extent primitive.
 --   For extent this include a boundary (BIZero, BIOne case) and beta rule.
+--   the rules in CH sometimes require freshness but we lack those checks here
 primExtent' :: TCM PrimitiveImpl
 primExtent' = do
   requireBridges "in primExtent'"
@@ -210,6 +212,7 @@ primExtent' = do
 
 -- | Gel : ∀ {ℓA ℓ} (r : BI) (A0 : Set ℓA) (A1 : Set ℓA) (R : A0 → A1 → Set ℓ) → Set ℓ
 -- TODO-antva: should I check that A0 A1 R are apart from r?
+-- the return type is really Set ℓ?
 gelType :: TCM Type
 gelType = do
   t <- runNamesT [] $
@@ -238,3 +241,39 @@ primGel' = do
       BIOne -> redReturn bA1tm
       BOTerm rtm@(Var ri []) -> return $ NoReduction $ map notReduced gelTypeArgs
       _ -> __IMPOSSIBLE__ --metas...
+
+-- | prim^gel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
+--              (r : BI) (M0 : A0) (M1 : A1) (P : R M0 M1) →
+--              Gel r A0 A1 R
+-- should check freshness? cf ch rules
+prim_gelType :: TCM Type
+prim_gelType = do
+  t <- runNamesT [] $
+       hPi' "lA" (el primLevel) $ \lA ->
+       hPi' "l" (el primLevel) $ \l ->
+       hPi' "A0" (sort . tmSort <$> lA) $ \bA0 ->
+       hPi' "A1" (sort . tmSort <$> lA) $ \bA1 ->
+       hPi' "R" ( (el' lA bA0) --> (el' lA bA1) --> (sort . tmSort <$> l) ) $ \bR ->
+       nPi' "r" primBridgeIntervalType $ \r ->  --lock?
+       nPi' "M0" (el' lA bA0) $ \bM0 ->
+       nPi' "M1" (el' lA bA1) $ \bM1 ->
+       nPi' "P" (el' l $ bR <@> bM0 <@> bM1) $ \bP ->
+       el' l $ cl primGel <#> lA <#> l <@> r <@> bA0 <@> bA1 <@> bR
+  return t
+  
+
+-- -- | introduction term for Gel is gel (sometimes also called prim_gel / prim_gel' / prim^gel)
+prim_gel' :: TCM PrimitiveImpl
+prim_gel' = do
+  requireBridges "in prim_gel'"
+  typ <- prim_gelType
+  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 9 $ \gelArgs@[lA, l, bA0, bA1,
+                                                               bR, r@(Arg rinfo rtm),
+                                                               bM0@(Arg _ bM0tm), bM1@(Arg _ bM1tm), bP]-> do
+    --goal ReduceM(Reduced MaybeReducedArgs Term)
+    viewr <- bridgeIntervalView rtm --should reduceB because of metas
+    case viewr of
+      BIZero -> redReturn bM0tm
+      BIOne -> redReturn bM1tm
+      BOTerm rtm@(Var ri []) -> return $ NoReduction $ map notReduced gelArgs
+      _ -> __IMPOSSIBLE__ --metas...  
