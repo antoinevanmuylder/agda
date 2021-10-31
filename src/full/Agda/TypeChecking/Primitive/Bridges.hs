@@ -262,7 +262,7 @@ prim_gelType = do
   return t
   
 
--- -- | introduction term for Gel is gel (sometimes also called prim_gel / prim_gel' / prim^gel)
+-- | introduction term for Gel is gel (sometimes also called prim_gel - prim_gel' - prim^gel)
 prim_gel' :: TCM PrimitiveImpl
 prim_gel' = do
   requireBridges "in prim_gel'"
@@ -276,4 +276,34 @@ prim_gel' = do
       BIZero -> redReturn bM0tm
       BIOne -> redReturn bM1tm
       BOTerm rtm@(Var ri []) -> return $ NoReduction $ map notReduced gelArgs
-      _ -> __IMPOSSIBLE__ --metas...  
+      _ -> __IMPOSSIBLE__ --metas...
+
+
+-- primitive
+--   prim^ungel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
+--                (absQ : (x : BI) → primGel x A0 A1 R) →
+--                R (absQ bi0) (absQ bi1)
+prim_ungelType :: TCM Type
+prim_ungelType = do
+  t <- runNamesT [] $
+       hPi' "lA" (el primLevel) $ \lA ->
+       hPi' "l" (el primLevel) $ \l ->
+       hPi' "A0" (sort . tmSort <$> lA) $ \bA0 ->
+       hPi' "A1" (sort . tmSort <$> lA) $ \bA1 ->
+       hPi' "R" ( (el' lA bA0) --> (el' lA bA1) --> (sort . tmSort <$> l) ) $ \bR ->
+       nPi' "absQ" ( lPi' "x" primBridgeIntervalType $ \x ->
+                          (el' l $ cl primGel <#> lA <#> l <@> x <@> bA0 <@> bA1 <@> bR)) $ \absQ ->
+       el' l $ bR <@> (absQ <@> primBIZero) <@> (absQ <@> primBIOne)
+  return t
+
+
+-- | eliminator for Gel types called ungel (sometimes prim_ungel' - prim_ungel - prim^ungel)
+--   can I encode the Gel-beta rule in this guy?
+prim_ungel' :: TCM PrimitiveImpl
+prim_ungel' = do
+  requireBridges "in prim_ungel'"
+  typ <- prim_ungelType
+  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 6 $ \gelArgs@[lA, l, bA0, bA1,
+                                                               bR, absQ]-> do
+    --goal ReduceM(Reduced MaybeReducedArgs Term)
+    dummyRedTerm0

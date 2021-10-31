@@ -318,6 +318,10 @@ primitive
                (r : BI) (M0 : A0) (M1 : A1) (P : R M0 M1) →
                primGel r A0 A1 R
 
+-- primitive
+--   prim^ungel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
+--                (absQ : (x : BI) → primGel x A0 A1 R) →
+--                R (absQ bi0) (absQ bi1)
 
   
 
