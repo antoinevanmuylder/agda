@@ -54,6 +54,17 @@ import qualified Agda.Utils.Pretty as P
 import Agda.Utils.VarSet as VSet hiding (null)
 
 
+-- * General todos
+--   - see github issues for more severe issues
+--   - should write unit tests
+--   - there are TODO-antva's lying around
+--   - pre bridges must be lock annoted? eg bridge form, intro
+--   - sometimes rules in CH ask for apartedness (freshness) but no check is performed here
+--   - bunch of unsettled questions in code below
+
+
+-- * Prelude
+
 -- | Generates error if --bridges pragma option was not set
 requireBridges :: String -> TCM ()
 requireBridges s = do
@@ -66,6 +77,16 @@ requireBridges s = do
 primBridgeIntervalType :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m) => m Type
 primBridgeIntervalType = El LockUniv <$> primBridgeInterval
 
+-- | two functions to fill implementations holes
+dummyRedTerm0 :: ReduceM( Reduced MaybeReducedArgs Term)
+dummyRedTerm0 = do
+  return $ YesReduction NoSimplification $ Dummy "something" []
+
+dummyRedTerm :: Term -> ReduceM( Reduced MaybeReducedArgs Term)
+dummyRedTerm t = return $ YesReduction NoSimplification t
+
+
+-- * extent primitive
 
 
 -- | Type for extent primitive.
@@ -100,14 +121,6 @@ extentType = do
   where
     newBline bB aa a0 a1 = lam "i" (\i -> bB <@> i <@> (aa <@@> (a0, a1, i) )) -- i is a bridge elim hence the double "at".
 
--- | two functions to fill implementations holes
-dummyRedTerm0 :: ReduceM( Reduced MaybeReducedArgs Term)
-dummyRedTerm0 = do
-  return $ YesReduction NoSimplification $ Dummy "something" []
-
-dummyRedTerm :: Term -> ReduceM( Reduced MaybeReducedArgs Term)
-dummyRedTerm t = return $ YesReduction NoSimplification t
-
 
 isTimeless' :: PureTCM m => Type -> m Bool
 isTimeless' typ@(El stype ttyp) = do
@@ -115,6 +128,7 @@ isTimeless' typ@(El stype ttyp) = do
   case ttyp of
     Def q _ | Just q `elem` timeless -> return True
     _                                -> return False
+
 
 -- | @semiFreshForFvars fvs lk@ checks whether the following condition holds:
 --   forall j in fvs, lk <=_time j -> timeless(j) where <=_time is left to right context order
@@ -169,7 +183,7 @@ primExtent' = do
                                    Apply $ argN $ lamM `apply` [argN bi1],
                                    Apply $ argN $ lamM,
                                    IApply n0tm n1tm rtm  ]
-      _ -> __IMPOSSIBLE__
+      _ -> __IMPOSSIBLE__ --beware of metas?
   where
     -- | captures r in M, ie returns λ r. M. This is sound thanks to the fv-analysis.
     --  Γ0 , r:BI , Γ1, r''   --σ-->   Γ0 , r:BI , Γ1 ⊢ M   where    r[σ] = r''
@@ -186,13 +200,12 @@ primExtent' = do
                                    [reduced bM'] ++ map notReduced [n0, n1, nn]
 
 
-
--- Gel primitives.
--- We take inspiration from the cubical Glue types and primitives.
--- In their case, the type, the intro and elim primitives are really agda primitives.
--- the boundary rules are part of the various PrimitiveImpl.
--- the Glue beta rule is part of the unglue PrimitiveImpl
--- the Glue eta rule is specified elsewhere
+-- * Gel type primitives: Gel, gel, ungel
+--   We take inspiration from the cubical Glue types and primitives.
+--   In their case, the type, the intro and elim primitives are really agda primitives.
+--   the boundary rules are part of the various PrimitiveImpl.
+--   the Glue beta rule is part of the unglue PrimitiveImpl
+--   the Glue eta rule is specified elsewhere
 
 
 -- | Gel : ∀ {ℓA ℓ} (r : BI) (A0 : Set ℓA) (A1 : Set ℓA) (R : A0 → A1 → Set ℓ) → Set ℓ
@@ -211,14 +224,17 @@ gelType = do
 
 
 -- | Formation rule for Gel type + boundary rule
+--   should I perform a fv analysis? if yes when should I do it??
 primGel' :: TCM PrimitiveImpl
 primGel' = do
   requireBridges "in primGel'"
   typ <- gelType
-  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 6 $ \gelTypeArgs@[lA, lR, r@(Arg rinfo rtm), bA0, bA1, bR]-> do
+  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 6 $ \gelTypeArgs@[lA, lR, r@(Arg rinfo rtm), bA0@(Arg ainfo0 bA0tm),
+                                                                   bA1@(Arg ainfo1 bA1tm), bR]-> do
     --goal ReduceM(Reduced MaybeReducedArgs Term)
     viewr <- bridgeIntervalView rtm --should reduceB because of metas
     case viewr of
-      BIZero -> dummyRedTerm0
-      BIOne -> dummyRedTerm0
-      BOTerm {} -> dummyRedTerm0
+      BIZero -> redReturn bA0tm
+      BIOne -> redReturn bA1tm
+      BOTerm rtm@(Var ri []) -> return $ NoReduction $ map notReduced gelTypeArgs
+      _ -> __IMPOSSIBLE__ --metas...

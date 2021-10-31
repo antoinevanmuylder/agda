@@ -300,22 +300,19 @@ module PlayExtent {ℓA ℓB : Level} {A : BI → Set ℓA} {B : (x : BI) (a : A
   -- TODO: issue #2 on my fork: when computing under lambdas, types of vars are forgotten which messes up the fv analysis
   -- try C-u C-u C-C C-t the target type
 
-  related-sections-retract : (q : related-sections) -> q ≡ bf-hard ( bf-easy q )
-  related-sections-retract q = {!!}
+  -- related-sections-retract : (q : related-sections) -> q ≡ bf-hard ( bf-easy q )
+  -- related-sections-retract q = {!!}
     
 ------------------------------------------------------------------------
 -- Gel Types
 ------------------------------------------------------------------------
 
 
+
 primitive
   primGel : ∀ {ℓA ℓ} (r : BI) (A0 A1 : Set ℓA) (R : A0 → A1 → Set ℓ) → Set ℓ
 
 
--- primitive
---   primgel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
---         (r : BI) (M0 : A0) (M1 : A1) (P : R M0 M1) →
---         Gel r A0 A1 R 
 
 
 
