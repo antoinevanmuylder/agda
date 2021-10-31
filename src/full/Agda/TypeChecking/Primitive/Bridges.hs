@@ -298,7 +298,9 @@ prim_ungelType = do
 
 
 -- | eliminator for Gel types called ungel (sometimes prim_ungel' - prim_ungel - prim^ungel)
---   can I encode the Gel-beta rule in this guy?
+--   can I encode the Gel-beta rule in this guy? see prim_unglue' in Cubical.hs
+--   difference: here I have to reduce the principal arg of ungel under the lambda
+--   underAbstractionAbs could be useful (Abs because we don't want dummy types for bridge vars)
 prim_ungel' :: TCM PrimitiveImpl
 prim_ungel' = do
   requireBridges "in prim_ungel'"
@@ -306,4 +308,12 @@ prim_ungel' = do
   return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 6 $ \gelArgs@[lA, l, bA0, bA1,
                                                                bR, absQ]-> do
     --goal ReduceM(Reduced MaybeReducedArgs Term)
+    mgel <- getPrimitiveName' builtin_gel
+    -- binterval <- primBridgeInterval
+    absQ' <- reduceB' absQ
+    let absQtm' = unArg $ ignoreBlocking $ absQ' --should care for metas, as usual
     dummyRedTerm0
+    -- case absQtm' of
+    --   Lam qinfo qbody -> 
+    --     isgel <- underAbstractionAbs $ (defaultArgDom qinfo 
+    
