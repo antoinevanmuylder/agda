@@ -972,6 +972,7 @@ primitiveFunctions = localTCStateSavingWarnings <$> Map.fromListWith __IMPOSSIBL
   , builtinExtent         |-> primExtent'
   , builtinGel            |-> primGel'
   , builtin_gel           |-> prim_gel'
+  , builtin_ungel         |-> prim_ungel'
   ]
   where
     (|->) = (,)

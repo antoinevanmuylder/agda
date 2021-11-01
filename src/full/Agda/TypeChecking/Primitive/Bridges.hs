@@ -65,6 +65,7 @@ import Agda.Utils.VarSet as VSet hiding (null)
 --     r fresh for M means in particular that r not in fv M. since BI is registered a timeless
 --     I should make sure that the freshness constraint wants no r in fvM.
 --   - bunch of unsettled questions in code below. in particular: handling of metas if quite bad for now
+--   - should check the universe levels in the type of my primitives
 --   - see github issues for more severe issues
 --   - should write unit tests
 --   - there are TODO-antva's lying around
@@ -91,6 +92,7 @@ dummyRedTerm0 = do
 
 dummyRedTerm :: Term -> ReduceM( Reduced MaybeReducedArgs Term)
 dummyRedTerm t = return $ YesReduction NoSimplification t
+
 
 
 -- * extent primitive
@@ -219,7 +221,7 @@ primExtent' = do
 --   the Glue eta rule is specified elsewhere
 
 
--- | Gel : ∀ {ℓA ℓ} (r : BI) (A0 : Set ℓA) (A1 : Set ℓA) (R : A0 → A1 → Set ℓ) → Set ℓ
+-- | Gel : ∀ {ℓA ℓ} (r : BI) (A0 : Set ℓA) (A1 : Set ℓA) (R : A0 → A1 → Set ℓ) → Set ℓA
 -- TODO-antva: should I check that A0 A1 R are apart from r?
 -- the return type is really Set ℓ?
 gelType :: TCM Type
@@ -231,7 +233,7 @@ gelType = do
        nPi' "A0" (sort . tmSort <$> lA) $ \bA0 ->
        nPi' "A1" (sort . tmSort <$> lA) $ \bA1 ->
        nPi' "R" ( (el' lA bA0) --> (el' lA bA1) --> (sort . tmSort <$> lR) ) $ \bR ->
-       sort . tmSort <$> lR
+       sort . tmSort <$> lA
   return t
 
 
@@ -265,7 +267,7 @@ prim_gelType = do
        nPi' "M0" (el' lA bA0) $ \bM0 ->
        nPi' "M1" (el' lA bA1) $ \bM1 ->
        nPi' "P" (el' l $ bR <@> bM0 <@> bM1) $ \bP ->
-       el' l $ cl primGel <#> lA <#> l <@> r <@> bA0 <@> bA1 <@> bR
+       el' lA $ cl primGel <#> lA <#> l <@> r <@> bA0 <@> bA1 <@> bR
   return t
   
 
@@ -336,3 +338,5 @@ prim_ungel' = do
     fallback lA l bA0 bA1 bR absQ' =
       return $ NoReduction $ map notReduced [lA, l, bA0, bA1, bR] ++ [reduced absQ']
     
+
+

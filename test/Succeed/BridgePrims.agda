@@ -1,4 +1,4 @@
-{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.prim:30 #-}
+{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.constr:60 #-}
 module BridgePrims where
 
 -- this is a reproduction of test/Succeed/LaterPrims.agda and-or Agda.Primitive.Cubical
@@ -308,9 +308,8 @@ module PlayExtent {ℓA ℓB : Level} {A : BI → Set ℓA} {B : (x : BI) (a : A
 ------------------------------------------------------------------------
 
 
-
 primitive
-  primGel : ∀ {ℓA ℓ} (r : BI) (A0 A1 : Set ℓA) (R : A0 → A1 → Set ℓ) → Set ℓ
+  primGel : ∀ {ℓA ℓ} (r : BI) (A0 A1 : Set ℓA) (R : A0 → A1 → Set ℓ) → Set ℓA
 
 
 primitive
@@ -318,12 +317,45 @@ primitive
                (r : BI) (M0 : A0) (M1 : A1) (P : R M0 M1) →
                primGel r A0 A1 R
 
--- primitive
---   prim^ungel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
---                (absQ : (x : BI) → primGel x A0 A1 R) →
---                R (absQ bi0) (absQ bi1)
 
-  
+primitive
+  prim^ungel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
+               (absQ : (x : BI) → primGel x A0 A1 R) →
+               R (absQ bi0) (absQ bi1)
+
+
+module BugGel where
+
+  data ⊥ : Set where -- empty type  
+  data ⊤ : Set where
+    tt : ⊤
+
+  myR : Bool → Bool → Set
+  myR false false = ⊤
+  myR false true = ⊤
+  myR true false = ⊥
+  myR true true = ⊥
+
+  myP : myR false true
+  myP  = tt
+
+
+  boolGel : primGel bi0 Bool Bool myR ≡ Bool
+  boolGel i = Bool
+
+  boolgel : prim^gel bi0 false true myP ≡ false
+  boolgel = {!!}
+
+module PlayGel {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ} where
+
+  -- boundaries for Gel type
+  boundary0-Gel : primGel bi0 A0 A1 R ≡ A0
+  boundary0-Gel i = A0
+
+  boundary1-Gel : primGel bi1 A0 A1 R ≡ A1
+  boundary1-Gel = λ i → A1
+
+
 
 module PlayLater where
 
