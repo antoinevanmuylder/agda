@@ -55,13 +55,19 @@ import Agda.Utils.VarSet as VSet hiding (null)
 
 
 -- * General todos
+--   - pre bridges must be lock annoted? eg bridge form, intro. In other words should we use lPi' vs nPi'
+--     when writing types in internal syntax?
+--     (tick x : Lk) -> A x  is 'the type of affine sections of A' (A must be affine in x as well??)
+--     when typechecking application s r, a freshness constraint is generated.
+--   - sometimes rules in CH ask for apartedness (freshness) but no check is performed here
+--     I wonder if a PrimitiveImpl is really the place to have those freshness checks (except
+--     right before a computation). I should have more constraints generated during typechecking instead?
+--     r fresh for M means in particular that r not in fv M. since BI is registered a timeless
+--     I should make sure that the freshness constraint wants no r in fvM.
+--   - bunch of unsettled questions in code below. in particular: handling of metas if quite bad for now
 --   - see github issues for more severe issues
 --   - should write unit tests
 --   - there are TODO-antva's lying around
---   - pre bridges must be lock annoted? eg bridge form, intro. what matters is the internal lPi' vs nPi'
---     but could make that explicit in the Agda file declaring the primitive.
---   - sometimes rules in CH ask for apartedness (freshness) but no check is performed here
---   - bunch of unsettled questions in code below
 
 
 -- * Prelude
@@ -202,7 +208,10 @@ primExtent' = do
                                    [reduced bM'] ++ map notReduced [n0, n1, nn]
 
 
+
+
 -- * Gel type primitives: Gel, gel, ungel
+
 --   We take inspiration from the cubical Glue types and primitives.
 --   In their case, the type, the intro and elim primitives are really agda primitives.
 --   the boundary rules are part of the various PrimitiveImpl.
@@ -227,7 +236,6 @@ gelType = do
 
 
 -- | Formation rule for Gel type + boundary rule
---   should I perform a fv analysis? if yes when should I do it??
 primGel' :: TCM PrimitiveImpl
 primGel' = do
   requireBridges "in primGel'"
@@ -245,7 +253,6 @@ primGel' = do
 -- | prim^gel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
 --              (r : BI) (M0 : A0) (M1 : A1) (P : R M0 M1) →
 --              Gel r A0 A1 R
--- should check freshness? cf ch rules
 prim_gelType :: TCM Type
 prim_gelType = do
   t <- runNamesT [] $
@@ -279,8 +286,7 @@ prim_gel' = do
       _ -> __IMPOSSIBLE__ --metas...
 
 
--- primitive
---   prim^ungel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
+-- | prim^ungel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
 --                (absQ : (x : BI) → primGel x A0 A1 R) →
 --                R (absQ bi0) (absQ bi1)
 prim_ungelType :: TCM Type
@@ -309,11 +315,24 @@ prim_ungel' = do
                                                                bR, absQ]-> do
     --goal ReduceM(Reduced MaybeReducedArgs Term)
     mgel <- getPrimitiveName' builtin_gel
-    -- binterval <- primBridgeInterval
+    bintervalTm <- getTerm "prim_ungel" builtinBridgeInterval
+    let bintervalTyp = El LockUniv bintervalTm
     absQ' <- reduceB' absQ
     let absQtm' = unArg $ ignoreBlocking $ absQ' --should care for metas, as usual
-    dummyRedTerm0
-    -- case absQtm' of
-    --   Lam qinfo qbody -> 
-    --     isgel <- underAbstractionAbs $ (defaultArgDom qinfo 
+    case absQtm' of
+      Lam qinfo qbody -> do
+        mbP :: Maybe Term <-
+          underAbstractionAbs (defaultNamedArgDom qinfo "xq" bintervalTyp) qbody $ \body -> do --body comes already wkn?
+          body' <- reduceB' body --should care for metas as usual
+          case ignoreBlocking body' of
+            Def qnm [Apply _, Apply _, Apply _, Apply _,Apply _, Apply _, Apply _, Apply _, Apply bP]
+                    | Just qnm == mgel -> return $ Just $ unArg bP
+            _ -> return Nothing
+        case mbP of
+          Nothing -> fallback lA l bA0 bA1 bR absQ'
+          Just bP -> redReturn $ bP --should strenthen P?
+      _ -> __IMPOSSIBLE__
+  where
+    fallback lA l bA0 bA1 bR absQ' =
+      return $ NoReduction $ map notReduced [lA, l, bA0, bA1, bR] ++ [reduced absQ']
     
