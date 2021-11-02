@@ -65,10 +65,14 @@ import Agda.Utils.VarSet as VSet hiding (null)
 --     r fresh for M means in particular that r not in fv M. since BI is registered a timeless
 --     I should make sure that the freshness constraint wants no r in fvM.
 --   - bunch of unsettled questions in code below. in particular: handling of metas if quite bad for now
+--   - cannot define bridges with left application. b : BridgeP x.A a0 a1,  b i = ...
+--     forced to do b = lam i -> ... for some reason
 --   - when checking that primitives reduce the intended way, state path equality
 --     as x = y but also y = x.     not sure if it is that useful
 --   - should check the universe levels in the type of my primitives
---   - see github issues for more severe issues
+--   - see github issues for more severe issues. for instance: #2 is about lack of computation
+--     under lambdas for extent.
+--   - CH does not say how cubical composition acts on bridge types?
 --   - should write unit tests
 --   - there are TODO-antva's lying around
 

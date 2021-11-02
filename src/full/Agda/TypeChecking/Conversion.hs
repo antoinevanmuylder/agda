@@ -322,7 +322,7 @@ compareTerm' cmp a m n =
 
             else (do pathview <- pathView a'
                      bridgeview <- bridgeView a'
-                     equalPathBridge pathview bridgeview a' m n) --if m n are paths or bridges compare them
+                     equalPathBridge pathview bridgeview a' m n) --if not paths/bridges, calls cmpDef
         _ -> compareAtom cmp (AsTermsOf a') m n
   where
     -- equality at function type (accounts for eta)
@@ -361,6 +361,7 @@ compareTerm' cmp a m n =
        mSub   <- getBuiltinName' builtinSub
        mUnglueU <- getPrimitiveTerm' builtin_unglueU
        mSubIn   <- getPrimitiveTerm' builtinSubIn
+       mGel <- getPrimitiveName' builtinGel
        case ty of
          Def q es | Just q == mIsOne -> return ()
          Def q es | Just q == mGlue, Just args@(l:_:a:phi:_) <- allApplyElims es -> do
@@ -370,6 +371,14 @@ compareTerm' cmp a m n =
               reportSDoc "conv.glue" 20 $ prettyTCM (aty,mkUnglue m,mkUnglue n)
               compareTermOnFace cmp (unArg phi) a' m n
               compareTerm cmp aty (mkUnglue m) (mkUnglue n)
+         Def q es | Just q == mGel, Just args@[lA, lR, r, bA0, bA1, bR] <- allApplyElims es -> do
+              -- comparing m ?= n at type Gel_r (A0, A1, R)
+              atyp0 <- el' (pure $ unArg lA) (pure $ unArg bA0)
+              atyp1 <- el' (pure $ unArg lA) (pure $ unArg bA1)
+              ungel <- prim_ungel
+              let mkUngel m = ungel `apply` ( map (setHiding Hidden) args ++ [argN m] )
+              reportSDoc "conv.gel" 20 $ prettyTCM (mkUngel m, mkUngel n)
+              return __UNREACHABLE__
          Def q es | Just q == mHComp, Just (sl:s:args@[phi,u,u0]) <- allApplyElims es
                   , Sort (Type lvl) <- unArg s
                   , Just unglueU <- mUnglueU, Just subIn <- mSubIn

@@ -352,3 +352,9 @@ module PlayGel {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ} where
   ungel-gel' : (M1 : A1) (M0 : A0) (P : R M0 M1) →
               prim^ungel ( λ (x : BI) → prim^gel {R = R} x M0 M1 P ) ≡ P
   ungel-gel' M1 M0 P i = P
+
+  -- bridge induced by R
+  induced-bridge : BridgeP (λ i → Set ℓA) A0 A1
+  induced-bridge = λ i → primGel i A0 A1 R
+
+
