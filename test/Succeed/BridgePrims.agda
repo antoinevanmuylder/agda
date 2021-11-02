@@ -1,4 +1,4 @@
-{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.constr:60 #-}
+{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.prim.ungel:30 #-}
 module BridgePrims where
 
 -- this is a reproduction of test/Succeed/LaterPrims.agda and-or Agda.Primitive.Cubical
@@ -312,6 +312,7 @@ primitive
   primGel : ∀ {ℓA ℓ} (r : BI) (A0 A1 : Set ℓA) (R : A0 → A1 → Set ℓ) → Set ℓA
 
 
+-- caution: R is implicit but can not be inferred from the following args
 primitive
   prim^gel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
                (r : BI) (M0 : A0) (M1 : A1) (P : R M0 M1) →
@@ -324,27 +325,6 @@ primitive
                R (absQ bi0) (absQ bi1)
 
 
-module BugGel where
-
-  data ⊥ : Set where -- empty type  
-  data ⊤ : Set where
-    tt : ⊤
-
-  myR : Bool → Bool → Set
-  myR false false = ⊤
-  myR false true = ⊤
-  myR true false = ⊥
-  myR true true = ⊥
-
-  myP : myR false true
-  myP  = tt
-
-
-  boolGel : primGel bi0 Bool Bool myR ≡ Bool
-  boolGel i = Bool
-
-  boolgel : prim^gel bi0 false true myP ≡ false
-  boolgel = {!!}
 
 module PlayGel {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ} where
 
@@ -356,14 +336,19 @@ module PlayGel {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ} where
   boundary1-Gel = λ i → A1
 
 
+  -- boundaries for gel
+  boundary0-gel : (M0 : A0) (M1 : A1) (P : R M0 M1) → prim^gel {R = R} bi0 M0 M1 P ≡ M0
+  boundary0-gel M0 M1 P i = M0
 
-module PlayLater where
+  boundary1-gel : (M0 : A0) (M1 : A1) (P : R M0 M1) → prim^gel {R = R} bi1 M0 M1 P ≡ M1
+  boundary1-gel M0 M1 P i = M1
 
-  -- open import LaterPrims -- Γ ⊢ M:A(r)    Γ\r, r:I ⊢ M:A(r)
+
+  -- computational behaviour of ungel?
+  ungel-gel : (M1 : A1) (M0 : A0) (P : R M0 M1) →
+              P ≡ prim^ungel ( λ (x : BI) → prim^gel {R = R} x M0 M1 P )
+  ungel-gel M1 M0 P i = P
   
-  -- --there is no exchange rule for tick vars
-  -- later-exch : ∀ {ℓ} {A : Set ℓ} →
-  --              (  (@tick x : Tick) → (@tick y : Tick) → A ) →
-  --              (  (@tick y : Tick) → (@tick x : Tick) → A )
-  -- later-exch laxy = λ y x → laxy x y
-  
+  ungel-gel' : (M1 : A1) (M0 : A0) (P : R M0 M1) →
+              prim^ungel ( λ (x : BI) → prim^gel {R = R} x M0 M1 P ) ≡ P
+  ungel-gel' M1 M0 P i = P

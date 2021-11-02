@@ -65,6 +65,8 @@ import Agda.Utils.VarSet as VSet hiding (null)
 --     r fresh for M means in particular that r not in fv M. since BI is registered a timeless
 --     I should make sure that the freshness constraint wants no r in fvM.
 --   - bunch of unsettled questions in code below. in particular: handling of metas if quite bad for now
+--   - when checking that primitives reduce the intended way, state path equality
+--     as x = y but also y = x.     not sure if it is that useful
 --   - should check the universe levels in the type of my primitives
 --   - see github issues for more severe issues
 --   - should write unit tests
@@ -252,6 +254,7 @@ primGel' = do
       BOTerm rtm@(Var ri []) -> return $ NoReduction $ map notReduced gelTypeArgs
       _ -> __IMPOSSIBLE__ --metas...
 
+
 -- | prim^gel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
 --              (r : BI) (M0 : A0) (M1 : A1) (P : R M0 M1) →
 --              Gel r A0 A1 R
@@ -322,18 +325,24 @@ prim_ungel' = do
     absQ' <- reduceB' absQ
     let absQtm' = unArg $ ignoreBlocking $ absQ' --should care for metas, as usual
     case absQtm' of
-      Lam qinfo qbody -> do
-        mbP :: Maybe Term <-
-          underAbstractionAbs (defaultNamedArgDom qinfo "xq" bintervalTyp) qbody $ \body -> do --body comes already wkn?
+      Lam qinfo qbody ->
+        underAbstractionAbs (defaultNamedArgDom qinfo "xq" bintervalTyp) qbody $ \body -> do --body already comes wkn
           body' <- reduceB' body --should care for metas as usual
           case ignoreBlocking body' of
             Def qnm [Apply _, Apply _, Apply _, Apply _,Apply _, Apply _, Apply _, Apply _, Apply bP]
-                    | Just qnm == mgel -> return $ Just $ unArg bP
-            _ -> return Nothing
-        case mbP of
-          Nothing -> fallback lA l bA0 bA1 bR absQ'
-          Just bP -> redReturn $ bP --should strenthen P?
-      _ -> __IMPOSSIBLE__
+                    | Just qnm == mgel -> do
+                      reportSLn "tc.prim.ungel" 30 $ "in prim_ungel': here is absQ local body: " ++
+                                P.prettyShow (ignoreBlocking body')
+                      reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. absQ is x.gel, here is P before str: " ++
+                                P.prettyShow bP
+                      let strP = applySubst (strengthenS impossible 1) $ unArg bP
+                      -- applySubst :: Substitution' (SubstArg a) -> a -> a
+                      -- strP <- escapeContext impossible 1 $ return $ unArg bP
+                      reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. absQ is x.gel, here is P after str: " ++
+                                P.prettyShow strP                      
+                      redReturn strP
+            _ -> fallback lA l bA0 bA1 bR absQ'
+      _ -> __IMPOSSIBLE__      
   where
     fallback lA l bA0 bA1 bR absQ' =
       return $ NoReduction $ map notReduced [lA, l, bA0, bA1, bR] ++ [reduced absQ']
