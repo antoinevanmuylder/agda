@@ -373,8 +373,15 @@ compareTerm' cmp a m n =
               compareTerm cmp aty (mkUnglue m) (mkUnglue n)
          Def q es | Just q == mGel, Just args@[lA, lR, r, bA0, bA1, bR] <- allApplyElims es -> do
               -- comparing m ?= n at type Gel_r (A0, A1, R)
-              atyp0 <- el' (pure $ unArg lA) (pure $ unArg bA0)
-              atyp1 <- el' (pure $ unArg lA) (pure $ unArg bA1)
+              -- atyp0 <- el' (pure $ unArg lA) (pure $ unArg bA0)
+              -- atyp1 <- el' (pure $ unArg lA) (pure $ unArg bA1)
+              --
+              -- here I need to check that r is semifresh for m and n
+              -- if it is not I should raise some kind error?
+              -- if it is, capturing r in m and n is sound and I can build the terms
+              -- ungel( r. m) and ungel( r. n), and go on with their comparison.
+              -- The CH Gel-eta rule will be admissible thanks to Gel-beta
+              -- (should check that on ppr)
               ungel <- prim_ungel
               let mkUngel m = ungel `apply` ( map (setHiding Hidden) args ++ [argN m] )
               reportSDoc "conv.gel" 20 $ prettyTCM (mkUngel m, mkUngel n)

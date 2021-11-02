@@ -65,6 +65,7 @@ import Agda.Utils.VarSet as VSet hiding (null)
 --     r fresh for M means in particular that r not in fv M. since BI is registered a timeless
 --     I should make sure that the freshness constraint wants no r in fvM.
 --   - bunch of unsettled questions in code below. in particular: handling of metas if quite bad for now
+--   - if a freshness analysis fails, some error should be raised? see extent-beta/Gel-eta
 --   - cannot define bridges with left application. b : BridgeP x.A a0 a1,  b i = ...
 --     forced to do b = lam i -> ... for some reason
 --   - when checking that primitives reduce the intended way, state path equality
