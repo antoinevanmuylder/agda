@@ -107,6 +107,8 @@ updateProblemRest
   :: forall m a. (PureTCM m, MonadError TCErr m, MonadTrace m, MonadFresh NameId m)
   => LHSState a -> m (LHSState a)
 updateProblemRest st@(LHSState tel0 qs0 p@(Problem oldEqs ps ret) a psplit) = do
+  reportSDoc "tc.lhs.problem" 50 $
+    "updateProblemRest args: " $$ (nest 2 $ prettyTCM st)
   ps <- addContext tel0 $ insertImplicitPatternsT ExpandLast ps $ unArg a
   reportSDoc "tc.lhs.imp" 20 $
     "insertImplicitPatternsT returned" <+> fsep (map prettyA ps)

@@ -1,4 +1,4 @@
-{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.prim.ungel:30 #-}
+{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.lhs.problem:51 #-}
 module BridgePrims where
 
 -- this is a reproduction of test/Succeed/LaterPrims.agda and-or Agda.Primitive.Cubical
@@ -14,10 +14,8 @@ open import Agda.Builtin.Bool
 open import Agda.Primitive.Cubical
 open import Agda.Builtin.Cubical.Path
 
-
-
 ------------------------------------------------------------------------
--- Bridge interval BI and endpoints bi0 bi1
+-- CH internal param primitives
 ------------------------------------------------------------------------
 
 {-# BUILTIN BRIDGEINTERVAL BI  #-}  -- BI : LockU
@@ -29,52 +27,105 @@ open import Agda.Builtin.Cubical.Path
 -- {-# COMPILE JS i0 = false #-}
 -- {-# COMPILE JS i1 = true  #-}
 
--- note
--- weirdly enough (i:BI) → Bool has type Set
-
-------------------------------------------------------------------------
--- Type of heterogeneous bridges BridgeP betweend spec. endpoints
-------------------------------------------------------------------------
-
 postulate
-  BridgeP : ∀ {ℓ} (A : BI → Set ℓ) → A bi0 → A bi1 → Set ℓ
+  BridgeP : ∀ {ℓ} (A : BI → Set ℓ) → A bi0 → A bi1 → Set ℓ --line should be tick line??
 
 {-# BUILTIN BRIDGEP        BridgeP     #-}
 
--- INTRO RULE
 
--- how to INTRO such a bridge? we somehow need a function p : (i:BI) → A i
--- such that p 0 = a0 and p 1 = a1 definitionally.
--- For paths, see checkPath defined in TypeChecking/Rules/Term.hs
--- It indeed checks the body p i of p in augmented context Gamma, i and ensures that endpoints are correct.
+primitive
+  primExtent : ∀ {ℓA ℓB : Level} {A : (@tick x : BI) → Set ℓA} {B : (@tick x : BI) (a : A x) → Set ℓB} -- should spec. @tick here?
+               (r : BI) (M : A r)
+               (N0 : (a0 : A bi0) → B bi0 a0)
+               (N1 : (a1 : A bi1) → B bi1 a1)
+               (NN : (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) → BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1)) →
+               B r M
 
--- intro rule says
--- a section of a bridgy line can be made into a bridge with expected endpoints
-mk-bridge : ∀ {ℓ} (A : BI → Set ℓ) (f : (i : BI) → A i) → BridgeP A (f bi0) (f bi1)
-mk-bridge = λ A f → (λ i → f i)
+primitive
+  primGel : ∀ {ℓA ℓ} (r : BI) (A0 A1 : Set ℓA) (R : A0 → A1 → Set ℓ) → Set ℓA
 
+
+-- caution: R is implicit but can not be inferred from the following args
+primitive
+  prim^gel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
+               (r : BI) (M0 : A0) (M1 : A1) (P : R M0 M1) →
+               primGel r A0 A1 R
+
+
+primitive
+  prim^ungel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
+               (absQ : (x : BI) → primGel x A0 A1 R) →
+               R (absQ bi0) (absQ bi1)
+
+
+module PlayBridgeP {ℓ} {A : BI → Set ℓ} {a0 : A bi0} {a1 : A bi1}
+                   {ℓ} {B : I → Set ℓ} {b0 : B i0} {b1 : B i1} where
+
+-- checking lhs -- updated split problem:
+--   ps    = i₁
+--   a     = PathP B₁ b2 b3
+--   tel1  = (i₁ : I)
+--   ps1   = i₁
+--   ps2   =
+--   b     = B₁ i₁
+
+
+  blu : PathP B b0 b1
+  blu i = {!!}
+
+
+
+
+-- checking lhs -- updated split problem:
+--   ps    = r
+--   a     = BridgeP A₁ a2 a3
+--   tel1  =
+--   ps1   =
+--   ps2   = r
+--   b     = BridgeP A₁ a2 a3
+
+
+
+  bla : BridgeP A a0 a1
+  bla i = ?
+
+-- data LHSState a = LHSState
+--   { _lhsTel     :: Telescope
+--     -- ^ The types of the pattern variables.
+--   , _lhsOutPat  :: [NamedArg DeBruijnPattern]
+--     -- ^ Patterns after splitting.
+--     --   The de Bruijn indices refer to positions in the list of abstract syntax
+--     --   patterns in the problem, counted from the back (right-to-left).
+--   , _lhsProblem :: Problem a
+--     -- ^ User patterns of supposed type @delta@.
+--   , _lhsTarget  :: Arg Type
+--     -- ^ Type eliminated by 'problemRestPats' in the problem.
+--     --   Can be 'Irrelevant' to indicate that we came by
+--     --   an irrelevant projection and, hence, the rhs must
+--     --   be type-checked in irrelevant mode.
+--   , _lhsPartialSplit :: ![Maybe Int]
+--     -- ^ have we splitted with a PartialFocus?
+--   }
+
+
+  -- INTRO RULE
+  -- need f : (i:BI) → A i such that p 0 = a0,  p 1 = a1 definitionally.
+  mk-bridge : (f : (i : BI) → A i) → BridgeP A (f bi0) (f bi1)
+  mk-bridge f = λ i → f i
+
+  -- endpoints failure:
+  -- fail-cstbridge : BridgeP (λ i → Bool) false true
+  -- fail-cstbridge = λ i → false
+  
+
+  -- ELIM RULE
+
+  -- below P is a closed bridge so r does not appear in r I think
+  destr-bdg : (r : BI) (P : BridgeP A a0 a1) → A r
+  destr-bdg r P = P r     
 
 cst-t : BridgeP (λ i → Bool) true true
 cst-t = λ i → true
-
-cst-f : BridgeP (λ i → Bool) false false
-cst-f = λ i → false
-
--- fail-cstbridge : BridgeP (λ i → Bool) true true
--- fail-cstbridge = λ i → false
-
-
-
--- ELIM RULE
-
--- had to make BridgeP "non rigid" fwiw
--- had to add a BridgeP case when infering applications (similar to paths)
--- will it typecheck cartesian application? (non fresh subst)
-
--- below P is a closed bridge so r does not appear in r I think
-destr-bdg : ∀ {ℓ} {A : BI → Set ℓ} {a0 : A bi0} {a1 : A bi1}
-            (r : BI) (P : BridgeP A a0 a1) → A r
-destr-bdg r P = P r     
 
 applied-bridge : Bool
 applied-bridge = cst-t bi0
@@ -266,14 +317,7 @@ module BridgeVPath {ℓ} {A : BI → I → Set ℓ} {a : (r : BI) (i : I) → A 
 --  primitive 
 --  primComp : ∀ {ℓ} (A : (i : I) → Set (ℓ i)) {φ : I} (u : ∀ i → Partial φ (A i)) (a : A i0) → A i1
 
-primitive
 
-  primExtent : ∀ {ℓA ℓB : Level} {A : (@tick x : BI) → Set ℓA} {B : (@tick x : BI) (a : A x) → Set ℓB} -- should spec. @tick here?
-               (r : BI) (M : A r)
-               (N0 : (a0 : A bi0) → B bi0 a0)
-               (N1 : (a1 : A bi1) → B bi1 a1)
-               (NN : (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) → BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1)) →
-               B r M
 
 
 module PlayExtent {ℓA ℓB : Level} {A : BI → Set ℓA} {B : (x : BI) (a : A x) → Set ℓB}
@@ -308,21 +352,7 @@ module PlayExtent {ℓA ℓB : Level} {A : BI → Set ℓA} {B : (x : BI) (a : A
 ------------------------------------------------------------------------
 
 
-primitive
-  primGel : ∀ {ℓA ℓ} (r : BI) (A0 A1 : Set ℓA) (R : A0 → A1 → Set ℓ) → Set ℓA
 
-
--- caution: R is implicit but can not be inferred from the following args
-primitive
-  prim^gel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
-               (r : BI) (M0 : A0) (M1 : A1) (P : R M0 M1) →
-               primGel r A0 A1 R
-
-
-primitive
-  prim^ungel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
-               (absQ : (x : BI) → primGel x A0 A1 R) →
-               R (absQ bi0) (absQ bi1)
 
 
 
