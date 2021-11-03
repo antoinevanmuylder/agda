@@ -347,7 +347,7 @@ prim_ungel' = do
                                 P.prettyShow strP                      
                       redReturn strP
             _ -> fallback lA l bA0 bA1 bR absQ'
-      _ -> __IMPOSSIBLE__      
+      _ -> fallback lA l bA0 bA1 bR absQ'    
   where
     fallback lA l bA0 bA1 bR absQ' =
       return $ NoReduction $ map notReduced [lA, l, bA0, bA1, bR] ++ [reduced absQ']

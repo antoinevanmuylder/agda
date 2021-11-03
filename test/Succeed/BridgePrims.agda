@@ -358,3 +358,9 @@ module PlayGel {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ} where
   induced-bridge = λ i → primGel i A0 A1 R
 
 
+
+  -- Gel eta
+  eta-Gel : (r : BI ) (Q : (x : BI) → primGel x A0 A1 R) → 
+    Q r ≡ prim^gel {R = R} r (Q bi0) (Q bi1) (prim^ungel Q)
+  eta-Gel r Q i = Q r
+
