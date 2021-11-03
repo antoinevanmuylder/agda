@@ -70,6 +70,7 @@ insertImplicitPatternsT exh            ps a = do
              brackets $ fsep $ punctuate comma $ map prettyA ps
          , nest 2 $ "tel = " <+> prettyTCM tel
          , nest 2 $ "b   = " <+> addContext tel (prettyTCM b)
+         , nest 2 $ "and a = " <+>  prettyTCM a
          ]
   reportSDoc "tc.lhs.imp" 70 $
     vcat [ "insertImplicitPatternsT"

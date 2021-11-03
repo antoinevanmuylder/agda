@@ -1,4 +1,4 @@
-{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.lhs.problem:51 #-}
+{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.lhs:51 #-}
 module BridgePrims where
 
 -- this is a reproduction of test/Succeed/LaterPrims.agda and-or Agda.Primitive.Cubical
@@ -83,7 +83,6 @@ module PlayBridgeP {ℓ} {A : BI → Set ℓ} {a0 : A bi0} {a1 : A bi1}
 --   ps1   =
 --   ps2   = r
 --   b     = BridgeP A₁ a2 a3
-
 
 
   bla : BridgeP A a0 a1

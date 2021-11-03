@@ -71,6 +71,7 @@ import Agda.Utils.VarSet as VSet hiding (null)
 --     its reasonnable to think that path implementation should have bridge counterpart
 --   - cannot define bridges with left application. b : BridgeP x.A a0 a1,  b i = ...
 --     forced to do b = lam i -> ... for some reason
+--     see insertImplicitPatternsT, L92 uses piOrPath. it should be piOrPath or bridge :>
 --   - cannot refine C-c C-r and automatically intro bridge vars
 --   - when checking that primitives reduce the intended way, state path equality
 --     as x = y but also y = x.     not sure if it is that useful
