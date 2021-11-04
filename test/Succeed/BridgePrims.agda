@@ -1,4 +1,4 @@
-{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.constr:60 #-}
+{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.lhs:51 #-}
 module BridgePrims where
 
 -- this is a reproduction of test/Succeed/LaterPrims.agda and-or Agda.Primitive.Cubical
@@ -63,10 +63,69 @@ module PlayBridgeP {ℓ} {A : BI → Set ℓ} {a0 : A bi0} {a1 : A bi1}
 
 
 
+-- insertImplicitPatternsT
+--   ps  =  [i]
+--   tel = 
+--   b   =  PathP B₁ b2 b3
+--   and a =  PathP B₁ b2 b3
+-- insertImplicitPatternsT
+--   ps  =  []
+--   tel = 
+--   b   =  ℓ₂ b3
+--   and a =  ℓ₂ b3
+-- insertImplicitPatternsT returned i
+-- checking lhs -- updated split problem:
+--   ps    = i
+--   a     = PathP B₁ b2 b3
+--   tel1  = (i : I)
+--   ps1   = i
+--   ps2   =
+--   b     = B₁ i
+  blu : PathP B b0 b1
+  blu i = {!!}
+-- insertImplicitPatternsT
+--   ps  =  [i]
+--   tel = 
+--   b   =  BridgeP A₁ a2 a3
+--   and a =  BridgeP A₁ a2 a3
+-- insertImplicitPatternsT
+--   ps  =  []
+--   tel = 
+--   b   =  ℓ₄ b2
+--   and a =  ℓ₄ b2
+-- checking lhs -- updated split problem:
+--   ps    = i
+--   a     = BridgeP A₁ a2 a3
+--   tel1  =
+--   ps1   =
+--   ps2   = i
+--   b     = BridgeP A₁ a2 a3
+  bla : BridgeP A a0 a1
+  bla i = ?
+
+-- data LHSState a = LHSState
+--   { _lhsTel     :: Telescope
+--     -- ^ The types of the pattern variables.
+--   , _lhsOutPat  :: [NamedArg DeBruijnPattern]
+--     -- ^ Patterns after splitting.
+--     --   The de Bruijn indices refer to positions in the list of abstract syntax
+--     --   patterns in the problem, counted from the back (right-to-left).
+--   , _lhsProblem :: Problem a
+--     -- ^ User patterns of supposed type @delta@.
+--   , _lhsTarget  :: Arg Type
+--     -- ^ Type eliminated by 'problemRestPats' in the problem.
+--     --   Can be 'Irrelevant' to indicate that we came by
+--     --   an irrelevant projection and, hence, the rhs must
+--     --   be type-checked in irrelevant mode.
+--   , _lhsPartialSplit :: ![Maybe Int]
+--     -- ^ have we splitted with a PartialFocus?
+--   }
+
+
   -- INTRO RULE
   -- need f : (i:BI) → A i such that p 0 = a0,  p 1 = a1 definitionally.
   mk-bridge : (f : (i : BI) → A i) → BridgeP A (f bi0) (f bi1)
-  mk-bridge f i = f i
+  mk-bridge f = λ i → f i
 
   -- endpoints failure:
   -- fail-cstbridge : BridgeP (λ i → Bool) false true
