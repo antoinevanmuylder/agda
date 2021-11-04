@@ -1,9 +1,11 @@
 * TODOS
+** TODO go through CH paper and formalize their easy examples
 ** TODO bridge vars always lock annotated?
-pre bridges must be lock annoted? eg bridge form, intro. In other words should we use lPi' vs nPi'
-when writing types in internal syntax?
+pre bridges must be lock annoted? eg bridge form, intro. In other words should
+we use lPi' vs nPi' when writing types in internal syntax?
 (tick x : Lk) -> A x  is 'the type of affine sections of A' (A must be affine in x as well??)
-when typechecking application s r, a freshness constraint is generated.
+
+when typechecking application s r, a freshness constraint CheckLockedVars is generated.
 ** TODO must generate more freshness constraints
 sometimes rules in CH ask for apartedness (freshness) but no check is performed here
 I wonder if a PrimitiveImpl is really the place to have those freshness checks (except

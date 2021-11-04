@@ -59,52 +59,14 @@ primitive
 
 
 module PlayBridgeP {ℓ} {A : BI → Set ℓ} {a0 : A bi0} {a1 : A bi1}
-                   {ℓ} {B : I → Set ℓ} {b0 : B i0} {b1 : B i1} where
-
--- checking lhs -- updated split problem:
---   ps    = i₁
---   a     = PathP B₁ b2 b3
---   tel1  = (i₁ : I)
---   ps1   = i₁
---   ps2   =
---   b     = B₁ i₁
-
-
-  blu : PathP B b0 b1
-  blu i = {!!}
-
-
-
-
--- checking lhs -- updated split problem:
---   ps    = r
---   a     = BridgeP A₁ a2 a3
---   tel1  =
---   ps1   =
---   ps2   = r
---   b     = BridgeP A₁ a2 a3
-
-
-  bla : BridgeP A a0 a1
-  bla i = ?
-
--- data LHSState a = LHSState
---   { _lhsTel     :: Telescope
---     -- ^ The types of the pattern variables.
---   , _lhsOutPat  :: [NamedArg DeBruijnPattern]
---     -- ^ Patterns after splitting.
---     --   The de Bruijn indices refer to positions in the list of abstract syntax
---     --   patterns in the problem, counted from the back (right-to-left).
---   , _lhsProblem :: Problem a
---     -- ^ User patterns of supposed type @delta@.
---   , _lhsTarget  :: Arg Type
---     -- ^ Type eliminated by 'problemRestPats' in the problem.
---     --   Can be 'Irrelevant' to indicate that we came by
---     --   an irrelevant projection and, hence, the rhs must
---     --   be type-checked in irrelevant mode.
---   , _lhsPartialSplit :: ![Maybe Int]
---     -- ^ have we splitted with a PartialFocus?
---   }
+                   {B : (i j : BI) → Set ℓ}
+                   {b00 : B bi0 bi0} {b10 : B bi1 bi0} {b01 : B bi0 bi1} {b11 : B bi1 bi1}
+                   {left : BridgeP (λ j → B bi0 j) b00 b01} {right : BridgeP (λ j → B bi1 j) b10 b11}
+                   {down : BridgeP (λ i → B i bi0) b00 b10} {up : BridgeP (λ i → B i bi1) b01 b11}
+                   {C : (i j : I) → Set ℓ}
+                   {c00 : C i0 i0} {c10 : C i1 i0} {c01 : C i0 i1} {c11 : C i1 i1}
+                   {cleft : PathP (λ j → C i0 j) c00 c01} {cright : PathP (λ j → C i1 j) c10 c11}
+                   {cdown : PathP (λ i → C i i0) c00 c10} {cup : PathP (λ i → C i i1) c01 c11} where
 
 
   -- INTRO RULE
@@ -115,13 +77,21 @@ module PlayBridgeP {ℓ} {A : BI → Set ℓ} {a0 : A bi0} {a1 : A bi1}
   -- endpoints failure:
   -- fail-cstbridge : BridgeP (λ i → Bool) false true
   -- fail-cstbridge = λ i → false
-  
+
+  -- diag for path vars
+  cub-diag : PathP (λ i →  PathP (λ j → C i j) (cdown i) (cup i) )   cleft    cright →
+             PathP (λ k → C k k) c00 c11
+  cub-diag p k = p k k
 
   -- ELIM RULE
-
   -- below P is a closed bridge so r does not appear in r I think
   destr-bdg : (r : BI) (P : BridgeP A a0 a1) → A r
-  destr-bdg r P = P r     
+  destr-bdg r P = P r
+
+  -- no diagnoal for bridge vars. problem: k not fresh in p k k
+  -- no-diag : BridgeP (λ i →  BridgeP (λ j → B i j) (down i) (up i) )   left    right →
+  --           BridgeP (λ k → B k k) b00 b11
+  -- no-diag p = λ k → p k k
 
 cst-t : BridgeP (λ i → Bool) true true
 cst-t = λ i → true
