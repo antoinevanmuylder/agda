@@ -61,30 +61,45 @@ primitive
 module PlayBridgeP {ℓ} {A : BI → Set ℓ} {a0 : A bi0} {a1 : A bi1}
                    {ℓ} {B : I → Set ℓ} {b0 : B i0} {b1 : B i1} where
 
+
+
+-- insertImplicitPatternsT
+--   ps  =  [i]
+--   tel = 
+--   b   =  PathP B₁ b2 b3
+--   and a =  PathP B₁ b2 b3
+-- insertImplicitPatternsT
+--   ps  =  []
+--   tel = 
+--   b   =  ℓ₂ b3
+--   and a =  ℓ₂ b3
+-- insertImplicitPatternsT returned i
 -- checking lhs -- updated split problem:
---   ps    = i₁
+--   ps    = i
 --   a     = PathP B₁ b2 b3
---   tel1  = (i₁ : I)
---   ps1   = i₁
+--   tel1  = (i : I)
+--   ps1   = i
 --   ps2   =
---   b     = B₁ i₁
-
-
+--   b     = B₁ i
   blu : PathP B b0 b1
   blu i = {!!}
-
-
-
-
+-- insertImplicitPatternsT
+--   ps  =  [i]
+--   tel = 
+--   b   =  BridgeP A₁ a2 a3
+--   and a =  BridgeP A₁ a2 a3
+-- insertImplicitPatternsT
+--   ps  =  []
+--   tel = 
+--   b   =  ℓ₄ b2
+--   and a =  ℓ₄ b2
 -- checking lhs -- updated split problem:
---   ps    = r
+--   ps    = i
 --   a     = BridgeP A₁ a2 a3
 --   tel1  =
 --   ps1   =
---   ps2   = r
+--   ps2   = i
 --   b     = BridgeP A₁ a2 a3
-
-
   bla : BridgeP A a0 a1
   bla i = ?
 
