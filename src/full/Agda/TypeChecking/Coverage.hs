@@ -482,7 +482,7 @@ cover f cs sc@(SClause tel ps _ _ target) = updateRelevance $ do
     -- ...or it was an IApply pattern, so we might just need to introduce the variable now.
     trySplitRes (BlockedOnApply IsIApply) finalSplit splitError cont
        = do
-         caseMaybeM (splitResultPath f sc) fallback $ (cover f cs . snd) <=< insertTrailingArgs
+         caseMaybeM (splitResultPathBridge f sc) fallback $ (cover f cs . snd) <=< insertTrailingArgs
       where
         fallback | finalSplit = __IMPOSSIBLE__ -- already ruled out by lhs checker?
                  | otherwise  = cont
@@ -1430,3 +1430,18 @@ instance PrettyTCM SplitClause where
       --       addContext tel $ prettyTCM $ applySubst sigma t
       ]
     ]
+
+-- * adding bridges
+
+-- | Tries to split the result to introduce an IApply pattern.
+splitResultPathBridge :: QName -> SplitClause -> TCM (Maybe SplitClause) --TODO-antva right place for this?
+splitResultPathBridge f sc@(SClause tel ps _ _ target) = do
+  caseMaybe target (return Nothing) $ \ t -> do
+        caseMaybeM (isPathBridge (unDom t)) (return Nothing) $ \ _ -> do
+               (TelV i b, boundary) <- telViewUpToPathBridgeBoundary' 1 (unDom t)
+               let tel' = abstract tel i
+                   rho  = raiseS 1
+                   ps' = applySubst rho (scPats sc) ++ telePatterns i boundary
+                   cps' = applySubst rho (scCheckpoints sc)
+                   target' = Just $ b <$ t
+               return . Just $ SClause tel' ps' idS cps' target'

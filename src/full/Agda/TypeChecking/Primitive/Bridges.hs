@@ -67,13 +67,14 @@ import Agda.Utils.VarSet as VSet hiding (null)
 --   - bunch of unsettled questions in code below. in particular: handling of metas if quite bad for now
 --   - if a freshness analysis fails, some error should be raised? see extent-beta/Gel-eta
 --   - for the 2 issues below this grep command could be useful
---     @grep -r "path" src/full/Agda/TypeChecking/* --exclude="*.txt*" --exclude="*.err*" --exclude="*.agda*"@
+--     @grep -ir "path" src/full/Agda/TypeChecking/* --exclude="*.txt*" --exclude="*.err*" --exclude="*.agda*"@
 --     its reasonnable to think that path implementation should have bridge counterpart
 --   - cannot define bridges with left application. b : BridgeP x.A a0 a1,  b i = ...
 --     forced to do b = lam i -> ... for some reason
 --     see insertImplicitPatternsT, L92 uses piOrPath. it should be piOrPath or bridge :>
 --     piOrPath calls should be replaced by smth accounting for bridges, in the whole library.
 --   - cannot refine C-c C-r and automatically intro bridge vars
+--   - when goal is BridgeP bla, cannot provide a section
 --   - when checking that primitives reduce the intended way, state path equality
 --     as x = y but also y = x.     not sure if it is that useful
 --   - should check the universe levels in the type of my primitives
