@@ -494,7 +494,7 @@ pathViewAsPi'whnf = do
   view <- pathView'
   minterval  <- getBuiltin' builtinInterval
   return $ \ t -> case view t of
-    PathType s p l a x y | Just interval <- minterval ->
+    PathType s l p a x y | Just interval <- minterval ->
       let name | Lam _ (Abs n _) <- unArg a = n
                | otherwise = "i"
           i = El (SSet $ ClosedLevel 0) interval
@@ -512,7 +512,6 @@ piOrPath t = do
     Left (p,_) -> return $ Left p
     Right (El _ (Pi a b)) -> return $ Left (a,b)
     Right t -> return $ Right t
-    
 
 telView'UpToPath :: Int -> Type -> TCM TelView
 telView'UpToPath 0 t = return $ TelV EmptyTel t
@@ -671,67 +670,3 @@ getInstanceDefs = do
   unless (null $ snd insts) $
     typeError $ GenericError $ "There are instances whose type is still unsolved"
   return $ fst insts
-
-
--- * adding bridges
-
-pathBridgeViewAsPi
-  :: PureTCM m => Type -> m (Either (Dom Type, Abs Type) Type)
-pathBridgeViewAsPi t = either (Left . fst) Right <$> pathBridgeViewAsPi' t
-
-pathBridgeViewAsPi'
-  :: PureTCM m => Type -> m (Either ((Dom Type, Abs Type), (Term,Term)) Type)
-pathBridgeViewAsPi' t = do
-  pathBridgeViewAsPi'whnf <*> reduce t
-
-pathBridgeViewAsPi'whnf --TODO-antva move this to appropriate place
-  :: (HasBuiltins m)
-  => m (Type -> Either ((Dom Type, Abs Type), (Term,Term)) Type)
-pathBridgeViewAsPi'whnf = do
-  view <- pathBridgeView'
-  cinterval <- getBuiltin' builtinInterval
-  binterval <- getBuiltin' builtinBridgeInterval
-  return $ \ t -> case view t of
-    UPathType s p l a x y | Just interval <- cinterval -> do
-      let name | Lam _ (Abs n _) <- unArg a = n
-               | otherwise = "i"
-      let ityp = El (SSet $ ClosedLevel 0) interval
-      Left $ ((defaultDom $ ityp, Abs name $ El (raise 1 s) $ raise 1 (unArg a) `apply` [defaultArg $ var 0]), (unArg x, unArg y))
-    UBridgeType s p l a x y | Just interval <- binterval ->
-      let name | Lam _ (Abs n _) <- unArg a = n
-               | otherwise = "i"
-          ityp = El LockUniv interval
-      in  -- TODO-antva: a lock here?
-        Left $ ((defaultDom $ ityp, Abs name $ El (raise 1 s) $ raise 1 (unArg a) `apply` [defaultArg $ var 0]), (unArg x, unArg y))
-    _ -> Right t
-
--- | returns Left (a,b) in case the type is @Pi a b@ or @PathP b _ _@ or @BridgeP b _ _@
---   assumes the type is in whnf.
-piOrPathOrBridge :: HasBuiltins m => Type -> m (Either (Dom Type, Abs Type) Type) --TODO-antva move this
-piOrPathOrBridge t = do
-  t <- pathBridgeViewAsPi'whnf <*> pure t
-  case t of
-    Left (p,_) -> return $ Left p
-    Right (El _ (Pi a b)) -> return $ Left (a,b)
-    Right t -> return $ Right t
-
--- | Like @telViewUpToPath@ but also returns the @Boundary@ expected
--- by the Path and Bridge types encountered. The boundary terms live in the
--- telescope given by the @TelView@. see @telViewUpToPathBoundary'@
-telViewUpToPathBridgeBoundary' :: PureTCM m => Int -> Type -> m (TelView,Boundary)
-telViewUpToPathBridgeBoundary' 0 t = return $ (TelV EmptyTel t,[])
-telViewUpToPathBridgeBoundary' n t = do
-  vt <- pathBridgeViewAsPi' $ t
-  case vt of
-    Left ((a,b),xy) -> addEndPoints xy . absV a (absName b) <$> telViewUpToPathBridgeBoundary' (n - 1) (absBody b)
-    Right (El _ t) | Pi a b <- t
-                   -> absV a (absName b) <$> telViewUpToPathBridgeBoundary' (n - 1) (absBody b)
-    Right t        -> return $ (TelV EmptyTel t,[])
-  where
-    absV a x (TelV tel t, cs) = (TelV (ExtendTel a (Abs x tel)) t, cs)
-    addEndPoints xy (telv@(TelV tel _),cs) = (telv, (var $ size tel - 1, xyInTel):cs)
-      where
-       xyInTel = raise (size tel) xy
-
-telViewUpToPathBridgeBoundaryP :: PureTCM m => Int -> Type -> m (TelView,Boundary)
-telViewUpToPathBridgeBoundaryP = telViewUpToPathBridgeBoundary'
