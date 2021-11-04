@@ -54,35 +54,6 @@ import qualified Agda.Utils.Pretty as P
 import Agda.Utils.VarSet as VSet hiding (null)
 
 
--- * General todos
---   - pre bridges must be lock annoted? eg bridge form, intro. In other words should we use lPi' vs nPi'
---     when writing types in internal syntax?
---     (tick x : Lk) -> A x  is 'the type of affine sections of A' (A must be affine in x as well??)
---     when typechecking application s r, a freshness constraint is generated.
---   - sometimes rules in CH ask for apartedness (freshness) but no check is performed here
---     I wonder if a PrimitiveImpl is really the place to have those freshness checks (except
---     right before a computation). I should have more constraints generated during typechecking instead?
---     r fresh for M means in particular that r not in fv M. since BI is registered a timeless
---     I should make sure that the freshness constraint wants no r in fvM.
---   - bunch of unsettled questions in code below. in particular: handling of metas if quite bad for now
---   - if a freshness analysis fails, some error should be raised? see extent-beta/Gel-eta
---   - for the 2 issues below this grep command could be useful
---     @grep -r "path" src/full/Agda/TypeChecking/* --exclude="*.txt*" --exclude="*.err*" --exclude="*.agda*"@
---     its reasonnable to think that path implementation should have bridge counterpart
---   - cannot define bridges with left application. b : BridgeP x.A a0 a1,  b i = ...
---     forced to do b = lam i -> ... for some reason
---     see insertImplicitPatternsT, L92 uses piOrPath. it should be piOrPath or bridge :>
---   - cannot refine C-c C-r and automatically intro bridge vars
---   - when checking that primitives reduce the intended way, state path equality
---     as x = y but also y = x.     not sure if it is that useful
---   - should check the universe levels in the type of my primitives
---   - see github issues for more severe issues. for instance: #2 is about lack of computation
---     under lambdas for extent.
---   - CH does not say how cubical composition acts on bridge types?
---   - should write unit tests
---   - there are TODO-antva's lying around
-
-
 -- * Prelude
 
 -- | Generates error if --bridges pragma option was not set
