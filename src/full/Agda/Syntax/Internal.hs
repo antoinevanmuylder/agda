@@ -137,6 +137,9 @@ domFromNamedArg (Arg i a) = Dom i False (nameOf a) Nothing (namedThing a)
 defaultDom :: a -> Dom a
 defaultDom = defaultArgDom defaultArgInfo
 
+lkDefaultDom :: a -> Dom a
+lkDefaultDom = defaultArgDom $ setLock IsLock defaultArgInfo
+
 defaultArgDom :: ArgInfo -> a -> Dom a
 defaultArgDom info x = domFromArg (Arg info x)
 

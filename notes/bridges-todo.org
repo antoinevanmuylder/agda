@@ -1,6 +1,6 @@
 * TODOS
 ** TODO go through CH paper and formalize their easy examples
-** TODO bridge vars always lock annotated?
+** TODO bridge vars always lock annotated? /!\ see git issue #3
 pre bridges must be lock annoted? eg bridge form, intro. In other words should
 we use lPi' vs nPi' when writing types in internal syntax?
 (tick x : Lk) -> A x  is 'the type of affine sections of A' (A must be affine in x as well??)
@@ -12,6 +12,8 @@ I wonder if a PrimitiveImpl is really the place to have those freshness checks (
 right before a computation). I should have more constraints generated during typechecking instead?
 r fresh for M means in particular that r not in fv M. since BI is registered a timeless
 I should make sure that the freshness constraint wants no r in fvM.
+
+Andrea: have (@tick r : BI) at the end
 ** TODO unsettled questions in code
 marked by TODO-antva, or just comments in file Primitive/Bridges.hs
 bunch of unsettled questions in code below.
@@ -27,8 +29,10 @@ forced to do b = lam i -> ... for some reason
 see insertImplicitPatternsT, L92 uses piOrPath. it should be piOrPath or bridge :>
 *** cannot refine C-c C-r and automatically intro bridge vars
 ** TODO should check the universe levels in the type of my primitives
-** TODO are TODO-antva's lying around
+Andrea: having A0 A1 R at same level is the way to go
+** TODO there are TODO-antva's lying around
 ** TODO see github issues for more severe issues.
 for instance: #2 is about lack of computation under lambdas for extent.
 ** TODO should write unit tests
 ** TODO CH does not say how cubical composition acts on bridge types?
+not relevant

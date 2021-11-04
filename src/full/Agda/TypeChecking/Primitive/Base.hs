@@ -32,10 +32,11 @@ infixr 4 -->
 infixr 4 .-->
 infixr 4 ..-->
 
-(-->), (.-->), (..-->) :: Applicative m => m Type -> m Type -> m Type
+(-->), (.-->), (..-->), (-->*) :: Applicative m => m Type -> m Type -> m Type
 a --> b = garr id a b
 a .--> b = garr (const $ Irrelevant) a b
 a ..--> b = garr (const $ NonStrict) a b
+a -->* b = lgarr id a b
 
 garr :: Applicative m => (Relevance -> Relevance) -> m Type -> m Type -> m Type
 garr f a b = do
@@ -43,6 +44,14 @@ garr f a b = do
   b' <- b
   pure $ El (funSort (getSort a') (getSort b')) $
     Pi (mapRelevance f $ defaultDom a') (NoAbs "_" b')
+
+-- locked version
+lgarr :: Applicative m => (Relevance -> Relevance) -> m Type -> m Type -> m Type
+lgarr f a b = do
+  a' <- a
+  b' <- b
+  pure $ El (funSort (getSort a') (getSort b')) $
+    Pi (mapRelevance f $ lkDefaultDom a') (NoAbs "_" b')
 
 gpi :: (MonadAddContext m, MonadDebug m)
     => ArgInfo -> String -> m Type -> m Type -> m Type
