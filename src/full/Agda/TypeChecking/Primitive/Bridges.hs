@@ -90,6 +90,16 @@ dummyRedTerm t = return $ YesReduction NoSimplification t
 --                (NN : (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) →
 --                      BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1)) →
 --                B r M
+--
+--   correct type for extent primitive.
+--   We use hoas style functions like hPi' to specifiy types in internal syntax.
+--   primExtent : ∀ {ℓA ℓB} {A : @(tick x : BI) → Set ℓA} {B : (tick x : BI) (a : A x) → Set ℓB}
+--                (N0 : (a0 : A bi0) → B bi0 a0)
+--                (N1 : (a1 : A bi1) → B bi1 a1)
+--                (NN : (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) →
+--                      BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1))
+--                (@tick r : BI) (M : A r)
+--                B r M
 extentType :: TCM Type
 extentType = do
   t <- runNamesT [] $
@@ -98,21 +108,20 @@ extentType = do
        -- We want lines A B to use their bridge var affinely, hence the tick annotation lPi' vs nPi'
        hPi' "A"  (lPi' "x" primBridgeIntervalType $ \x -> (sort . tmSort <$> lA)) $ \ bA ->
        hPi' "B" (lPi' "x" primBridgeIntervalType $ \ x -> (el' lA (bA <@> x)) --> (sort . tmSort <$> lB) ) $ \bB ->
-       nPi' "r" primBridgeIntervalType $ \ r ->
-       nPi' "M" (el' lA (bA <@> r)) $ \bM ->
        nPi' "N0" (nPi' "a0" (el' lA (bA <@> cl primBIZero)) $ \a0 -> (el' lB (bB <@> cl primBIZero <@> a0))) $ \n0 ->
        nPi' "N1" (nPi' "a1" (el' lA (bA <@> cl primBIOne)) $ \a1 -> (el' lB (bB <@> cl primBIOne <@> a1))) $ \n1 ->
        nPi' "NN"
         (nPi' "a0" (el' lA (bA <@> cl primBIZero)) $ \a0 ->
          nPi' "a1" (el' lA (bA <@> cl primBIOne)) $ \a1 ->
-         --todo make line argument bA implicit for primBridgeP? see Rules/Builtin.hs
          nPi' "aa" (el' lA $ cl primBridgeP <#> lA <@> bA <@> a0 <@> a1) $ \aa ->
          (el' lB $ cl primBridgeP <#> lB <@> newBline bB aa a0 a1 <@> (n0 <@> a0) <@> (n1 <@> a1)) ) $ \nn ->
+       lPi' "r" primBridgeIntervalType $ \ r ->
+       nPi' "M" (el' lA (bA <@> r)) $ \bM ->
        el' lB $ bB <@> r <@> bM )
   return t
   where
-    newBline bB aa a0 a1 = lam "i" (\i -> bB <@> i <@> (aa <@@> (a0, a1, i) )) -- i is a bridge elim hence the double "at".
-
+    newBline bB aa a0 a1 = glam lkDefaultArgInfo "i" (\i -> bB <@> i <@> (aa <@@> (a0, a1, i) )) -- i is a bridge elim hence the double "at".
+    lkDefaultArgInfo = setLock IsLock defaultArgInfo
 
 isTimeless' :: PureTCM m => Type -> m Bool
 isTimeless' typ@(El stype ttyp) = do
@@ -142,9 +151,9 @@ primExtent' = do
   requireBridges "in primExtent'"
   typ <- extentType
   return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 9 $ \extentArgs@[lA, lB, bA, bB,
-                                                      r@(Arg rinfo rtm), bM,
                                                       n0@(Arg n0info n0tm), n1@(Arg n1info n1tm),
-                                                      nn@(Arg nninfo nntm)] -> do
+                                                      nn@(Arg nninfo nntm),
+                                                      r@(Arg rinfo rtm), bM] -> do
     --goal ReduceM(Reduced MaybeReducedArgs Term)
     viewr <- bridgeIntervalView rtm --should reduceB because of metas
     case viewr of
@@ -189,8 +198,7 @@ primExtent' = do
       Lam ldArgInfo $ Abs "r" $ applySubst sigma m
     ldArgInfo = setLock IsLock defaultArgInfo
     fallback lA lB bA bB r bM' n0 n1 nn =
-      return $ NoReduction $ map notReduced [lA, lB, bA, bB, r] ++
-                                   [reduced bM'] ++ map notReduced [n0, n1, nn]
+      return $ NoReduction $ map notReduced [lA, lB, bA, bB, n0, n1, nn, r] ++ [reduced bM']
 
 
 

@@ -29,18 +29,18 @@ open import Agda.Builtin.Cubical.Path
 
 
 postulate
-  BridgeP : ∀ {ℓ} (A : BI → Set ℓ) → A bi0 → A bi1 → Set ℓ --line should be ticked line??
+  BridgeP : ∀ {ℓ} (A : (@tick x : BI) → Set ℓ) → A bi0 → A bi1 → Set ℓ --line should be ticked line??
 
 {-# BUILTIN BRIDGEP        BridgeP     #-}
 
 
--- primitive
---   primExtent : ∀ {ℓA ℓB : Level} {A : (@tick x : BI) → Set ℓA} {B : (@tick x : BI) (a : A x) → Set ℓB} -- should spec. @tick here?
---                (r : BI) (M : A r)
---                (N0 : (a0 : A bi0) → B bi0 a0)
---                (N1 : (a1 : A bi1) → B bi1 a1)
---                (NN : (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) → BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1)) →
---                B r M
+primitive
+  primExtent : ∀ {ℓA ℓB : Level} {A : (@tick x : BI) → Set ℓA} {B : (@tick x : BI) (a : A x) → Set ℓB}
+               (N0 : (a0 : A bi0) → B bi0 a0)
+               (N1 : (a1 : A bi1) → B bi1 a1)
+               (NN : (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) → BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1))
+               (@tick r : BI) (M : A r) →
+               B r M
 
 -- primitive
 --   primGel : ∀ {ℓA ℓ} (r : BI) (A0 A1 : Set ℓA) (R : A0 → A1 → Set ℓ) → Set ℓA
@@ -58,119 +58,66 @@ postulate
 --                (absQ : (x : BI) → primGel x A0 A1 R) →
 --                R (absQ bi0) (absQ bi1)
 
-module bridgeTest {ℓ} {A : (@tick i : BI) → Set ℓ} {a0 : A bi0} {a1 : A bi1}
-                      {B : (i j : BI) → Set ℓ} {b00 : B bi0 bi0} {b11 : B bi1 bi1} where
 
 
-  test : BridgeP (λ k → B k k) b00 b11
-  test = {!!}
+module PlayBridgeP {ℓ} {A : (@tick x : BI) → Set ℓ} {a0 : A bi0} {a1 : A bi1}
+                   {B : Set ℓ} {b0 b1 : B} where
+
+  -- INTRO RULE
+  -- need f : (i:BI) → A i such that p 0 = a0,  p 1 = a1 definitionally.
+  mk-bridge : (f : (@tick i : BI) → A i) → BridgeP A (f bi0) (f bi1)
+  mk-bridge f = λ i → f i
+
+  -- -- endpoints failure:
+  -- fail-cstbridge : BridgeP (λ i → Bool) false true
+  -- fail-cstbridge = λ i → false
 
 
--- module PlayBridgeP {ℓ} {A : BI → Set ℓ} {a0 : A bi0} {a1 : A bi1}
---                    {B : (i j : BI) → Set ℓ}
+  -- ELIM RULE
+  destr-bdg : (P : BridgeP A a0 a1) (@tick r : BI) → A r
+  destr-bdg P r = P r
+
+  -- -- affineness cstr:
+  -- no-destr-bdg : (@tick r : BI) (P : BridgeP A a0 a1) → A r
+  -- no-destr-bdg r P = P r
+
+  -- BOUNDARY rule
+  boundary-bdg : (p : BridgeP (λ i → B) b0 b1) → p bi0 ≡ b0
+  boundary-bdg p = λ i → b0
+
+  -- ETA COMPUTATION RULE
+  eta-bdg : (p : BridgeP (λ r → A r) a0 a1) → p ≡ (λ r → p r)
+  eta-bdg p i = p
+
+  -- ~BETA COMPUTATION RULE. cannot easily state it internally
+  beta-bdg : (f : (@tick i : BI) → A i) (@tick r : BI) → mk-bridge f r ≡ f r
+  beta-bdg f r j = f r
+
+-- below, even if B is a cartesian Pi type (which is unsound to assume),
+-- λ k → p k k does not typecheck.
+-- module BridgeDiag  {ℓ} {B : (@tick i j : BI) → Set ℓ}
 --                    {b00 : B bi0 bi0} {b10 : B bi1 bi0} {b01 : B bi0 bi1} {b11 : B bi1 bi1}
 --                    {left : BridgeP (λ j → B bi0 j) b00 b01} {right : BridgeP (λ j → B bi1 j) b10 b11}
---                    {down : BridgeP (λ i → B i bi0) b00 b10} {up : BridgeP (λ i → B i bi1) b01 b11}
---                    {C : (i j : I) → Set ℓ}
---                    {c00 : C i0 i0} {c10 : C i1 i0} {c01 : C i0 i1} {c11 : C i1 i1}
---                    {cleft : PathP (λ j → C i0 j) c00 c01} {cright : PathP (λ j → C i1 j) c10 c11}
---                    {cdown : PathP (λ i → C i i0) c00 c10} {cup : PathP (λ i → C i i1) c01 c11} where
-
-
---   -- INTRO RULE
---   -- need f : (i:BI) → A i such that p 0 = a0,  p 1 = a1 definitionally.
---   mk-bridge : (f : (i : BI) → A i) → BridgeP A (f bi0) (f bi1)
---   mk-bridge f = λ i → f i
-
---   -- endpoints failure:
---   -- fail-cstbridge : BridgeP (λ i → Bool) false true
---   -- fail-cstbridge = λ i → false
-
-
---   -- ELIM RULE
---   destr-bdg : (P : BridgeP A a0 a1) (@tick r : BI) → A r
---   destr-bdg P r = P r
-
---   -- affineness cstr:
---   -- no-destr-bdg : (@tick r : BI) (P : BridgeP A a0 a1) → A r
---   -- no-destr-bdg r P = P r
-
---   -- diag for path vars
---   cub-diag : PathP (λ i →  PathP (λ j → C i j) (cdown i) (cup i) )   cleft    cright →
---              PathP (λ k → C k k) c00 c11
---   cub-diag p k = p k k
+--                    {down : BridgeP (λ i → B i bi0) b00 b10} {up : BridgeP (λ i → B i bi1) b01 b11} where
 
 --   -- no diag for bridge vars
---   -- bdg-diag : BridgeP (λ i →  BridgeP (λ j → B i j) (down i) (up i) )   left    right →
---   --            BridgeP (λ k → B k k) b00 b11
---   -- bdg-diag p = λ k → p k k
+--   bdg-diag : BridgeP (λ i →  BridgeP (λ j → B i j) (down i) (up i) )   left    right →
+--              BridgeP (λ k → B k k) b00 b11
+--   bdg-diag p = λ k → p k k
 
---   -- p ⊢ p
---   -- p , k ⊢ p                                   constraints k ∉ p                OK
---   -- p : bdg-bdg-t, k : BI ⊢ p k : bdg-t         constraints k ∉ p k              hopefully affine constr gets gen
---   -- p : bdg-bdg-t, k : BI ⊢ (p k) k : bdg-t     endpoint cstr
---   -- p : bdg-bdg-t ⊢ λ k → p k k : bdg-t
---   -- ⊢ λ p k → p k k : bdg-bdg-t → bdg-t
-
-
--- -- -- BORDER COMPUTATION RULE
-
--- -- -- Try C-c C-n this (normalize)
--- -- compute-border : bdg-bdg-t → bdg-t
--- -- compute-border x = x bi0
-
--- -- -- | This one should typecheck.
--- -- disguised-id : bdg-bdg-t → bdg-bdg-t
--- -- disguised-id = λ x i → x i
-
--- -- -- we try to state the border rule and prove it up to path equality
--- -- -- the proof should go by computation
--- -- -- attempt1 can not take paths over a bridgy line A : BI → Set ℓ
--- -- -- would be interesting to know if there are maps I -- BI in some models
--- -- -- border-rule : 
--- -- --   {ℓ : Level} {A : BI → Set ℓ} {a0 : A bi0} {a1 : A bi1}
--- -- --   (bdg : BridgeP A a0 a1) →
--- -- --   PathP A (bdg bi0) a0
--- -- -- border-rule = ?
-
--- -- -- attempt2 (constant bridgy line)
--- -- border-rule : 
--- --   {ℓ : Level} {A : Set ℓ} {a0 a1 : A}
--- --   (bdg : BridgeP (λ bi → A) a0 a1) →
--- --   PathP (λ i → A) (bdg bi0) a0
--- -- border-rule = λ bdg i → bdg bi0
+  -- p ⊢ p
+  -- p , k ⊢ p                                   constraints k ∉ p                OK
+  -- p : bdg-bdg-t, k : BI ⊢ p k : bdg-t         constraints k ∉ p k              hopefully affine constr gets gen
+  -- p : bdg-bdg-t, k : BI ⊢ (p k) k : bdg-t     endpoint cstr
+  -- p : bdg-bdg-t ⊢ λ k → p k k : bdg-t
+  -- ⊢ λ p k → p k k : bdg-bdg-t → bdg-t
 
 
 
--- -- -- ETA COMPUTATION RULE
-
--- -- eta-rule : 
--- --   {ℓ : Level} {A : Set ℓ} {a0 a1 : A}
--- --   (bdg : BridgeP (λ bi → A) a0 a1) →
--- --   PathP (λ i → BridgeP (λ bi → A) a0 a1) bdg (λ bi → bdg bi)
--- -- eta-rule = λ bdg i → bdg
-
--- -- eta-rule' : 
--- --   {ℓ : Level} {A : BI → Set ℓ} {a0 : A bi0} {a1 : A bi1}
--- --   (bdg : BridgeP (λ i → A i) a0 a1) →
--- --   bdg ≡ λ i → bdg i
--- -- eta-rule' bdg = λ j → bdg
-
-
--- -- -- BETA COMPUTATION RULE
-
--- -- --  how can I check that BETA is valid??
--- -- -- beta-rule :
--- -- --   {ℓ : Level} {A : BI → Set ℓ}
--- -- --   (bi : BI) (M : BI → A i)
-
--- -- -- dummy-rel : BridgeP (λ bi → BI) bi0 bi1
--- -- -- dummy-rel = λ bi → bi
   
-
 -- -- BRIDGES VS BRIDGES (relational extensionality for bridges)
 -- -- the exchange rule should hold for bridge vars
--- module BridgeVBridge {ℓ} (BB : BI → BI → Set ℓ) (a : (i j : BI) → BB i j) where
+module BridgeVBridge {ℓ} (BB : (@tick i j : BI) → Set ℓ) (a : (i j : BI) → BB i j) where
 
 
 --   -- we compare the types of λ i j → a i j and λ j i → a i j and
@@ -185,33 +132,33 @@ module bridgeTest {ℓ} {A : (@tick i : BI) → Set ℓ} {a0 : A bi0} {a1 : A bi
 
 
 --   -- λ i j → a i j is a bridge between the left side and the right side of the above square.
---   laij : BridgeP
---          (λ i →  BridgeP (λ j → BB i j) (a i bi0)  (a i bi1))
---          (λ j → a bi0 j)
---          (λ j → a bi1 j)
---   laij = λ i j → a i j
+  laij : BridgeP
+         (λ i →  BridgeP (λ j → BB i j) (a i bi0)  (a i bi1))
+         (λ j → a bi0 j)
+         (λ j → a bi1 j)
+  laij = λ i j → a i j
 
---   -- λ j i → a i j is a bridge between the bottom side and the top side of the above square.
---   laji : BridgeP
---          (λ j →  BridgeP (λ i → BB i j) (a bi0 j)  (a bi1 j))
---          (λ i → a i bi0)
---          (λ i → a i bi1)
---   laji = λ j i → a i j
+  -- λ j i → a i j is a bridge between the bottom side and the top side of the above square.
+  laji : BridgeP
+         (λ j →  BridgeP (λ i → BB i j) (a bi0 j)  (a bi1 j))
+         (λ i → a i bi0)
+         (λ i → a i bi1)
+  laji = λ j i → a i j
 
 --   -- this should work!
---   exch-bdg :
---    BridgeP (λ x →  BridgeP (λ y → BB x y) (a x bi0)  (a x bi1)) (λ y → a bi0 y) (λ y → a bi1 y) →
---    BridgeP (λ y →  BridgeP (λ x → BB x y) (a bi0 y)  (a bi1 y)) (λ x → a x bi0) (λ x → a x bi1)
---   exch-bdg p = λ y x → p x y
+  exch-bdg :
+   BridgeP (λ x →  BridgeP (λ y → BB x y) (a x bi0)  (a x bi1)) (λ y → a bi0 y) (λ y → a bi1 y) →
+   BridgeP (λ y →  BridgeP (λ x → BB x y) (a bi0 y)  (a bi1 y)) (λ x → a x bi0) (λ x → a x bi1)
+  exch-bdg p = λ y x → p x y
 
---   exch-bdg' :
---     BridgeP (λ y →  BridgeP (λ x → BB x y) (a bi0 y)  (a bi1 y)) (λ x → a x bi0) (λ x → a x bi1) → 
---     BridgeP (λ x →  BridgeP (λ y → BB x y) (a x bi0)  (a x bi1)) (λ y → a bi0 y) (λ y → a bi1 y)
---   exch-bdg' p = λ x y → p y x
+  exch-bdg' :
+    BridgeP (λ y →  BridgeP (λ x → BB x y) (a bi0 y)  (a bi1 y)) (λ x → a x bi0) (λ x → a x bi1) → 
+    BridgeP (λ x →  BridgeP (λ y → BB x y) (a x bi0)  (a x bi1)) (λ y → a bi0 y) (λ y → a bi1 y)
+  exch-bdg' p = λ x y → p y x
 
 --   -- one inverse condition of the bdg versus bdg principle
---   bdgVbdg : ∀ p →  p ≡ (exch-bdg' (exch-bdg p) )
---   bdgVbdg p = λ i → p
+  bdgVbdg : ∀ p →  p ≡ (exch-bdg' (exch-bdg p) )
+  bdgVbdg p = λ i → p
 
 --   -- the other one:
 --   bdgVbdg' : ∀ p → p ≡ (exch-bdg (exch-bdg' p))
