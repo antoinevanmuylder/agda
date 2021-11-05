@@ -172,6 +172,7 @@ primExtent' = do
         case shouldRedExtent of
           False -> do
             reportSLn "tc.prim.extent" 30 $ P.prettyShow rtm ++ " not semifresh for " ++ P.prettyShow bMtm'
+            reportSLn "tc.prim.extent" 30 $ "Its has " ++ show (getAnnotation rinfo)
             reportSLn "tc.prim.extent" 30 $ "because fvs are " ++ P.prettyShow fvM
             fallback lA lB bA bB r bM' n0 n1 nn --should throw error?
           True -> do
@@ -199,6 +200,7 @@ primExtent' = do
     ldArgInfo = setLock IsLock defaultArgInfo
     fallback lA lB bA bB r bM' n0 n1 nn =
       return $ NoReduction $ map notReduced [lA, lB, bA, bB, n0, n1, nn, r] ++ [reduced bM']
+
 
 
 

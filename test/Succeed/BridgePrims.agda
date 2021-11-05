@@ -1,4 +1,4 @@
-{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc:20 #-}
+{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.prim.extent:30 #-}
 module BridgePrims where
 
 -- this is a reproduction of test/Succeed/LaterPrims.agda and-or Agda.Primitive.Cubical
@@ -117,7 +117,7 @@ module PlayBridgeP {ℓ} {A : (@tick x : BI) → Set ℓ} {a0 : A bi0} {a1 : A b
   
 -- -- BRIDGES VS BRIDGES (relational extensionality for bridges)
 -- -- the exchange rule should hold for bridge vars
-module BridgeVBridge {ℓ} (BB : (@tick i j : BI) → Set ℓ) (a : (i j : BI) → BB i j) where
+module BridgeVBridge {ℓ} (BB : (@tick i j : BI) → Set ℓ) (a : (@tick i j : BI) → BB i j) where
 
 
 --   -- we compare the types of λ i j → a i j and λ j i → a i j and
@@ -161,99 +161,121 @@ module BridgeVBridge {ℓ} (BB : (@tick i j : BI) → Set ℓ) (a : (i j : BI) �
   bdgVbdg p = λ i → p
 
 --   -- the other one:
---   bdgVbdg' : ∀ p → p ≡ (exch-bdg (exch-bdg' p))
---   bdgVbdg' p = λ i → p
+  bdgVbdg' : ∀ p → p ≡ (exch-bdg (exch-bdg' p))
+  bdgVbdg' p = λ i → p
 
--- -- the following should indeed raise I think
--- -- but not with an error 
--- -- " The following vars are not allowed in a later value applied to i : [j]
--- --   when checking that the expression bdg-bdg j i has type A j "
--- -- exchange-bdg : ∀ {ℓ} {A : BI → Set ℓ} {a0 : A bi0} {a1 : A bi1}
--- --                {bdg1 bdg2 : BridgeP A a0 a1}
--- --                (bdg-bdg : BridgeP (λ bi → BridgeP A a0 a1) bdg1 bdg2) →
--- --                BridgeP (λ bi → BridgeP A a0 a1) bdg1 bdg2
--- -- exchange-bdg = λ bdg-bdg → λ i j → bdg-bdg j i
+
 
 
 -- -- BRIDGES vs PATHS
--- module BridgeVPath {ℓ} {A : BI → I → Set ℓ} {a : (r : BI) (i : I) → A r i} where
+module BridgeVPath {ℓ} {A : (@tick r : BI) → I → Set ℓ} {a : (@tick r : BI) (i : I) → A r i} where
   
---   -- λ r i → a r i is a bridge between paths
---   lari : BridgeP
---          (λ r →  PathP (λ i → A r i) (a r i0)  (a r i1))
---          (λ i → a bi0 i)
---          (λ i → a bi1 i)
---   lari = λ r i → a r i
+  -- λ r i → a r i is a bridge between paths
+  lari : BridgeP
+         (λ r →  PathP (λ i → A r i) (a r i0)  (a r i1))
+         (λ i → a bi0 i)
+         (λ i → a bi1 i)
+  lari = λ r i → a r i
 
   
---   -- λ i r → a r i is a path between bridges
---   lair : PathP
---          (λ i →  BridgeP (λ r → A r i) (a bi0 i)  (a bi1 i))
---          (λ r → a r i0)
---          (λ r → a r i1)
---   lair = λ i r → a r i
+  -- λ i r → a r i is a path between bridges
+  lair : PathP
+         (λ i →  BridgeP (λ r → A r i) (a bi0 i)  (a bi1 i))
+         (λ r → a r i0)
+         (λ r → a r i1)
+  lair = λ i r → a r i
 
---   bdgPath-to-pathBdg :
---     BridgeP (λ r →  PathP (λ i → A r i) (a r i0)  (a r i1)) (λ i → a bi0 i) (λ i → a bi1 i) →
---     PathP (λ i →  BridgeP (λ r → A r i) (a bi0 i)  (a bi1 i)) (λ r → a r i0) (λ r → a r i1)
---   bdgPath-to-pathBdg bp = λ i r → bp r i
+  bdgPath-to-pathBdg :
+    BridgeP (λ r →  PathP (λ i → A r i) (a r i0)  (a r i1)) (λ i → a bi0 i) (λ i → a bi1 i) →
+    PathP (λ i →  BridgeP (λ r → A r i) (a bi0 i)  (a bi1 i)) (λ r → a r i0) (λ r → a r i1)
+  bdgPath-to-pathBdg bp = λ i r → bp r i
 
---   pathBdg-to-bdgPth :
---     PathP (λ i →  BridgeP (λ r → A r i) (a bi0 i)  (a bi1 i)) (λ r → a r i0) (λ r → a r i1) →
---     BridgeP (λ r →  PathP (λ i → A r i) (a r i0)  (a r i1)) (λ i → a bi0 i) (λ i → a bi1 i)
---   pathBdg-to-bdgPth = λ pb → λ r i → pb i r
+  pathBdg-to-bdgPth :
+    PathP (λ i →  BridgeP (λ r → A r i) (a bi0 i)  (a bi1 i)) (λ r → a r i0) (λ r → a r i1) →
+    BridgeP (λ r →  PathP (λ i → A r i) (a r i0)  (a r i1)) (λ i → a bi0 i) (λ i → a bi1 i)
+  pathBdg-to-bdgPth = λ pb → λ r i → pb i r
 
---   -- one inverse condition of bdg versus path principle
---   bridgevPath : ∀ bp → PathP
---                         (λ _ → BridgeP (λ r →  PathP (λ i → A r i) (a r i0)  (a r i1)) (λ i → a bi0 i) (λ i → a bi1 i) )
---                         bp (pathBdg-to-bdgPth (bdgPath-to-pathBdg bp))
---   bridgevPath bp = λ x → bp
+  -- one inverse condition of bdg versus path principle
+  bridgevPath : ∀ bp → PathP
+                        (λ _ → BridgeP (λ r →  PathP (λ i → A r i) (a r i0)  (a r i1)) (λ i → a bi0 i) (λ i → a bi1 i) )
+                        bp (pathBdg-to-bdgPth (bdgPath-to-pathBdg bp))
+  bridgevPath bp = λ x → bp
 
---   -- the other one
---   pathvBridge  : ∀ pb → pb ≡ bdgPath-to-pathBdg ( pathBdg-to-bdgPth pb )
---   pathvBridge pb = λ i → pb
-
-
-
--- ------------------------------------------------------------------------
--- -- extent primitive
--- ------------------------------------------------------------------------
-
--- -- postulate
--- --   BridgeP : ∀ {ℓ} (A : BI → Set ℓ) → A bi0 → A bi1 → Set ℓ
-
--- --  primitive 
--- --  primComp : ∀ {ℓ} (A : (i : I) → Set (ℓ i)) {φ : I} (u : ∀ i → Partial φ (A i)) (a : A i0) → A i1
+  -- the other one
+  pathvBridge  : ∀ pb → pb ≡ bdgPath-to-pathBdg ( pathBdg-to-bdgPth pb )
+  pathvBridge pb = λ i → pb
 
 
 
+------------------------------------------------------------------------
+-- extent primitive
+------------------------------------------------------------------------
 
--- module PlayExtent {ℓA ℓB : Level} {A : BI → Set ℓA} {B : (x : BI) (a : A x) → Set ℓB}
---                   (N0 : (a0 : A bi0) → B bi0 a0) (N1 : (a1 : A bi1) → B bi1 a1) where
+
+module PlayExtent {ℓA ℓB : Level} {A : (@tick x : BI) → Set ℓA} {B : (@tick x : BI) (a : A x) → Set ℓB}
+                  (N0 : (a0 : A bi0) → B bi0 a0) (N1 : (a1 : A bi1) → B bi1 a1) where
   
---   -- we wish to show bridge-funext: an equivalence btw the two foll. types
---   -- pointwise-related is a retract thanks to extent beta rule
---   -- related-sections is a retract thanks to extent eta rule
---   pointwise-related = (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) → BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1)
+  -- we wish to show bridge-funext: an equivalence btw the two foll. types
+  -- pointwise is a retract thanks to extent beta rule
+  -- related is a retract thanks to extent eta rule
+  pointwise = (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) → BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1)
 
---   related-sections = BridgeP (λ x → (a : A x) → B x a) N0 N1
+  related = BridgeP (λ x → (a : A x) → B x a) N0 N1
 
---   -- bridge-funext, hard direction
---   bf-hard : pointwise-related → related-sections
---   bf-hard NN = λ r M → primExtent r M N0 N1 NN
-
-
---   bf-easy : related-sections -> pointwise-related
---   bf-easy p = λ a0 a1 aa x → p x (aa x)
+  -- bridge-funext, hard direction
+  bf-hard : pointwise → related
+  bf-hard NN = λ r M → primExtent N0 N1 NN r M
 
 
---   pointwise-related-retract : (H : pointwise-related) -> H ≡ bf-easy (bf-hard H)
---   pointwise-related-retract H = λ i → H
---   -- TODO: issue #2 on my fork: when computing under lambdas, types of vars are forgotten which messes up the fv analysis
---   -- try C-u C-u C-C C-t the target type
+  bf-easy : related -> pointwise
+  bf-easy p = λ a0 a1 aa x → p x (aa x)
 
---   -- related-sections-retract : (q : related-sections) -> q ≡ bf-hard ( bf-easy q )
---   -- related-sections-retract q = {!!}
+
+  pointwise-retract : (H : pointwise) -> H ≡ bf-easy (bf-hard H)
+  pointwise-retract H i = H
+  -- TODO: issue #2 on my fork: when computing under lambdas, types of vars are forgotten which messes up the fv analysis
+  -- try C-u C-u C-C C-t the target type
+
+  -- related-retract : (q : related) -> q ≡ bf-hard ( bf-easy q )
+  -- related-retract q i = λ r → {!!}
+
+
+
+module BetaExtent {ℓA ℓB : Level} {A : (@tick x : BI) → Set ℓA} {B : (@tick x : BI) (a : A x) → Set ℓB}
+               {N0 : (a0 : A bi0) → B bi0 a0} {N1 : (a1 : A bi1) → B bi1 a1}
+               {NN : (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) → BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1)}
+               {M' : (@tick j : BI) → A j} {@tick r : BI} where
+
+  
+  -- try C-c C-n this. extent fails to reduce (it should) because of issue #2
+  -- the semi freshness check r ~∉ M' r fails but it should pass.
+  -- when issue #2 is solved this should work
+  extent-beta : B r (M' r)
+  extent-beta = primExtent {A = A} {B = B} N0 N1 NN r (M' r)
+
+  
+
+module NotSemiFreshExtent {ℓA ℓB : Level} {A : (@tick x : BI) → Set ℓA} {B : (@tick x : BI) (a : A x) → Set ℓB}
+               {N0 : (a0 : A bi0) → B bi0 a0} {N1 : (a1 : A bi1) → B bi1 a1}
+               {NN : (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) → BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1)}
+               {@tick r : BI} {b : Bool} {M' : Bool → A r} where
+
+  -- try C-c C-n this
+  -- this one should indded not reduce because r is not semifresh for M' b since M' b contains
+  -- b which is a timefull r-later.
+  -- However the reason why it does not reduce here is issue #2: r itself is wronlgy 
+  -- considered a timefull r-later
+  -- I think that if issue #2 gets fixed, this will still not reduce, as expected 
+  not-fresh-M : B r (M' b)
+  not-fresh-M = primExtent {A = A} {B = B} N0 N1 NN r (M' b)
+
+
+module NotFreshExtent {ℓA ℓB : Level} {A : (@tick x : BI) → Set ℓA} {B : (@tick x : BI) (a : A x) → Set ℓB}
+               {N0 : (a0 : A bi0) → B bi0 a0} {N1 : (a1 : A bi1) → B bi1 a1}
+               {NN : (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) → BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1)}
+               {@tick r : BI} {b : Bool} {M' : Bool → A r} where
+
+
     
 -- ------------------------------------------------------------------------
 -- -- Gel Types
