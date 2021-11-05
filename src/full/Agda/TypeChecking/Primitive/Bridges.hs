@@ -211,22 +211,19 @@ primExtent' = do
 --   In their case, the type, the intro and elim primitives are really agda primitives.
 --   the boundary rules are part of the various PrimitiveImpl.
 --   the Glue beta rule is part of the unglue PrimitiveImpl
---   the Glue eta rule is specified elsewhere
+--   the Glue eta rule is specified elsewhere (Conversion.hs)
 
 
--- | Gel : ∀ {ℓA ℓ} (r : BI) (A0 : Set ℓA) (A1 : Set ℓA) (R : A0 → A1 → Set ℓ) → Set ℓA
--- TODO-antva: should I check that A0 A1 R are apart from r?
--- the return type is really Set ℓ?
+-- | Gel : ∀ {ℓ} (A0 : Set ℓ) (A1 : Set ℓ) (R : A0 → A1 → Set ℓ) (@tick r : BI) → Set ℓ
 gelType :: TCM Type
 gelType = do
   t <- runNamesT [] $
-       hPi' "lA" (el primLevel) $ \lA ->
-       hPi' "lR" (el primLevel) $ \lR ->
+       hPi' "l" (el primLevel) $ \l ->
+       nPi' "A0" (sort . tmSort <$> l) $ \bA0 ->
+       nPi' "A1" (sort . tmSort <$> l) $ \bA1 ->
+       nPi' "R" ( (el' l bA0) --> (el' l bA1) --> (sort . tmSort <$> l) ) $ \bR ->
        lPi' "r" primBridgeIntervalType $ \r ->
-       nPi' "A0" (sort . tmSort <$> lA) $ \bA0 ->
-       nPi' "A1" (sort . tmSort <$> lA) $ \bA1 ->
-       nPi' "R" ( (el' lA bA0) --> (el' lA bA1) --> (sort . tmSort <$> lR) ) $ \bR ->
-       sort . tmSort <$> lA
+       sort . tmSort <$> l
   return t
 
 
@@ -235,8 +232,8 @@ primGel' :: TCM PrimitiveImpl
 primGel' = do
   requireBridges "in primGel'"
   typ <- gelType
-  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 6 $ \gelTypeArgs@[lA, lR, r@(Arg rinfo rtm), bA0@(Arg ainfo0 bA0tm),
-                                                                   bA1@(Arg ainfo1 bA1tm), bR]-> do
+  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 5 $ \gelTypeArgs@[l, bA0@(Arg ainfo0 bA0tm),
+                                                      bA1@(Arg ainfo1 bA1tm), bR, r@(Arg rinfo rtm)]-> do
     --goal ReduceM(Reduced MaybeReducedArgs Term)
     viewr <- bridgeIntervalView rtm --should reduceB because of metas
     case viewr of
@@ -246,22 +243,22 @@ primGel' = do
       _ -> __IMPOSSIBLE__ --metas...
 
 
--- | prim^gel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
---              (r : BI) (M0 : A0) (M1 : A1) (P : R M0 M1) →
---              Gel r A0 A1 R
+-- | prim^gel : ∀ {ℓ} {A0 A1 : Set ℓ} {R : A0 → A1 → Set ℓ}
+--              (M0 : A0) (M1 : A1) (P : R M0 M1) (@tick r : BI) →
+--              Gel A0 A1 R r
+-- pblm: R can not be inferred if implicit
 prim_gelType :: TCM Type
 prim_gelType = do
   t <- runNamesT [] $
-       hPi' "lA" (el primLevel) $ \lA ->
        hPi' "l" (el primLevel) $ \l ->
-       hPi' "A0" (sort . tmSort <$> lA) $ \bA0 ->
-       hPi' "A1" (sort . tmSort <$> lA) $ \bA1 ->
-       hPi' "R" ( (el' lA bA0) --> (el' lA bA1) --> (sort . tmSort <$> l) ) $ \bR ->
-       nPi' "r" primBridgeIntervalType $ \r ->  --lock?
-       nPi' "M0" (el' lA bA0) $ \bM0 ->
-       nPi' "M1" (el' lA bA1) $ \bM1 ->
+       hPi' "A0" (sort . tmSort <$> l) $ \bA0 ->
+       hPi' "A1" (sort . tmSort <$> l) $ \bA1 ->
+       hPi' "R" ( (el' l bA0) --> (el' l bA1) --> (sort . tmSort <$> l) ) $ \bR ->
+       nPi' "M0" (el' l bA0) $ \bM0 ->
+       nPi' "M1" (el' l bA1) $ \bM1 ->
        nPi' "P" (el' l $ bR <@> bM0 <@> bM1) $ \bP ->
-       el' lA $ cl primGel <#> lA <#> l <@> r <@> bA0 <@> bA1 <@> bR
+       lPi' "r" primBridgeIntervalType $ \r -> 
+       el' l $ cl primGel <#> l <@> bA0 <@> bA1 <@> bR <@> r
   return t
   
 
@@ -270,9 +267,8 @@ prim_gel' :: TCM PrimitiveImpl
 prim_gel' = do
   requireBridges "in prim_gel'"
   typ <- prim_gelType
-  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 9 $ \gelArgs@[lA, l, bA0, bA1,
-                                                               bR, r@(Arg rinfo rtm),
-                                                               bM0@(Arg _ bM0tm), bM1@(Arg _ bM1tm), bP]-> do
+  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 8 $ \gelArgs@[l, bA0, bA1, bR, bM0@(Arg _ bM0tm),
+                                                     bM1@(Arg _ bM1tm), bP, r@(Arg rinfo rtm)]-> do
     --goal ReduceM(Reduced MaybeReducedArgs Term)
     viewr <- bridgeIntervalView rtm --should reduceB because of metas
     case viewr of
@@ -282,19 +278,18 @@ prim_gel' = do
       _ -> __IMPOSSIBLE__ --metas...
 
 
--- | prim^ungel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
---                (absQ : (x : BI) → primGel x A0 A1 R) →
+-- | prim^ungel : ∀ {ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
+--                (absQ : (@tick x : BI) → primGel x A0 A1 R) →
 --                R (absQ bi0) (absQ bi1)
 prim_ungelType :: TCM Type
 prim_ungelType = do
   t <- runNamesT [] $
-       hPi' "lA" (el primLevel) $ \lA ->
        hPi' "l" (el primLevel) $ \l ->
-       hPi' "A0" (sort . tmSort <$> lA) $ \bA0 ->
-       hPi' "A1" (sort . tmSort <$> lA) $ \bA1 ->
-       hPi' "R" ( (el' lA bA0) --> (el' lA bA1) --> (sort . tmSort <$> l) ) $ \bR ->
+       hPi' "A0" (sort . tmSort <$> l) $ \bA0 ->
+       hPi' "A1" (sort . tmSort <$> l) $ \bA1 ->
+       hPi' "R" ( (el' l bA0) --> (el' l bA1) --> (sort . tmSort <$> l) ) $ \bR ->
        nPi' "absQ" ( lPi' "x" primBridgeIntervalType $ \x ->
-                          (el' l $ cl primGel <#> lA <#> l <@> x <@> bA0 <@> bA1 <@> bR)) $ \absQ ->
+                          (el' l $ cl primGel <#> l <@> bA0 <@> bA1 <@> bR <@> x)) $ \absQ ->
        el' l $ bR <@> (absQ <@> primBIZero) <@> (absQ <@> primBIOne)
   return t
 
@@ -307,7 +302,7 @@ prim_ungel' :: TCM PrimitiveImpl
 prim_ungel' = do
   requireBridges "in prim_ungel'"
   typ <- prim_ungelType
-  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 6 $ \gelArgs@[lA, l, bA0, bA1,
+  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 5 $ \gelArgs@[l, bA0, bA1,
                                                                bR, absQ]-> do
     --goal ReduceM(Reduced MaybeReducedArgs Term)
     mgel <- getPrimitiveName' builtin_gel
@@ -320,7 +315,7 @@ prim_ungel' = do
         underAbstractionAbs (defaultNamedArgDom qinfo "xq" bintervalTyp) qbody $ \body -> do --body already comes wkn
           body' <- reduceB' body --should care for metas as usual
           case ignoreBlocking body' of
-            Def qnm [Apply _, Apply _, Apply _, Apply _,Apply _, Apply _, Apply _, Apply _, Apply bP]
+            Def qnm [Apply _, Apply _, Apply _, Apply _,Apply _, Apply _, Apply bP, Apply _]
                     | Just qnm == mgel -> do
                       reportSLn "tc.prim.ungel" 30 $ "in prim_ungel': here is absQ local body: " ++
                                 P.prettyShow (ignoreBlocking body')
@@ -332,11 +327,11 @@ prim_ungel' = do
                       reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. absQ is x.gel, here is P after str: " ++
                                 P.prettyShow strP                      
                       redReturn strP
-            _ -> fallback lA l bA0 bA1 bR absQ'
-      _ -> fallback lA l bA0 bA1 bR absQ'    
+            _ -> fallback l bA0 bA1 bR absQ'
+      _ -> fallback l bA0 bA1 bR absQ'    
   where
-    fallback lA l bA0 bA1 bR absQ' =
-      return $ NoReduction $ map notReduced [lA, l, bA0, bA1, bR] ++ [reduced absQ']
+    fallback l bA0 bA1 bR absQ' =
+      return $ NoReduction $ map notReduced [l, bA0, bA1, bR] ++ [reduced absQ']
     
 
 

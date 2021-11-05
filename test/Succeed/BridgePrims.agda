@@ -1,4 +1,4 @@
-{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.prim.extent:30 #-}
+{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.prim.ungel:30 #-}
 module BridgePrims where
 
 -- this is a reproduction of test/Succeed/LaterPrims.agda and-or Agda.Primitive.Cubical
@@ -42,23 +42,26 @@ primitive
                (@tick r : BI) (M : A r) →
                B r M
 
--- primitive
---   primGel : ∀ {ℓA ℓ} (r : BI) (A0 A1 : Set ℓA) (R : A0 → A1 → Set ℓ) → Set ℓA
+primitive
+  primGel : ∀ {ℓ} (A0 A1 : Set ℓ) (R : A0 → A1 → Set ℓ) (@tick r : BI) → Set ℓ
 
 
--- -- caution: R is implicit but can not be inferred from the following args
--- primitive
---   prim^gel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
---                (r : BI) (M0 : A0) (M1 : A1) (P : R M0 M1) →
---                primGel r A0 A1 R
+-- caution: R is implicit but can not be inferred from the following args
+primitive
+  prim^gel : ∀ {ℓ} {A0 A1 : Set ℓ} {R : A0 → A1 → Set ℓ}
+               (M0 : A0) (M1 : A1) (P : R M0 M1) (@tick r : BI) →
+               primGel A0 A1 R r
 
 
--- primitive
---   prim^ungel : ∀ {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ}
---                (absQ : (x : BI) → primGel x A0 A1 R) →
---                R (absQ bi0) (absQ bi1)
+primitive
+  prim^ungel : ∀ {ℓ} {A0 A1 : Set ℓ} {R : A0 → A1 → Set ℓ}
+               (absQ : (@tick x : BI) → primGel A0 A1 R x) →
+               R (absQ bi0) (absQ bi1)
 
 
+------------------------------------------------------------------------
+-- about bridges
+------------------------------------------------------------------------
 
 module PlayBridgeP {ℓ} {A : (@tick x : BI) → Set ℓ} {a0 : A bi0} {a1 : A bi1}
                    {B : Set ℓ} {b0 b1 : B} where
@@ -266,14 +269,20 @@ module NotSemiFreshExtent {ℓA ℓB : Level} {A : (@tick x : BI) → Set ℓA} 
   -- However the reason why it does not reduce here is issue #2: r itself is wronlgy 
   -- considered a timefull r-later
   -- I think that if issue #2 gets fixed, this will still not reduce, as expected 
-  not-fresh-M : B r (M' b)
-  not-fresh-M = primExtent {A = A} {B = B} N0 N1 NN r (M' b)
+  not-sfresh-M : B r (M' b)
+  not-sfresh-M = primExtent {A = A} {B = B} N0 N1 NN r (M' b)
 
 
 module NotFreshExtent {ℓA ℓB : Level} {A : (@tick x : BI) → Set ℓA} {B : (@tick x : BI) (a : A x) → Set ℓB}
+               {@tick r : BI}
                {N0 : (a0 : A bi0) → B bi0 a0} {N1 : (a1 : A bi1) → B bi1 a1}
                {NN : (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) → BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1)}
-               {@tick r : BI} {b : Bool} {M' : Bool → A r} where
+               {M : A r} where
+
+  -- N0 N1 NN are supposed to be apart from r in the type of primExtent
+  -- but in the above context nothing guarantees that they are
+  -- not-fresh-NN : B r M
+  -- not-fresh-NN = primExtent {A = A} {B = B} N0 N1 NN r M
 
 
     
@@ -283,31 +292,28 @@ module NotFreshExtent {ℓA ℓB : Level} {A : (@tick x : BI) → Set ℓA} {B :
 
 
 
+module PlayGel {ℓ} {A0 A1 : Set ℓ} {R : A0 → A1 → Set ℓ} where
+
+  -- boundaries for Gel type
+  boundary0-Gel : primGel A0 A1 R bi0 ≡ A0
+  boundary0-Gel i = A0
+
+  boundary1-Gel : primGel A0 A1 R bi1 ≡ A1
+  boundary1-Gel i = A1
 
 
+  -- boundaries for gel
+  boundary0-gel : (M0 : A0) (M1 : A1) (P : R M0 M1) → prim^gel {R = R} M0 M1 P bi0 ≡ M0
+  boundary0-gel M0 M1 P i = M0
 
--- module PlayGel {ℓA ℓ} {A0 A1 : Set ℓA} {R : A0 → A1 → Set ℓ} where
-
---   -- boundaries for Gel type
---   boundary0-Gel : primGel bi0 A0 A1 R ≡ A0
---   boundary0-Gel i = A0
-
---   boundary1-Gel : primGel bi1 A0 A1 R ≡ A1
---   boundary1-Gel = λ i → A1
+  boundary1-gel : (M0 : A0) (M1 : A1) (P : R M0 M1) → prim^gel {R = R} M0 M1 P bi1 ≡ M1
+  boundary1-gel M0 M1 P i = M1
 
 
---   -- boundaries for gel
---   boundary0-gel : (M0 : A0) (M1 : A1) (P : R M0 M1) → prim^gel {R = R} bi0 M0 M1 P ≡ M0
---   boundary0-gel M0 M1 P i = M0
-
---   boundary1-gel : (M0 : A0) (M1 : A1) (P : R M0 M1) → prim^gel {R = R} bi1 M0 M1 P ≡ M1
---   boundary1-gel M0 M1 P i = M1
-
-
---   -- computational behaviour of ungel?
---   ungel-gel : (M1 : A1) (M0 : A0) (P : R M0 M1) →
---               P ≡ prim^ungel ( λ (x : BI) → prim^gel {R = R} x M0 M1 P )
---   ungel-gel M1 M0 P i = P
+  -- computational behaviour of ungel?
+  ungel-gel : (M1 : A1) (M0 : A0) (P : R M0 M1) → R M0 M1
+  ungel-gel M1 M0 P = prim^ungel {R = R} ( λ x → prim^gel {R = R} M0 M1 P x )
+ 
   
 --   ungel-gel' : (M1 : A1) (M0 : A0) (P : R M0 M1) →
 --               prim^ungel ( λ (x : BI) → prim^gel {R = R} x M0 M1 P ) ≡ P
