@@ -76,7 +76,8 @@ dummyRedTerm0 = do
 dummyRedTerm :: Term -> ReduceM( Reduced MaybeReducedArgs Term)
 dummyRedTerm t = return $ YesReduction NoSimplification t
 
-
+psh :: P.Pretty a => a -> String
+psh = P.prettyShow
 
 -- * extent primitive
 
@@ -305,30 +306,38 @@ prim_ungel' = do
   return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 5 $ \gelArgs@[l, bA0, bA1,
                                                                bR, absQ]-> do
     --goal ReduceM(Reduced MaybeReducedArgs Term)
+    reportSLn "tc.prim.ungel" 30 $ "in prim_ungel': beginning of primImpl"
     mgel <- getPrimitiveName' builtin_gel
     bintervalTm <- getTerm "prim_ungel" builtinBridgeInterval
     let bintervalTyp = El LockUniv bintervalTm
     absQ' <- reduceB' absQ
     let absQtm' = unArg $ ignoreBlocking $ absQ' --should care for metas, as usual
     case absQtm' of
-      Lam qinfo qbody ->
+      Lam qinfo qbody -> do --case: λ x → prim^gel {R = R} M0 M1 P x.  we never hit this case, only the next one?
+        reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. lam case. here is absQ :" ++ psh absQtm'
         underAbstractionAbs (defaultNamedArgDom qinfo "xq" bintervalTyp) qbody $ \body -> do --body already comes wkn
           body' <- reduceB' body --should care for metas as usual
           case ignoreBlocking body' of
             Def qnm [Apply _, Apply _, Apply _, Apply _,Apply _, Apply _, Apply bP, Apply _]
-                    | Just qnm == mgel -> do
-                      reportSLn "tc.prim.ungel" 30 $ "in prim_ungel': here is absQ local body: " ++
-                                P.prettyShow (ignoreBlocking body')
-                      reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. absQ is x.gel, here is P before str: " ++
-                                P.prettyShow bP
-                      let strP = applySubst (strengthenS impossible 1) $ unArg bP
-                      -- applySubst :: Substitution' (SubstArg a) -> a -> a
-                      -- strP <- escapeContext impossible 1 $ return $ unArg bP
-                      reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. absQ is x.gel, here is P after str: " ++
-                                P.prettyShow strP                      
-                      redReturn strP
-            _ -> fallback l bA0 bA1 bR absQ'
-      _ -> fallback l bA0 bA1 bR absQ'    
+             | Just qnm == mgel -> do
+              reportSLn "tc.prim.ungel" 30 $ "in prim_ungel': lam mgel case."
+              reportSLn "tc.prim.ungel" 30 $ "in prim_ungel': here is absQ local body: " ++ psh (ignoreBlocking body')
+              reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. absQ is x.gel, here is P before str: " ++ psh bP
+              let strP = applySubst (strengthenS impossible 1) $ unArg bP
+              -- applySubst :: Substitution' (SubstArg a) -> a -> a
+              -- strP <- escapeContext impossible 1 $ return $ unArg bP
+              reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. absQ is x.gel, here is P after str: " ++ psh strP
+              redReturn strP
+            _ -> do
+              reportSLn "tc.prim.ungel" 30 $ "in prim_ungel': lam no-mgel case."
+              fallback l bA0 bA1 bR absQ'
+      Def qnm [Apply _, Apply _, Apply _, Apply _,Apply _, Apply _, Apply bP] | Just qnm == mgel -> do
+        reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. no-lam mgel case. here is absQ :" ++ psh absQtm'
+        reportSLn "tc.prim.ungel" 30 $ "  and here is the qname: " ++ psh qnm
+        redReturn $ unArg bP
+      _ -> do
+        reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. no-lam no-mgel case. here is absQ :" ++ psh absQtm'
+        fallback l bA0 bA1 bR absQ'
   where
     fallback l bA0 bA1 bR absQ' =
       return $ NoReduction $ map notReduced [l, bA0, bA1, bR] ++ [reduced absQ']

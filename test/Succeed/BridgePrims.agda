@@ -1,4 +1,4 @@
-{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.prim.ungel:30 #-}
+{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.prim.ungel:31 #-}
 module BridgePrims where
 
 -- this is a reproduction of test/Succeed/LaterPrims.agda and-or Agda.Primitive.Cubical
@@ -294,7 +294,7 @@ module NotFreshExtent {ℓA ℓB : Level} {A : (@tick x : BI) → Set ℓA} {B :
 
 module PlayGel {ℓ} {A0 A1 : Set ℓ} {R : A0 → A1 → Set ℓ} where
 
-  -- boundaries for Gel type
+  -- BOUNDARY for Gel type
   boundary0-Gel : primGel A0 A1 R bi0 ≡ A0
   boundary0-Gel i = A0
 
@@ -302,7 +302,7 @@ module PlayGel {ℓ} {A0 A1 : Set ℓ} {R : A0 → A1 → Set ℓ} where
   boundary1-Gel i = A1
 
 
-  -- boundaries for gel
+  -- BOUNDARY for gel
   boundary0-gel : (M0 : A0) (M1 : A1) (P : R M0 M1) → prim^gel {R = R} M0 M1 P bi0 ≡ M0
   boundary0-gel M0 M1 P i = M0
 
@@ -310,23 +310,19 @@ module PlayGel {ℓ} {A0 A1 : Set ℓ} {R : A0 → A1 → Set ℓ} where
   boundary1-gel M0 M1 P i = M1
 
 
-  -- computational behaviour of ungel?
-  ungel-gel : (M1 : A1) (M0 : A0) (P : R M0 M1) → R M0 M1
-  ungel-gel M1 M0 P = prim^ungel {R = R} ( λ x → prim^gel {R = R} M0 M1 P x )
- 
-  
---   ungel-gel' : (M1 : A1) (M0 : A0) (P : R M0 M1) →
---               prim^ungel ( λ (x : BI) → prim^gel {R = R} x M0 M1 P ) ≡ P
---   ungel-gel' M1 M0 P i = P
-
---   -- bridge induced by R
---   induced-bridge : BridgeP (λ i → Set ℓA) A0 A1
---   induced-bridge = λ i → primGel i A0 A1 R
-
+  -- BETA RULE for Gel
+  ungel-gel : (M1 : A1) (M0 : A0) (P : R M0 M1) →
+    prim^ungel {R = R} ( λ x → prim^gel {R = R} M0 M1 P x ) ≡ P
+  ungel-gel M1 M0 P i = P
 
 
 --   -- Gel eta
 --   eta-Gel : (r : BI ) (Q : (x : BI) → primGel x A0 A1 R) → 
 --     Q r ≡ prim^gel {R = R} r (Q bi0) (Q bi1) (prim^ungel Q)
 --   eta-Gel r Q i = Q r
+
+
+--   -- bridge induced by R
+--   induced-bridge : BridgeP (λ i → Set ℓA) A0 A1
+--   induced-bridge = λ i → primGel i A0 A1 R
 
