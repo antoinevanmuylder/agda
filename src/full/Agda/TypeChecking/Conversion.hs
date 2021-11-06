@@ -391,34 +391,41 @@ compareTerm' cmp a m n =
          Def q [] | Just q == mI -> compareInterval cmp a' m n
          _ -> compareAtom cmp (AsTermsOf a') m n
 
--- | comparing m ?= n at type Gel_r (A0, A1, R) --TODO-antva clean comments
+-- | comparing m ?= n at type Gel A0, A1, R r --TODO-antva clean comments
 --   here I need to check that r is semifresh for m and n. if it is not I should raise some kind error?
 --   if it is, capturing r in m and n is sound and I can build the terms
 --   ungel( r. m) and ungel( r. n), and go on with their comparison.
 --   The CH Gel-eta rule will be admissible thanks to Gel-beta (should check that on ppr)
 compareGelTm :: MonadConversion m => Comparison -> Type -> [Arg Term] -> Term -> Term -> m ()
-compareGelTm cmp a' args@[lA, l, r@(Arg rinfo rtm@(Var ri [])),
-                    bA0@(Arg _ bA0tm), bA1@(Arg _ bA1tm), bR@(Arg _ bRtm)] m n = do
+compareGelTm cmp a' args@[l, bA0@(Arg _ bA0tm), bA1@(Arg _ bA1tm),
+                    bR@(Arg _ bRtm), r@(Arg rinfo rtm@(Var ri []))] m n = do --TODO-antva: metas in r, and in this function
+  reportSLn "tc.conv.gel" 40 $ "comparing Gel members " ++ psh m ++ " and " ++ psh n
   (_ , m') <- reduceWithBlocker m
   let fvm = allVars $ freeVarsIgnore IgnoreNot m' -- see extent beta for similar analysis
   mFresh <- semiFreshForFvars fvm ri
   case mFresh of
-    False -> return __IMPOSSIBLE__ --what to do here
+    False -> do
+      reportSLn "tc.conv.gel" 40 $ "in eta Gel. " ++ "Variable " ++ psh rtm ++ "no semifresh in " ++ psh m
+      return ()
     True -> do
       (_, n') <- reduceWithBlocker n
       let fvn = allVars $ freeVarsIgnore IgnoreNot n'
       nFresh <- semiFreshForFvars fvn ri
       case nFresh of
-        False -> return __IMPOSSIBLE__
+        False -> do
+          reportSLn "tc.conv.gel" 40 $ "in eta Gel. " ++ "Variable " ++ psh rtm ++ "no semifresh in " ++ psh n
+          return ()
         True -> do
-          atyp0 <- el' (pure $ unArg lA) (pure $ bA0tm)
-          atyp1 <- el' (pure $ unArg lA) (pure $ bA1tm)
+          atyp0 <- el' (pure $ unArg l) (pure $ bA0tm)
+          atyp1 <- el' (pure $ unArg l) (pure $ bA1tm)
           ungel <- prim_ungel
           bi0 <- getTerm "primExtent" builtinBIZero
           bi1 <- getTerm "primExtent" builtinBIOne
-          let mkUngel body = ungel `apply` ( map (setHiding Hidden) args ++ [argN $ captureIn body ri] )
-          reportSDoc "conv.gel" 20 $ prettyTCM (mkUngel m', mkUngel n')
+          let mkUngel body = ungel `apply` ( map (setHiding Hidden) [l, bA0, bA1, bR] ++ [argN $ captureIn body ri] )
+          reportSLn "tc.conv.gel" 40 $ "in eta Gel. capturing r in m/n: " ++ psh (mkUngel m', mkUngel n')
           -- mkUngel m, mkungel n must coincide on endpoints
+          -- for now those 2lines don't stop conversion but they should
+          -- "make everyone wait " until the process goes on...
           compareTerm cmp atyp0 (mkUngel m' `apply` [argN bi0]) (mkUngel n' `apply` [argN bi0])
           compareTerm cmp atyp1 (mkUngel m' `apply` [argN bi1]) (mkUngel n' `apply` [argN bi1])
           let rtyptm = bRtm `apply` [argN $ mkUngel m' `apply` [argN bi0],

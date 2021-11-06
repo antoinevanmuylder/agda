@@ -1,4 +1,4 @@
-{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.prim.ungel:31 #-}
+{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.conv.gel:40 #-}
 module BridgePrims where
 
 -- this is a reproduction of test/Succeed/LaterPrims.agda and-or Agda.Primitive.Cubical
@@ -316,10 +316,13 @@ module PlayGel {ℓ} {A0 A1 : Set ℓ} {R : A0 → A1 → Set ℓ} where
   ungel-gel M1 M0 P i = P
 
 
---   -- Gel eta
---   eta-Gel : (r : BI ) (Q : (x : BI) → primGel x A0 A1 R) → 
---     Q r ≡ prim^gel {R = R} r (Q bi0) (Q bi1) (prim^ungel Q)
---   eta-Gel r Q i = Q r
+
+  -- Gel eta
+  eta-Gel : (Q : (@tick x : BI) → primGel A0 A1 R x) (@tick r : BI )  → 
+    Q r ≡ prim^gel {R = R} (Q bi0) (Q bi1) (prim^ungel {R = R} Q) r
+  eta-Gel Q = {!λ r i → ?!}
+
+-- (agda2-verbose "comparing Gel members @8120 @0 and _310\n  {@8124} {@8123} {@8122} {@8121} @8120 @0 Agda.Primitive.Cubical.i0\n")
 
 
 --   -- bridge induced by R
