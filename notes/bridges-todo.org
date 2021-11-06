@@ -8,6 +8,11 @@ l A0 A1 R and ~absQ : (@tick x : BI) -> Gel A0 A1 R x~
 are required to be r-before's (iff r fresh for them iff l A0 A1 R absQ (@tick r : BI) well formed ctx)
 in the premisses of CH Gel eta rule. I don't have this check for now in my impl.
 *** TODO break loop in Gel eta
+when comparing m and n, Gel eta tries to compare ungel( x.m ) vs ungel ( x.n )
+as it is done for Glue eta.
+In that case, the circularity is circumvented in the compareAtom function (  unglue vs unglue leads
+to a compareAtom call), more specifically in the compareEtaPrims where-func.
+I think I have to implement something similar!
 ** TODO bridge vars always lock annotated? /!\ see git issue #3
 pre bridges must be lock annoted? eg bridge form, intro. In other words should
 we use lPi' vs nPi' when writing types in internal syntax?
