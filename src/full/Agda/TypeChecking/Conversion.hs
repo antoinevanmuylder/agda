@@ -348,7 +348,7 @@ compareTerm' cmp a m n =
         addContext (name, defaultDom interval) $ compareTerm cmp (El (raise 1 s) $ raise 1 (unArg a) `apply` [argN $ var 0]) m' n'
     equalPathBridge OType{} (BridgeType s _ l a x y) _ m n = do --the provided type is a bridge type
         let name = "i" :: String
-        binterval <- el primBridgeInterval
+        binterval <- elLk primBridgeInterval
         let (m',n') = raise 1 (m, n) `applyE` [IApply (raise 1 $ unArg x) (raise 1 $ unArg y) (var 0)] --m' i  vs. n' i
         addContext (name, defaultDom binterval) $ compareTerm cmp (El (raise 1 s) $ raise 1 (unArg a) `apply` [argN $ var 0]) m' n'--in wk ctxt i
     equalPathBridge _ _ a' m n = cmpDef a' m n --the provided type is smth else
@@ -421,18 +421,18 @@ compareGelTm cmp a' args@[l, bA0@(Arg _ bA0tm), bA1@(Arg _ bA1tm),
           ungel <- prim_ungel
           bi0 <- getTerm "primExtent" builtinBIZero
           bi1 <- getTerm "primExtent" builtinBIOne
-          let mkUngel body = ungel `apply` ( map (setHiding Hidden) [l, bA0, bA1, bR] ++ [argN $ captureIn body ri] )
-          reportSLn "tc.conv.gel" 40 $ "in eta Gel. capturing r in m/n: " ++ psh (mkUngel m', mkUngel n')
-          -- mkUngel m, mkungel n must coincide on endpoints
-          -- for now those 2lines don't stop conversion but they should
-          -- "make everyone wait " until the process goes on...
-          compareTerm cmp atyp0 (captureIn m' ri `apply` [argN bi0]) (captureIn n' ri `apply` [argN bi0])
-          compareTerm cmp atyp1 (captureIn m' ri `apply` [argN bi1]) (captureIn n' ri `apply` [argN bi1])
+          let lam_m = captureIn m' ri
+          let lam_n = captureIn n' ri
+          -- reportSLn "tc.conv.gel" 40 $ "in eta Gel. ungel of capturing r in m/n: " ++ psh (mkUngel m', mkUngel n')
+          compareTerm cmp atyp0 (lam_m `apply` [argN bi0]) (lam_n `apply` [argN bi0])
+          compareTerm cmp atyp1 (lam_m `apply` [argN bi1]) (lam_n `apply` [argN bi1])
           reportSLn "tc.conv.gel" 40 $ "in eta Gel. made it past the endpoints checks."
-          let rtyptm = bRtm `apply` [argN $ mkUngel m' `apply` [argN bi0],
-                                     argN $ mkUngel m' `apply` [argN bi1]]
+          let rtyptm = bRtm `apply` [argN $ lam_m `apply` [argN bi0],
+                                     argN $ lam_m `apply` [argN bi1]]
           rtyp <- el' (pure $ unArg l) (pure $ rtyptm)
-          compareTerm cmp rtyp (mkUngel m') (mkUngel n')
+          let mkUngel_m = ungel `apply` ( map (setHiding Hidden) [l, bA0, bA1, bR] ++ [argN $ lam_m] )
+          let mkUngel_n = ungel `apply` ( map (setHiding Hidden) [l, bA0, bA1, bR] ++ [argN $ lam_n] )
+          compareTerm cmp rtyp (mkUngel_m) (mkUngel_n)
   where
     captureIn body ri = --TODO-antva: duplicated code in extent beta
       let sigma = ([var (i+1) | i <- [0 .. ri - 1] ] ++ [var 0]) ++# raiseS (ri + 2) in
@@ -609,7 +609,7 @@ compareAtom cmp t m n =
               -- 3a. If there are no arguments, we are done.
               unless (null es && null es') $ do
 
-              -- 3b. If some cubical magic kicks in, we are done.
+              -- 3b. If some cubical/bridges magic kicks in, we are done.
               unlessM (compareEtaPrims f es es') $ do
 
               -- 3c. Oh no, we actually have to work and compare the eliminations!
@@ -639,10 +639,12 @@ compareAtom cmp t m n =
           munglue <- getPrimitiveName' builtin_unglue
           munglueU <- getPrimitiveName' builtin_unglueU
           msubout <- getPrimitiveName' builtinSubOut
+          mungel <- getPrimitiveName' builtin_ungel
           case () of
             _ | Just q == munglue -> compareUnglueApp q es es'
             _ | Just q == munglueU -> compareUnglueUApp q es es'
             _ | Just q == msubout -> compareSubApp q es es'
+            _ | Just q == mungel -> compareUngelApp q es es'
             _                     -> return False
         compareSubApp q es es' = do
           let (as,bs) = splitAt 5 es; (as',bs') = splitAt 5 es'
@@ -676,6 +678,24 @@ compareAtom cmp t m n =
               compareAtom cmp (AsTermsOf $ El (tmSort (unArg lb)) $ apply tGlue $ [la,lb] ++ map (setHiding NotHidden) [bA,phi,bT,e])
                               (unArg b) (unArg b')
               compareElims [] [] (El (tmSort (unArg la)) (unArg bA)) (Def q as) bs bs'
+              return True
+            _  -> return False
+        compareUngelApp q es es' = do
+          let (as,bs) = splitAt 5 es; (as',bs') = splitAt 5 es'
+          case (allApplyElims as, allApplyElims as') of
+            (Just [l, bA0, bA1, bR, absQ], Just [l', bA0', bA1', bR', absQ']) -> do
+              tGel <- getPrimitiveTerm builtinGel
+              bintervalTyp <- elLk primBridgeInterval
+              let inExtCtx = addContext ("bvar" :: String, lkDefaultDom bintervalTyp) :: forall a. m a -> m a
+              --below: is this the right way to use addCtx?
+              appliedGelTyp <- inExtCtx $ do
+                let appliedGelTm = tGel `apply` ( [l] ++ map (setHiding NotHidden) [bA0, bA1, bR] ++ [argN $ var 0] )
+                return $ El (tmSort (unArg l)) appliedGelTm
+              -- appliedLhs <- inExtCtx $ return $ (unArg absQ) `apply` [argN $ var 0]
+              -- appliedRhs <- inExtCtx $ return $ (unArg absQ') `apply` [argN $ var 0]
+              -- --TODO-antva should compare types before this call?
+              -- _ <- compareAtom cmp (AsTermsOf appliedGelTyp) appliedLhs appliedRhs
+              -- compareElims [] [] (El (tmSort (unArg la)) (unArg bA)) (Def q as) bs bs' /!\ not the right call!
               return True
             _  -> return False
         compareUnglueUApp :: MonadConversion m => QName -> Elims -> Elims -> m Bool

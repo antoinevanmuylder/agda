@@ -161,6 +161,9 @@ path t = primPath <@> t
 el :: Functor m => m Term -> m Type
 el t = El (mkType 0) <$> t
 
+elLk :: Functor m => m Term -> m Type
+elLk t = El LockUniv <$> t
+
 tset :: Applicative m => m Type
 tset = pure $ sort (mkType 0)
 
