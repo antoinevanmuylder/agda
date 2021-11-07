@@ -1,4 +1,4 @@
-{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.conv.gel:40 #-}
+{-# OPTIONS --cubical --guarded --bridges --no-fast-reduce -v tc.conv.gel:40 -v tc.conv.atom:50 #-}
 module BridgePrims where
 
 -- this is a reproduction of test/Succeed/LaterPrims.agda and-or Agda.Primitive.Cubical
@@ -317,15 +317,55 @@ module PlayGel {ℓ} {A0 A1 : Set ℓ} {R : A0 → A1 → Set ℓ} where
 
 
 
+
   -- Gel eta
   eta-Gel : (Q : (@tick x : BI) → primGel A0 A1 R x) (@tick r : BI )  → 
     Q r ≡ prim^gel {R = R} (Q bi0) (Q bi1) (prim^ungel {R = R} Q) r
   eta-Gel Q = {!λ r i → ?!}
 
--- (agda2-verbose "comparing Gel members @8120 @0 and _310\n  {@8124} {@8123} {@8122} {@8121} @8120 @0 Agda.Primitive.Cubical.i0\n")
+
+-- comparing Gel members _311 {@5} {@4} {@3} {@2} @1 @0 Agda.Primitive.Cubical.i0 and @1 @0
+-- in eta Gel. capturing r in m/n: (BridgePrims.prim^ungel
+--    {@5} {@4} {@3} {@2}
+--    (λ r ->
+--       _311
+--         {@6} {@5} {@4} {@3} @2 @0
+--         Agda.Primitive.Cubical.i0), BridgePrims.prim^ungel
+--                                       {@5} {@4} {@3} {@2} (λ r -> @2 @0))
+-- { compareAtom
+-- compareAtom term size:  (8,2)
+-- compareAtom ?1 (r = bi0) (i = i0) = Q bi0 : A0
+-- term size after reduce: (8,2)
+-- compareAtom [ ?1 (r = bi0) (i = i0) ]_311 = Q bi0 : A0
+-- }
+-- { compareAtom
+-- compareAtom term size:  (8,2)
+-- compareAtom ?1 (r = bi1) (i = i0) = Q bi1 : A1
+-- term size after reduce: (8,2)
+-- compareAtom [ ?1 (r = bi1) (i = i0) ]_311 = Q bi1 : A1
+-- }
+-- in eta Gel. made it past the endpoints checks.
+-- { compareAtom
+-- compareAtom term size:  (14,8)
+-- compareAtom prim^ungel (λ r → ?1 (Q = Q) (r = r) (i = i0)) =
+--             prim^ungel (λ r → Q r)
+--             : R (prim^ungel (λ r → ?1 (Q = Q) (r = r) (i = i0)) bi0)
+--               (prim^ungel (λ r → ?1 (Q = Q) (r = r) (i = i0)) bi1)
+-- term size after reduce: (14,8)
+-- compareAtom prim^ungel (λ r → ?1 (Q = Q) (r = r) (i = i0)) =
+--             prim^ungel (λ r → Q r)
+--             : R (prim^ungel (λ r → ?1 (Q = Q) (r = r) (i = i0)) bi0)
+--               (prim^ungel (λ r → ?1 (Q = Q) (r = r) (i = i0)) bi1)
 
 
---   -- bridge induced by R
---   induced-bridge : BridgeP (λ i → Set ℓA) A0 A1
---   induced-bridge = λ i → primGel i A0 A1 R
 
+-- Consider the following context Γ
+-- ```agda
+-- (ℓ : Level) (A0 A1 Set ℓ) (R : A0 → A1 → Set ℓ)
+-- (P Q : (@tick x : BI) → Gel A0 A1 R x) (@tick r : BI)
+-- ```
+-- When asking whether `P r versus Q r` are equal members of `Gel A0 A1 R r`, the current implementation (compareTerm' in Conversion.hs) does the following.
+-- 1. We make sure that r is semifresh in `P r` and `Q r` which is the case in our context.
+-- 2. if (1) is met, it is sound to capture r in `P` and `Q` and build the abstractions ` λ r'. P r'` and ` λ r'. Q r'`. We call a comparison at endpoints, eg `(λ r'. P r')(bi0) versus (λ r'. Q r')(bi0)`
+-- 3. if (2) is met, `ungel ( λ r'. P r')` and `ungel ( λ r'. Q r')` have the same type. We call a comparison between those two terms.
+-- The problem is that the last call to compareTerm' in (3) goes under `ungel` and `λ` and we are back to comparing `P r versus Q r`, which lead to a loop.

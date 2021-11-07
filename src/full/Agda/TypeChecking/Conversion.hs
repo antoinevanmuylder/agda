@@ -400,7 +400,7 @@ compareGelTm :: MonadConversion m => Comparison -> Type -> [Arg Term] -> Term ->
 compareGelTm cmp a' args@[l, bA0@(Arg _ bA0tm), bA1@(Arg _ bA1tm),
                     bR@(Arg _ bRtm), r@(Arg rinfo rtm@(Var ri []))] m n = do --TODO-antva: metas in r, and in this function
   reportSLn "tc.conv.gel" 40 $ "comparing Gel members " ++ psh m ++ " and " ++ psh n
-  (_ , m') <- reduceWithBlocker m
+  (bm' , m') <- reduceWithBlocker m
   let fvm = allVars $ freeVarsIgnore IgnoreNot m' -- see extent beta for similar analysis
   mFresh <- semiFreshForFvars fvm ri
   case mFresh of
@@ -408,7 +408,7 @@ compareGelTm cmp a' args@[l, bA0@(Arg _ bA0tm), bA1@(Arg _ bA1tm),
       reportSLn "tc.conv.gel" 40 $ "in eta Gel. " ++ "Variable " ++ psh rtm ++ "no semifresh in " ++ psh m
       return ()
     True -> do
-      (_, n') <- reduceWithBlocker n
+      (bn', n') <- reduceWithBlocker n
       let fvn = allVars $ freeVarsIgnore IgnoreNot n'
       nFresh <- semiFreshForFvars fvn ri
       case nFresh of
@@ -426,8 +426,9 @@ compareGelTm cmp a' args@[l, bA0@(Arg _ bA0tm), bA1@(Arg _ bA1tm),
           -- mkUngel m, mkungel n must coincide on endpoints
           -- for now those 2lines don't stop conversion but they should
           -- "make everyone wait " until the process goes on...
-          compareTerm cmp atyp0 (mkUngel m' `apply` [argN bi0]) (mkUngel n' `apply` [argN bi0])
-          compareTerm cmp atyp1 (mkUngel m' `apply` [argN bi1]) (mkUngel n' `apply` [argN bi1])
+          compareTerm cmp atyp0 (captureIn m' ri `apply` [argN bi0]) (captureIn n' ri `apply` [argN bi0])
+          compareTerm cmp atyp1 (captureIn m' ri `apply` [argN bi1]) (captureIn n' ri `apply` [argN bi1])
+          reportSLn "tc.conv.gel" 40 $ "in eta Gel. made it past the endpoints checks."
           let rtyptm = bRtm `apply` [argN $ mkUngel m' `apply` [argN bi0],
                                      argN $ mkUngel m' `apply` [argN bi1]]
           rtyp <- el' (pure $ unArg l) (pure $ rtyptm)
