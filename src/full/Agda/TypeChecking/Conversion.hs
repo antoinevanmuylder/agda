@@ -399,6 +399,8 @@ compareTerm' cmp a m n =
 compareGelTm :: MonadConversion m => Comparison -> Type -> [Arg Term] -> Term -> Term -> m ()
 compareGelTm cmp a' args@[l, bA0@(Arg _ bA0tm), bA1@(Arg _ bA1tm),
                     bR@(Arg _ bRtm), r@(Arg rinfo rtm@(Var ri []))] m n = do --TODO-antva: metas in r, and in this function
+  -- note: we already know that l, A0, A1, R are apart from r because @Gel {l} A1 A1 R r@ types ("by induction")
+  -- the semi freshness of the Q arg (see CH gel eta) is checked by hand in this func
   reportSLn "tc.conv.gel" 40 $ "comparing Gel members " ++ psh m ++ " and " ++ psh n
   (bm' , m') <- reduceWithBlocker m
   let fvm = allVars $ freeVarsIgnore IgnoreNot m' -- see extent beta for similar analysis
@@ -406,7 +408,7 @@ compareGelTm cmp a' args@[l, bA0@(Arg _ bA0tm), bA1@(Arg _ bA1tm),
   case mFresh of
     False -> do
       reportSLn "tc.conv.gel" 40 $ "in eta Gel. " ++ "Variable " ++ psh rtm ++ "no semifresh in " ++ psh m
-      return ()
+      throwError $ PatternErr bm'
     True -> do
       (bn', n') <- reduceWithBlocker n
       let fvn = allVars $ freeVarsIgnore IgnoreNot n'
@@ -414,7 +416,7 @@ compareGelTm cmp a' args@[l, bA0@(Arg _ bA0tm), bA1@(Arg _ bA1tm),
       case nFresh of
         False -> do
           reportSLn "tc.conv.gel" 40 $ "in eta Gel. " ++ "Variable " ++ psh rtm ++ "no semifresh in " ++ psh n
-          return ()
+          throwError $ PatternErr bn'
         True -> do
           atyp0 <- el' (pure $ unArg l) (pure $ bA0tm)
           atyp1 <- el' (pure $ unArg l) (pure $ bA1tm)
@@ -426,7 +428,7 @@ compareGelTm cmp a' args@[l, bA0@(Arg _ bA0tm), bA1@(Arg _ bA1tm),
           -- reportSLn "tc.conv.gel" 40 $ "in eta Gel. ungel of capturing r in m/n: " ++ psh (mkUngel m', mkUngel n')
           compareTerm cmp atyp0 (lam_m `apply` [argN bi0]) (lam_n `apply` [argN bi0])
           compareTerm cmp atyp1 (lam_m `apply` [argN bi1]) (lam_n `apply` [argN bi1])
-          reportSLn "tc.conv.gel" 40 $ "in eta Gel. made it past the endpoints checks."
+          reportSLn "tc.conv.gel" 60 $ "in eta Gel. made it past the endpoints checks."
           let rtyptm = bRtm `apply` [argN $ lam_m `apply` [argN bi0],
                                      argN $ lam_m `apply` [argN bi1]]
           rtyp <- el' (pure $ unArg l) (pure $ rtyptm)

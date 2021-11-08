@@ -1,18 +1,4 @@
 * TODOS
-** TODO correct Gel eta
-*** TODO semifreshness by freshness constraint
-in extent beta, one can not raise contstraints anyway
-but in Gel eta it is possible. so possible to encode semifreshness by raising a freshness cstr?
-*** TODO freshness for Gel eta args
-l A0 A1 R and ~absQ : (@tick x : BI) -> Gel A0 A1 R x~
-are required to be r-before's (iff r fresh for them iff l A0 A1 R absQ (@tick r : BI) well formed ctx)
-in the premisses of CH Gel eta rule. I don't have this check for now in my impl.
-*** TODO break loop in Gel eta
-when comparing m and n, Gel eta tries to compare ungel( x.m ) vs ungel ( x.n )
-as it is done for Glue eta.
-In that case, the circularity is circumvented in the compareAtom function (  unglue vs unglue leads
-to a compareAtom call), more specifically in the compareEtaPrims where-func.
-I think I have to implement something similar!
 ** TODO bridge vars always lock annotated? /!\ see git issue #3
 pre bridges must be lock annoted? eg bridge form, intro. In other words should
 we use lPi' vs nPi' when writing types in internal syntax?
@@ -23,24 +9,7 @@ _conclusion of this was_: make cartesian dependency (x : Tick : LockU) -> bla(x)
 into a tc error. instead, only affine dependency on ticks should be allowed (@tick x : Tick) -> bla(x)
 also, have bridge vars always lock annotated in haskell code? dont
 know if it has a real impact though
-** TODO must generate more freshness constraints
-sometimes rules in CH ask for apartedness (freshness) but no check is performed here
-I wonder if a PrimitiveImpl is really the place to have those freshness checks (except
-right before a computation). I should have more constraints generated during typechecking instead?
-r fresh for M means in particular that r not in fv M. since BI is registered a timeless
-I should make sure that the freshness constraint wants no r in fvM.
-
-_conclusion_ Andrea: have (@tick r : BI) at the end
-the trick does not work for Gel eta. see there.
-** TODO if a freshness analysis fails, some error should be raised?
-semi freshness when computing: see extent-beta/Gel-eta
-freshness when typechecking: see TypeChecking/Rules/ pbly
-
-_guess_:
-  in extent beta, if semi freshness fails, just don't fire the red.
-  freshness checks other than in Gel-eta are by typing and can lead to tc errors (as expected).
-  freshness in Gel eta? by raising freshness cstr? see gel eta
-  semifreshness in gel eta: should specify to conversion alg that gel eta wont conclude.
+** TODO git issue #2: freshness messed up under lambdas
 ** TODO what works for path var should work for bridge var
 ~grep -r "path" src/full/Agda/TypeChecking/* --exclude="*.txt*" --exclude="*.err*" --exclude="*.agda*"~
 its reasonnable to think that path implementation should have bridge counterpart
@@ -55,6 +24,44 @@ see insertImplicitPatternsT, L92 uses piOrPath. it should be piOrPath or bridge 
 ** TODO see github issues for more severe issues.
 for instance: #2 is about lack of computation under lambdas for extent.
 ** TODO sometimes argN and argH must be argL
+** TODO semifreshness by freshness?
+** DONE if a (semi)freshness analysis fails, some error should be raised?
+semi freshness when computing: see extent-beta/Gel-eta
+freshness when typechecking: see TypeChecking/Rules/ pbly
+
+_guess_:
+  in extent beta, if semi freshness fails, just don't fire the red.
+  freshness checks other than in Gel-eta are by typing and can lead to tc errors (as expected).
+  freshness in Gel eta? by raising freshness cstr? see gel eta --> by typing too actually!
+  semifreshness in gel eta: should specify to conversion alg that gel eta wont conclude.
+** DONE must generate more freshness constraints
+sometimes rules in CH ask for apartedness (freshness) but no check is performed here
+I wonder if a PrimitiveImpl is really the place to have those freshness checks (except
+right before a computation). I should have more constraints generated during typechecking instead?
+r fresh for M means in particular that r not in fv M. since BI is registered a timeless
+I should make sure that the freshness constraint wants no r in fvM.
+
+_conclusion_ Andrea: have (@tick r : BI) at the end
+the trick only works partly for Gel eta. see there.
+seems good even in Gel eta now
+** DONE correct Gel eta
+*** DONE what to do when semi freshness fails
+I raise a pattern error, in other words I 'give up'. see ~compareGelTm~
+*** DONE freshness for Gel eta args
+l A0 A1 R and ~absQ : (@tick x : BI) -> Gel A0 A1 R x~
+are required to be r-before's (iff r fresh for them iff l A0 A1 R absQ (@tick r : BI) well formed ctx)
+in the premisses of CH Gel eta rule. I don't have this check for now in my impl.
+
+it is ok by typing and semi freshness
+*** DONE break loop in Gel eta
+when comparing m and n, Gel eta tries to compare ungel( x.m ) vs ungel ( x.n )
+as it is done for Glue eta.
+In that case, the circularity is circumvented in the compareAtom function (  unglue vs unglue leads
+to a compareAtom call), more specifically in the compareEtaPrims where-func.
+I think I have to implement something similar!
+*** semifreshness by freshness constraint
+in extent beta, one can not raise contstraints anyway
+but in Gel eta it is possible. so possible to encode semifreshness by raising a freshness cstr?
 ** DONE should check the universe levels in the type of my primitives
 Andrea: having A0 A1 R at same level is the way to go
 ** DONE CH does not say how cubical composition acts on bridge types?
