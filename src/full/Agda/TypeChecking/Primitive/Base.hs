@@ -196,6 +196,9 @@ argH = Arg $ setHiding Hidden defaultArgInfo
 domH :: e -> Dom e
 domH = setHiding Hidden . defaultDom
 
+argL :: e -> Arg e
+argL = Arg $ setLock IsLock defaultArgInfo
+
 ---------------------------------------------------------------------------
 -- * Accessing the primitive functions
 ---------------------------------------------------------------------------

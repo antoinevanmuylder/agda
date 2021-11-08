@@ -54,6 +54,7 @@ see insertImplicitPatternsT, L92 uses piOrPath. it should be piOrPath or bridge 
 ** TODO go through CH paper and formalize their easy examples
 ** TODO see github issues for more severe issues.
 for instance: #2 is about lack of computation under lambdas for extent.
+** TODO sometimes argN and argH must be argL
 ** DONE should check the universe levels in the type of my primitives
 Andrea: having A0 A1 R at same level is the way to go
 ** DONE CH does not say how cubical composition acts on bridge types?

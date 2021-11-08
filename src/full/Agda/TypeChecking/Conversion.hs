@@ -686,16 +686,18 @@ compareAtom cmp t m n =
             (Just [l, bA0, bA1, bR, absQ], Just [l', bA0', bA1', bR', absQ']) -> do
               tGel <- getPrimitiveTerm builtinGel
               bintervalTyp <- elLk primBridgeInterval
-              let inExtCtx = addContext ("bvar" :: String, lkDefaultDom bintervalTyp) :: forall a. m a -> m a
-              --below: is this the right way to use addCtx?
-              appliedGelTyp <- inExtCtx $ do
-                let appliedGelTm = tGel `apply` ( [l] ++ map (setHiding NotHidden) [bA0, bA1, bR] ++ [argN $ var 0] )
-                return $ El (tmSort (unArg l)) appliedGelTm
-              -- appliedLhs <- inExtCtx $ return $ (unArg absQ) `apply` [argN $ var 0]
-              -- appliedRhs <- inExtCtx $ return $ (unArg absQ') `apply` [argN $ var 0]
-              -- --TODO-antva should compare types before this call?
-              -- _ <- compareAtom cmp (AsTermsOf appliedGelTyp) appliedLhs appliedRhs
-              -- compareElims [] [] (El (tmSort (unArg la)) (unArg bA)) (Def q as) bs bs' /!\ not the right call!
+              _ <- addContext ("bvar" :: String, lkDefaultDom bintervalTyp) $ do
+                let preAppliedGelTm = raise 1 $ tGel `apply` ( [l] ++ map (setHiding NotHidden) [bA0, bA1, bR] )
+                let appliedGelTm = preAppliedGelTm `apply` [argL $ var 0]
+                let appliedGelTyp = El (tmSort $ raise 1 $ unArg l) appliedGelTm
+                let appliedRhs = raise 1 (unArg absQ') `apply` [argL $ var 0]
+                let appliedLhs = raise 1 (unArg absQ) `apply` [argL $ var 0]
+                compareAtom cmp (AsTermsOf appliedGelTyp) appliedLhs appliedRhs --TODO-antva: compare the types? see compareUnglueApp above
+              bi0 <- getTerm "primExtent" builtinBIZero
+              bi1 <- getTerm "primExtent" builtinBIOne
+              let appliedRtyp = El (tmSort (unArg l)) $ (unArg bR) `apply`
+                    [argN $ (unArg absQ) `apply` [argN bi0], argN $ (unArg absQ) `apply` [argN bi1]]
+              compareElims [] [] appliedRtyp (Def q as) bs bs'
               return True
             _  -> return False
         compareUnglueUApp :: MonadConversion m => QName -> Elims -> Elims -> m Bool
