@@ -84,16 +84,6 @@ psh = P.prettyShow
 
 -- | Type for extent primitive.
 --   We use hoas style functions like hPi' to specifiy types in internal syntax.
---   primExtent : ∀ {ℓA ℓB} {A : BI → Set ℓA} {B : (x : BI) (a : A x) → Set ℓB}
---                (r : BI) (M : A r)                 should those r and M be there
---                (N0 : (a0 : A bi0) → B bi0 a0)
---                (N1 : (a1 : A bi1) → B bi1 a1)
---                (NN : (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) →
---                      BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1)) →
---                B r M
---
---   correct type for extent primitive.
---   We use hoas style functions like hPi' to specifiy types in internal syntax.
 --   primExtent : ∀ {ℓA ℓB} {A : @(tick x : BI) → Set ℓA} {B : (tick x : BI) (a : A x) → Set ℓB}
 --                (N0 : (a0 : A bi0) → B bi0 a0)
 --                (N1 : (a1 : A bi1) → B bi1 a1)
@@ -146,7 +136,6 @@ semiFreshForFvars fvs lki = do
 
 -- | Formation rule (extentType) and computation rule for the extent primitive.
 --   For extent this include a boundary (BIZero, BIOne case) and beta rule.
---   the rules in CH sometimes require freshness but we lack those checks here
 primExtent' :: TCM PrimitiveImpl
 primExtent' = do
   requireBridges "in primExtent'"
@@ -295,10 +284,8 @@ prim_ungelType = do
   return t
 
 
--- | eliminator for Gel types called ungel (sometimes prim_ungel' - prim_ungel - prim^ungel)
---   can I encode the Gel-beta rule in this guy? see prim_unglue' in Cubical.hs
---   difference: here I have to reduce the principal arg of ungel under the lambda
---   underAbstractionAbs could be useful (Abs because we don't want dummy types for bridge vars)
+-- | Eliminator for Gel types called ungel (sometimes prim_ungel' - prim_ungel - prim^ungel)
+--   We encode the Gel beta rule in it
 prim_ungel' :: TCM PrimitiveImpl
 prim_ungel' = do
   requireBridges "in prim_ungel'"
