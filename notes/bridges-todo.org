@@ -87,4 +87,4 @@ but in Gel eta it is possible. so possible to encode semifreshness by raising a 
 Andrea: having A0 A1 R at same level is the way to go
 ** DONE CH does not say how cubical composition acts on bridge types?
 not relevant
-** TODO my impl as an instance of popl18 stuff, for correctness prf
+** TODO my impl as an instance of popl18 stuff, for paper soundness prf

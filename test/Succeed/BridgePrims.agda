@@ -249,10 +249,9 @@ module BetaExtent {ℓA ℓB : Level} {A : (@tick x : BI) → Set ℓA} {B : (@t
                {NN : (a0 : A bi0) (a1 : A bi1) (aa : BridgeP A a0 a1) → BridgeP (λ x → B x (aa x)) (N0 a0) (N1 a1)}
                {M' : (@tick j : BI) → A j} {@tick r : BI} where
 
-  -- mk-bridge : ∀ {ℓ} {C : (@tick x : BI) → Set ℓ} (f : (@tick i : BI) → C i) → BridgeP C (f bi0) (f bi1)
-  -- mk-bridge f = λ i → f i
-  -- extent-beta : primExtent {A = A} {B = B} N0 N1 NN r (M' r) ≡ NN (M' bi0) (M' bi1) (mk-bridge M') r
-  -- extent-beta i = ?
+
+  extent-beta : primExtent {A = A} {B = B} N0 N1 NN r (M' r) ≡ NN (M' bi0) (M' bi1) (λ j → M' j) r
+  extent-beta i = NN (M' bi0) (M' bi1) ( λ j → M' j) r
   
   -- try C-c C-n this. extent only fails to reduce because of issue #2
   -- the semi freshness check r ~∉ M' r fails but it should pass.
@@ -325,6 +324,7 @@ module PlayGel {ℓ} {A0 A1 : Set ℓ} {R : A0 → A1 → Set ℓ} where
   eta-Gel : (Q : (@tick x : BI) → primGel A0 A1 R x) (@tick r : BI )  → 
     Q r ≡ prim^gel {R = R} (Q bi0) (Q bi1) (prim^ungel {R = R} Q) r
   eta-Gel Q r i = Q r
+
 
 
 module Relativity {ℓ} {A0 A1 : Set ℓ} where
