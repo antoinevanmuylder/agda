@@ -300,9 +300,10 @@ prim_ungel' = do
     absQ' <- reduceB' absQ
     let absQtm' = unArg $ ignoreBlocking $ absQ' --should care for metas, as usual
     case absQtm' of
-      Lam qinfo qbody -> do --case: λ x → prim^gel {R = R} M0 M1 P x.  we never hit this case, only the next one?
+      Lam qinfo qbody -> do --case: λ x → bla x.  we do hit that case sometimes
         reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. lam case. here is absQ :" ++ psh absQtm'
-        underAbstractionAbs (defaultNamedArgDom qinfo "xq" bintervalTyp) qbody $ \body -> do --body already comes wkn
+        underAbstractionAbs (defaultNamedArgDom qinfo (absName qbody) bintervalTyp) qbody $ \body -> do
+          --body already comes wkn
           body' <- reduceB' body --should care for metas as usual
           case ignoreBlocking body' of
             Def qnm [Apply _, Apply _, Apply _, Apply _,Apply _, Apply _, Apply bP, Apply _]
@@ -311,13 +312,15 @@ prim_ungel' = do
               reportSLn "tc.prim.ungel" 30 $ "in prim_ungel': here is absQ local body: " ++ psh (ignoreBlocking body')
               reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. absQ is x.gel, here is P before str: " ++ psh bP
               let strP = applySubst (strengthenS impossible 1) $ unArg bP
-              -- applySubst :: Substitution' (SubstArg a) -> a -> a
-              -- strP <- escapeContext impossible 1 $ return $ unArg bP
               reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. absQ is x.gel, here is P after str: " ++ psh strP
               redReturn strP
             _ -> do
               reportSLn "tc.prim.ungel" 30 $ "in prim_ungel': lam no-mgel case."
-              fallback l bA0 bA1 bR absQ'
+              let lamBody' :: Blocked (Arg Term)
+                  lamBody' = case body' of
+                    Blocked blkBody' ignBody' -> Blocked blkBody' $ Arg defaultArgInfo $ Lam qinfo $ Abs (absName qbody) ignBody'
+                    NotBlocked nblkBody' ignBody' -> NotBlocked nblkBody'  $ Arg defaultArgInfo $ Lam qinfo $ Abs (absName qbody) ignBody'
+              fallback l bA0 bA1 bR lamBody' --we fallback and specify the blocking info from body' instead of absQ'
       Def qnm [Apply _, Apply _, Apply _, Apply _,Apply _, Apply _, Apply bP] | Just qnm == mgel -> do
         reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. no-lam mgel case. here is absQ :" ++ psh absQtm'
         reportSLn "tc.prim.ungel" 30 $ "  and here is the qname: " ++ psh qnm
@@ -328,6 +331,8 @@ prim_ungel' = do
   where
     fallback l bA0 bA1 bR absQ' =
       return $ NoReduction $ map notReduced [l, bA0, bA1, bR] ++ [reduced absQ']
-    
 
 
+-- in unglue:
+-- begin by reduceB' the variable phi. we don't have such a variable anyway
+-- then they reduceB' the principal argument b
