@@ -89,3 +89,6 @@ Andrea: having A0 A1 R at same level is the way to go
 not relevant
 ** TODO my impl as an instance of popl18 stuff, for paper soundness prf
 ** TODO computational behaviour of transport, composition should take BridgeP and Gel into account!
+** TODO various bugs
+MetaVars.hs:1248:8
+Sort.hs:220:30
