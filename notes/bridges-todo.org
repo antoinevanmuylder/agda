@@ -93,7 +93,16 @@ not relevant
 *** MetaVars.hs:1248:8
 this bug is triggered when typechecking 1 retract proof of the bridge vs functions principle (the one normally using extent eta)
 an ~__IMPOSSIBLE__~ is reached
+
+the tc tries to solve a "meta equation" ~x ids = u~ where x has type
+~{lA lB A B} N0 N1 q -> BridgeP (x. PI A B) (_a0_56, _a1_57)~
+and ids has lenght 8, u is ~\a -> q x a~
+so it uses _telViewUpToPathBoundary_ to extract a telescope but this
+function stops when it sees a bridge type (it should instead introduce
+a bridge variable)
 *** Sort.hs:220:30
+*** Bridges.hs:179
+the case where r is a meta is not implemented I think
 ** TODO make sure that current impl of definitional equality allows extent eta to be proved
 see rule 6.7 of https://arxiv.org/pdf/1901.00489.pdf
 the technique used to prove path extent-eta is I think the same for the bridge vs iso principle
