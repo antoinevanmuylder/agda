@@ -90,5 +90,11 @@ not relevant
 ** TODO my impl as an instance of popl18 stuff, for paper soundness prf
 ** TODO computational behaviour of transport, composition should take BridgeP and Gel into account!
 ** TODO various bugs
-MetaVars.hs:1248:8
-Sort.hs:220:30
+*** MetaVars.hs:1248:8
+this bug is triggered when typechecking 1 retract proof of the bridge vs functions principle (the one normally using extent eta)
+an ~__IMPOSSIBLE__~ is reached
+*** Sort.hs:220:30
+** TODO make sure that current impl of definitional equality allows extent eta to be proved
+see rule 6.7 of https://arxiv.org/pdf/1901.00489.pdf
+the technique used to prove path extent-eta is I think the same for the bridge vs iso principle
+and the latter implies relativity
