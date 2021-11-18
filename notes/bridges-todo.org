@@ -39,6 +39,8 @@ below, some issues caused by a lack of bridge compatible telescope I think
 forced to do b = lam i -> ... for some reason
 see insertImplicitPatternsT, L92 uses piOrPath. it should be piOrPath or bridge :>
 *** cannot refine C-c C-r and automatically intro bridge vars
+*** Metvars:1248:7 ~__IMPOSSIBLE__~ is reached
+because of telViewUpToPathBoundary'
 ** TODO metas are badly handled for now
 ** TODO there are TODO-antva's lying around. + comment in Bridges.hs
 ** TODO go through CH paper and formalize their easy examples
@@ -46,6 +48,26 @@ see insertImplicitPatternsT, L92 uses piOrPath. it should be piOrPath or bridge 
 for instance: #2 is about lack of computation under lambdas for extent.
 ** TODO sometimes argN and argH must be argL
 ** TODO semifreshness by freshness?
+** TODO my impl as an instance of popl18 stuff, for paper soundness prf
+** TODO computational behaviour of transport, composition should take BridgeP and Gel into account!
+** TODO various bugs
+*** MetaVars.hs:1248:8
+this bug is triggered when typechecking 1 retract proof of the bridge vs functions principle (the one normally using extent eta)
+an ~__IMPOSSIBLE__~ is reached
+
+the tc tries to solve a "meta equation" ~x ids = u~ where x has type
+~{lA lB A B} N0 N1 q -> BridgeP (x. PI A B) (_a0_56, _a1_57)~
+and ids has lenght 8, u is ~\a -> q x a~
+so it uses _telViewUpToPathBoundary_ to extract a telescope but this
+function stops when it sees a bridge type (it should instead introduce
+a bridge variable)
+*** Sort.hs:220:30
+*** Bridges.hs:179
+the case where r is a meta is not implemented I think
+** TODO make sure that current impl of definitional equality allows extent eta to be proved
+see rule 6.7 of https://arxiv.org/pdf/1901.00489.pdf
+the technique used to prove path extent-eta is I think the same for the bridge vs iso principle
+and the latter implies relativity
 ** DONE if a (semi)freshness analysis fails, some error should be raised?
 semi freshness when computing: see extent-beta/Gel-eta
 freshness when typechecking: see TypeChecking/Rules/ pbly
@@ -87,23 +109,3 @@ but in Gel eta it is possible. so possible to encode semifreshness by raising a 
 Andrea: having A0 A1 R at same level is the way to go
 ** DONE CH does not say how cubical composition acts on bridge types?
 not relevant
-** TODO my impl as an instance of popl18 stuff, for paper soundness prf
-** TODO computational behaviour of transport, composition should take BridgeP and Gel into account!
-** TODO various bugs
-*** MetaVars.hs:1248:8
-this bug is triggered when typechecking 1 retract proof of the bridge vs functions principle (the one normally using extent eta)
-an ~__IMPOSSIBLE__~ is reached
-
-the tc tries to solve a "meta equation" ~x ids = u~ where x has type
-~{lA lB A B} N0 N1 q -> BridgeP (x. PI A B) (_a0_56, _a1_57)~
-and ids has lenght 8, u is ~\a -> q x a~
-so it uses _telViewUpToPathBoundary_ to extract a telescope but this
-function stops when it sees a bridge type (it should instead introduce
-a bridge variable)
-*** Sort.hs:220:30
-*** Bridges.hs:179
-the case where r is a meta is not implemented I think
-** TODO make sure that current impl of definitional equality allows extent eta to be proved
-see rule 6.7 of https://arxiv.org/pdf/1901.00489.pdf
-the technique used to prove path extent-eta is I think the same for the bridge vs iso principle
-and the latter implies relativity
