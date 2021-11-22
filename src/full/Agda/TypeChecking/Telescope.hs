@@ -699,7 +699,7 @@ pathBridgeViewAsPi'whnf = do
 
     UBridgeType s p l a x y | Just interval <- binterval ->
       let name | Lam _ (Abs n _) <- unArg a = n
-               | otherwise = "i"
+               | otherwise = "x"
           i = El LockUniv interval
       in
         Left $ ((lkDefaultDom $ i, Abs name $ El (raise 1 s) $ raise 1 (unArg a) `apply` [lkDefaultArg $ var 0]), (unArg x, unArg y))
