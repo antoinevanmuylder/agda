@@ -1733,6 +1733,9 @@ defaultArgInfo =  ArgInfo
   , argInfoAnnotation    = defaultAnnotation
   }
 
+lkDefaultArgInfo :: ArgInfo
+lkDefaultArgInfo = setLock IsLock defaultArgInfo
+
 -- Accessing through ArgInfo
 
 -- default accessors for Hiding
@@ -1920,6 +1923,9 @@ instance LensCohesion (Arg e) where
 
 defaultArg :: a -> Arg a
 defaultArg = Arg defaultArgInfo
+
+lkDefaultArg :: a -> Arg a
+lkDefaultArg = Arg lkDefaultArgInfo
 
 -- | @xs \`withArgsFrom\` args@ translates @xs@ into a list of 'Arg's,
 -- using the elements in @args@ to fill in the non-'unArg' fields.

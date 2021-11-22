@@ -670,3 +670,150 @@ getInstanceDefs = do
   unless (null $ snd insts) $
     typeError $ GenericError $ "There are instances whose type is still unsolved"
   return $ fst insts
+
+
+---------------------------------------------------------------------------
+-- * Bridge version
+---------------------------------------------------------------------------
+
+-- we duplicate the above functions, but this time they are able to handle
+-- bridge variables as well. Both versions are kept for now because
+-- 'being able to handle bridge var' is not always the desired specification
+-- in the code base. (example: path constructors of HITs)
+
+
+pathBridgeViewAsPi'whnf
+  :: (HasBuiltins m)
+  => m (Type -> Either ((Dom Type, Abs Type), (Term,Term)) Type)
+pathBridgeViewAsPi'whnf = do
+  view <- pathBridgeView'
+  minterval  <- getTerm' builtinInterval
+  binterval <- getTerm' builtinBridgeInterval
+  return $ \ t -> case view t of
+    UPathType s p l a x y | Just interval <- minterval ->
+      let name | Lam _ (Abs n _) <- unArg a = n
+               | otherwise = "i"
+          i = El intervalSort interval
+      in
+        Left $ ((defaultDom $ i, Abs name $ El (raise 1 s) $ raise 1 (unArg a) `apply` [defaultArg $ var 0]), (unArg x, unArg y))
+
+    UBridgeType s p l a x y | Just interval <- binterval ->
+      let name | Lam _ (Abs n _) <- unArg a = n
+               | otherwise = "i"
+          i = El LockUniv interval
+      in
+        Left $ ((lkDefaultDom $ i, Abs name $ El (raise 1 s) $ raise 1 (unArg a) `apply` [lkDefaultArg $ var 0]), (unArg x, unArg y))
+
+    _    -> Right t
+
+
+pathBridgeViewAsPi'
+  :: PureTCM m => Type -> m (Either ((Dom Type, Abs Type), (Term,Term)) Type)
+pathBridgeViewAsPi' t = do
+  pathBridgeViewAsPi'whnf <*> reduce t
+
+-- | returns Left (a,b) in case the type is @Pi a b@ or @PathP b _ _@ or @BridgeP b _ _@
+--   assumes the type is in whnf.
+piOrPathBridge :: HasBuiltins m => Type -> m (Either (Dom Type, Abs Type) Type)
+piOrPathBridge t = do
+  t <- pathBridgeViewAsPi'whnf <*> pure t
+  case t of
+    Left (p,_) -> return $ Left p
+    Right (El _ (Pi a b)) -> return $ Left (a,b)
+    Right t -> return $ Right t
+
+pathBridgeViewAsPi
+  :: PureTCM m => Type -> m (Either (Dom Type, Abs Type) Type)
+pathBridgeViewAsPi t = either (Left . fst) Right <$> pathBridgeViewAsPi' t
+
+-- | @telViewUpToPathBridge n t@ takes off $t$
+--   the first @n@ (or arbitrary many if @n < 0@) function domains or Path/bridge types.
+telViewUpToPathBridge :: PureTCM m => Int -> Type -> m TelView
+telViewUpToPathBridge 0 t = return $ TelV EmptyTel t
+telViewUpToPathBridge n t = do
+  vt <- pathBridgeViewAsPi $ t
+  case vt of
+    Left (a,b)     -> absV a (absName b) <$> telViewUpToPathBridge (n - 1) (absBody b)
+    Right (El _ t) | Pi a b <- t
+                   -> absV a (absName b) <$> telViewUpToPathBridge (n - 1) (absBody b)
+    Right t        -> return $ TelV EmptyTel t
+  where
+    absV a x (TelV tel t) = TelV (ExtendTel a (Abs x tel)) t
+    
+
+telView'UpToPathBridge :: Int -> Type -> TCM TelView
+telView'UpToPathBridge 0 t = return $ TelV EmptyTel t
+telView'UpToPathBridge n t = do
+  vt <- pathBridgeViewAsPi'whnf <*> pure t
+  case vt of
+    Left ((a,b),_)     -> absV a (absName b) <$> telViewUpToPathBridge (n - 1) (absBody b)
+    Right (El _ t) | Pi a b <- t
+                   -> absV a (absName b) <$> telViewUpToPathBridge (n - 1) (absBody b)
+    Right t        -> return $ TelV EmptyTel t
+  where
+    absV a x (TelV tel t) = TelV (ExtendTel a (Abs x tel)) t
+
+
+ifNotPiOrPathBridgeType :: (MonadReduce tcm, HasBuiltins tcm) => Type -> (Type -> tcm a) -> (Dom Type -> Abs Type -> tcm a) -> tcm a
+ifNotPiOrPathBridgeType t no yes = do
+  ifPiType t yes (\ t -> either (uncurry yes . fst) (const $ no t) =<< (pathBridgeViewAsPi'whnf <*> pure t))
+
+
+-- | Like @telViewUpToPathBridge@ but also returns the @Boundary@ expected
+-- by the Path/Bridge types encountered. The boundary terms live in the
+-- telescope given by the @TelView@.
+-- Each point of the boundary has the type of the codomain of the Path/Bridge type it got taken from, see @fullBoundary@.
+telViewUpToPathBridgeBoundary' :: PureTCM m => Int -> Type -> m (TelView,Boundary)
+telViewUpToPathBridgeBoundary' 0 t = return $ (TelV EmptyTel t,[])
+telViewUpToPathBridgeBoundary' n t = do
+  vt <- pathBridgeViewAsPi' $ t
+  case vt of
+    Left ((a,b),xy) -> addEndPoints xy . absV a (absName b) <$> telViewUpToPathBridgeBoundary' (n - 1) (absBody b)
+    Right (El _ t) | Pi a b <- t
+                   -> absV a (absName b) <$> telViewUpToPathBridgeBoundary' (n - 1) (absBody b)
+    Right t        -> return $ (TelV EmptyTel t,[])
+  where
+    absV a x (TelV tel t, cs) = (TelV (ExtendTel a (Abs x tel)) t, cs)
+    addEndPoints xy (telv@(TelV tel _),cs) = (telv, (var $ size tel - 1, xyInTel):cs)
+      where
+       xyInTel = raise (size tel) xy
+
+telView'PathBridge :: Type -> TCM TelView
+telView'PathBridge = telView'UpToPathBridge (-1)
+
+
+-- | @(TelV Γ b, [(i,t_i,u_i)]) <- telViewUpToPathBridgeBoundary n a@
+--  Input:  Δ ⊢ a
+--  Output: ΔΓ ⊢ b
+--          ΔΓ ⊢ i : (B)I ?
+--          ΔΓ ⊢ [ (i=0) -> t_i; (i=1) -> u_i ] : b
+telViewUpToPathBridgeBoundary :: PureTCM m => Int -> Type -> m (TelView,Boundary)
+telViewUpToPathBridgeBoundary i a = do
+   (telv@(TelV tel b), bs) <- telViewUpToPathBridgeBoundary' i a
+   return $ (telv, fullBoundary tel bs)
+
+-- | arity of the type, including Pi, Path and Bridge
+--   Does not reduce the type. see arityPiPath for a function
+--   not handling Bridge.
+arityPiPathBridge :: Type -> TCM Int
+arityPiPathBridge t = do
+  t' <- piOrPathBridge t
+  case t' of
+    Left (_ , u) -> (+1) <$> arityPiPathBridge (unAbs u)
+    Right _ -> return 0
+
+-- | @(TelV Γ b, [(i,t_i,u_i)]) <- telViewUpToPathBridgeBoundaryP n a@
+--  Input:  Δ ⊢ a
+--  Output: Δ.Γ ⊢ b
+--          Δ.Γ ⊢ T is the codomain of the PathP at variable i
+--          Δ.Γ ⊢ i : (B)I ?
+--          Δ.Γ ⊢ [ (i=0) -> t_i; (i=1) -> u_i ] : T
+-- Useful to reconstruct IApplyP patterns after teleNamedArgs Γ.
+telViewUpToPathBridgeBoundaryP :: PureTCM m => Int -> Type -> m (TelView,Boundary)
+telViewUpToPathBridgeBoundaryP = telViewUpToPathBridgeBoundary'
+
+telViewPathBridgeBoundaryP :: PureTCM m => Type -> m (TelView,Boundary)
+telViewPathBridgeBoundaryP = telViewUpToPathBridgeBoundaryP (-1)
+
+telViewPathBridge :: PureTCM m => Type -> m TelView
+telViewPathBridge = telViewUpToPathBridge (-1)
