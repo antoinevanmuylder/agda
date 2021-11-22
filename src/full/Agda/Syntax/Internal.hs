@@ -779,6 +779,14 @@ isBIZero :: BridgeIntervalView -> Bool
 isBIZero BIZero = True
 isBIZero _ = False
 
+
+-- | Simultaneous view for bridge/type interval in Term
+data PathBridgeIntView
+      = PathInt
+      | BridgeInt
+      | NoInt Term
+      deriving Show
+
 -- | Simultaneous view for bridges/types.
 
 data PathBridgeView

@@ -678,7 +678,31 @@ pathBridgeView' = do
       (PathType s pathn level typ lhs rhs, _) -> UPathType s pathn level typ lhs rhs
       (_, BridgeType s bridgen level line lhs rhs) -> UBridgeType s bridgen level line lhs rhs
       (_ , _) -> UOType t0
+
+
+------------------------------------------------------------------------
+-- * view functions for Bridge/path Interval as a term
+------------------------------------------------------------------------
     
+
+pathBridgeIntView' :: HasBuiltins m => m (Term -> PathBridgeIntView)
+pathBridgeIntView' = do
+  cint <- getBuiltinName' builtinInterval
+  bint <- getBuiltinName' builtinBridgeInterval
+  return $ \ t ->
+    case t of
+      Def q [] | Just q == cint -> PathInt
+      Def q [] | Just q == bint -> BridgeInt
+      _ -> NoInt t 
+
+
+pathBridgeIntView :: HasBuiltins m => Term -> m PathBridgeIntView
+pathBridgeIntView t = do
+  f <- pathBridgeIntView'
+  return (f t)
+
+
+
 
 ------------------------------------------------------------------------
 -- * Swan's Id Equality
