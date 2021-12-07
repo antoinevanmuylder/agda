@@ -89,8 +89,8 @@ insertImplicitPatternsT exh            ps a = do
       -- Continue with implicit patterns inserted before @p@.
       -- The list @hs ++ ps@ cannot be empty.
       let ps0@(~(p1 : ps1)) = hs ++ ps
-      reduce a >>= piOrPath >>= \case
-        -- If @a@ is a function (or path) type, continue inserting after @p1@.
+      reduce a >>= piOrPathBridge >>= \case
+        -- If @a@ is a function (or path/bridge) type, continue inserting after @p1@.
         Left (_, b) -> (p1 :) <$> insertImplicitPatternsT exh ps1 (absBody b)
         -- Otherwise, we are done.
         Right{}     -> return ps0

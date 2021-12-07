@@ -817,3 +817,7 @@ telViewPathBridgeBoundaryP = telViewUpToPathBridgeBoundaryP (-1)
 
 telViewPathBridge :: PureTCM m => Type -> m TelView
 telViewPathBridge = telViewUpToPathBridge (-1)
+
+isPathBridge
+  :: PureTCM m => Type -> m (Maybe (Dom Type, Abs Type))
+isPathBridge t = either Just (const Nothing) <$> pathBridgeViewAsPi t

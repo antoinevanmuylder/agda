@@ -1325,8 +1325,8 @@ splitResult f sc = do
 splitResultPath :: QName -> SplitClause -> TCM (Maybe SplitClause)
 splitResultPath f sc@(SClause tel ps _ _ target) = do
   caseMaybe target (return Nothing) $ \ t -> do
-        caseMaybeM (isPath (unDom t)) (return Nothing) $ \ _ -> do
-               (TelV i b, boundary) <- telViewUpToPathBoundary' 1 (unDom t)
+        caseMaybeM (isPathBridge (unDom t)) (return Nothing) $ \ _ -> do
+               (TelV i b, boundary) <- telViewUpToPathBridgeBoundary' 1 (unDom t)
                let tel' = abstract tel i
                    rho  = raiseS 1
                    ps' = applySubst rho (scPats sc) ++ telePatterns i boundary

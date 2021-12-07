@@ -1236,7 +1236,7 @@ assignMeta' m x t n ids v = do
     -- any more)
     reportSDoc "tc.meta.assign" 15 $ "type of meta =" <+> prettyTCM t
 
-    (telv@(TelV tel' a), bs) <- telViewUpToPathBoundary n t
+    (telv@(TelV tel' a), bs) <- telViewUpToPathBridgeBoundary n t
     reportSDoc "tc.meta.assign" 30 $ "tel'  =" <+> prettyTCM tel'
     reportSDoc "tc.meta.assign" 30 $ "#args =" <+> text (show n)
     -- Andreas, 2013-09-17 (AIM XVIII): if t does not provide enough
@@ -1270,9 +1270,16 @@ assignMeta' m x t n ids v = do
     blockOnBoundary (TelV tel t) bs v = addContext tel $
       blockTerm t $ do
         neg <- primINeg
-        forM_ bs $ \ (r,(x,y)) -> do
-          equalTermOnFace (neg `apply1` r) t x v
-          equalTermOnFace r  t y v
+        forM_ bs $ \ (r@(Var ri []),(x,y)) -> do
+          e <- askTC
+          case envContext e !!! ri of
+            Nothing -> __IMPOSSIBLE__
+            Just dom | (annLock $ argInfoAnnotation $ domInfo dom) == IsNotLock -> do
+              -- cubical var case.  TODO-antva: could be safer to check type instead of annotation
+              reportSDoc "tc.meta.assign" 30 $ "blockOnBoundary call ... (r,xy) is: " <+> prettyTCM (r, (x,y))
+              equalTermOnFace (neg `apply1` r) t x v
+              equalTermOnFace r  t y v
+            _ -> return () --TODO-antva: another check should be performed for bridge vars?
         return v
 
 -- | Check that the instantiation of the given metavariable fits the
@@ -1290,7 +1297,7 @@ checkMetaInst x = do
     InstV xs v -> do
       let n = size xs
           t = jMetaType $ mvJudgement m
-      (telv@(TelV tel a),bs) <- telViewUpToPathBoundary n t
+      (telv@(TelV tel a),bs) <- telViewUpToPathBridgeBoundary n t
       catchConstraint (CheckMetaInst x) $ addContext tel $ checkSolutionForMeta x m v a
 
 -- | Check that the instantiation of the metavariable with the given
