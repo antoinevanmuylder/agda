@@ -20,6 +20,45 @@ see insertImplicitPatternsT, L92 uses piOrPath. it should be piOrPath or bridge 
 *** cannot refine C-c C-r and automatically intro bridge vars
 *** Metvars:1248:7 ~__IMPOSSIBLE__~ is reached
 because of telViewUpToPathBoundary'
+*** _partial solution_
+Part of these bugs come from the fact that functions building and handling telescopes
+don't work for bridge variables
+Our solution is to write copies of the said functions in ~Telescope.hs~ that
+are bridge aware. We keep both versions around because sometimes we indeed want
+to exclude bridges from the analysis. example: constructors of data type can not
+be bridges.
+Below we list the points in the code base that were made bridge aware
+We only applied these modifications when we were sure that it would behave well.
+There are several places where a bridge awareness modification should probably appear
+and several where it should probably not, our default strategy being "stick to old
+implementation"
+#+begin_src
+[bridges] Make several functions use bridge-aware telescope methods 
+
+Below, TC is shorthand for TypeChecking/ directory.
+
+ - piOrPath in insertImplicitBindersT1 in TC/Implicit.hs
+
+ - piOrPath in insertImplicitPatternsT in TC/Rules/LHS/Implicit.hs
+
+ - isPath, telViewUpToPathBoundary' in splitResultPath in TC/Coverage.hs
+
+ - telViewUpToPathBoundary in assignMeta' in TC/MetaVars.hs
+
+ - telViewUpToPathBoundary in checkMetaInst in TC/MetaVars.hs
+
+ - telViewUpToPathBoundaryP in updateProblemRest in
+   TC/Rules/LHS/ProblemRest.hs
+
+ - telViewPath in typeEndsInDef in Termination/TermCheck.hs
+
+ - telViewPath in setMasks in Terminataion/TermCheck.hs
+
+ - telViewPath in setMasks in Terminataion/TermCheck.hs
+
+ - telViewPath in introTactic in Interaction/BasicOps.hs
+#+end_src
+
 ** TODO metas are badly handled for now
 ** TODO there are TODO-antva's lying around. + comment in Bridges.hs
 ** TODO go through CH paper and formalize their easy examples
@@ -29,6 +68,14 @@ for instance: #2 is about lack of computation under lambdas for extent.
 ** TODO semifreshness by freshness?
 ** TODO my impl as an instance of popl18 stuff, for paper soundness prf
 ** TODO computational behaviour of transport, composition should take BridgeP and Gel into account!
+** TODO make sure that current impl of definitional equality allows extent eta to be proved
+see rule 6.7 of https://arxiv.org/pdf/1901.00489.pdf
+the technique used to prove path extent-eta is I think the same for the bridge vs iso principle
+and the latter implies relativity
+** TODO extend internal checker
+this sanity checker should be extended to make CH ~Internal~ syntax pass
+note that the checker is disabled by default
+** TODO extend compiler
 ** TODO various bugs
 *** MetaVars.hs:1248:8
 this bug is triggered when typechecking 1 retract proof of the bridge vs functions principle (the one normally using extent eta)
@@ -43,10 +90,6 @@ a bridge variable)
 *** Sort.hs:220:30
 *** Bridges.hs:179
 the case where r is a meta is not implemented I think
-** TODO make sure that current impl of definitional equality allows extent eta to be proved
-see rule 6.7 of https://arxiv.org/pdf/1901.00489.pdf
-the technique used to prove path extent-eta is I think the same for the bridge vs iso principle
-and the latter implies relativity
 ** DONE if a (semi)freshness analysis fails, some error should be raised?
 semi freshness when computing: see extent-beta/Gel-eta
 freshness when typechecking: see TypeChecking/Rules/ pbly

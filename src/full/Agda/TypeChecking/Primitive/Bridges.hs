@@ -143,9 +143,10 @@ primExtent' = do
   return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 9 $ \extentArgs@[lA, lB, bA, bB,
                                                       n0@(Arg n0info n0tm), n1@(Arg n1info n1tm),
                                                       nn@(Arg nninfo nntm),
-                                                      r@(Arg rinfo rtm), bM] -> do
+                                                      r@(Arg rinfo rtm0), bM] -> do
     --goal ReduceM(Reduced MaybeReducedArgs Term)
-    viewr <- bridgeIntervalView rtm --should reduceB because of metas
+    r' <- reduceB' r
+    viewr <- bridgeIntervalView $ unArg $ ignoreBlocking r'
     case viewr of
       BIZero ->  redReturn $ n0tm `apply` [bM] -- YesReduction, YesSimplification
       BIOne ->   redReturn $ n1tm `apply` [bM]
@@ -164,7 +165,7 @@ primExtent' = do
             reportSLn "tc.prim.extent" 30 $ P.prettyShow rtm ++ " not semifresh for " ++ P.prettyShow bMtm'
             reportSLn "tc.prim.extent" 30 $ "Its has " ++ show (getAnnotation rinfo)
             reportSLn "tc.prim.extent" 30 $ "because fvs are " ++ P.prettyShow fvM
-            fallback lA lB bA bB r bM' n0 n1 nn --should throw error?
+            return $ NoReduction $ map notReduced [lA, lB, bA, bB, n0, n1, nn]  ++ map reduced [ r', bM'] --should throw error?
           True -> do
             reportSLn "tc.prim.extent" 30 $ P.prettyShow rtm ++ " is semifresh for " ++ P.prettyShow bMtm'
             bi0 <- getTerm "primExtent" builtinBIZero
@@ -176,7 +177,9 @@ primExtent' = do
                                    Apply $ argN $ lamM `apply` [argN bi1],
                                    Apply $ argN $ lamM,
                                    IApply n0tm n1tm rtm  ]
-      _ -> __IMPOSSIBLE__ --beware of metas?
+      _ -> do
+        reportSLn "tc.prim.extent" 30 $ "awkward bridge var as extent argument: " ++ P.prettyShow ( unArg $ ignoreBlocking r' )
+        return $ NoReduction $ map notReduced [lA, lB, bA, bB, n0, n1, nn] ++ [reduced r' , notReduced bM]
   where
     -- | captures r in M, ie returns λ r. M. This is sound thanks to the fv-analysis.
     --  Γ0 , r:BI , Γ1, r''   --σ-->   Γ0 , r:BI , Γ1 ⊢ M   where    r[σ] = r''
@@ -191,7 +194,10 @@ primExtent' = do
     fallback lA lB bA bB r bM' n0 n1 nn =
       return $ NoReduction $ map notReduced [lA, lB, bA, bB, n0, n1, nn, r] ++ [reduced bM']
 
-
+       -- sphi <- reduceB' phi
+       -- case view $ unArg $ ignoreBlocking $ sphi of
+       --   IOne -> redReturn $ unArg t `apply` [argN one]
+       --   _    -> return (NoReduction $ map notReduced [la,lb,bA] ++ [reduced sphi] ++ map notReduced [bT,e,t,a])
 
 
 
