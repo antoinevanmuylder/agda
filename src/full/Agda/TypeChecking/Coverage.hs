@@ -377,7 +377,7 @@ cover f cs sc@(SClause tel ps _ _ target) = updateRelevance $ do
         -- When we add the extra patterns we also update the type
         -- and the body of the clause.
 
-        mtv <- (traverse . traverse) (telViewUpToPath n_extra) $ clauseType cl
+        mtv <- (traverse . traverse) (telViewUpToPathBridge n_extra) $ clauseType cl
         let ty = (fmap . fmap) ((parallelS (reverse $ map namedArg extra) `composeS` liftS n_extra s `applyPatSubst`) . theCore) mtv
 
         reportSDoc "tc.cover.applyCl" 40 $ "new ty =" <+> pretty ty

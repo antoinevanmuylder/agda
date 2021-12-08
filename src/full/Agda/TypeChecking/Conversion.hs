@@ -2098,7 +2098,9 @@ leqConj (rs, rst) (qs, qst) = do
 
 -- | equalTermOnFace φ A u v = _ , φ ⊢ u = v : A
 equalTermOnFace :: MonadConversion m => Term -> Type -> Term -> Term -> m ()
-equalTermOnFace = compareTermOnFace CmpEq
+equalTermOnFace phi ty u v = do
+  reportSLn "tc.conv.face" 40 "equalTermOnFace"
+  compareTermOnFace CmpEq phi ty u v
 
 compareTermOnFace :: MonadConversion m => Comparison -> Term -> Type -> Term -> Term -> m ()
 compareTermOnFace = compareTermOnFace' compareTerm

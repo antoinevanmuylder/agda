@@ -73,6 +73,7 @@ checkIApplyConfluence f cl = case cl of
             trhs = unArg t
           reportSDoc "tc.cover.iapply" 40 $ "tel =" <+> prettyTCM clTel
           reportSDoc "tc.cover.iapply" 40 $ "ps =" <+> pretty ps
+          reportSDoc "tc.cover.iapply" 40 $ "and clauseType =" <+> prettyTCM t
           ps <- normaliseProjP ps
           forM_ (iApplyVars ps) $ \ i -> do
             unview <- intervalUnview'
@@ -83,7 +84,14 @@ checkIApplyConfluence f cl = case cl of
             reportSDoc "tc.iapply" 40 $ text "clause:" <+> pretty ps <+> "->" <+> pretty body
             reportSDoc "tc.iapply" 20 $ "body =" <+> prettyTCM body
 
-            addContext clTel $ equalTermOnFace phi trhs lhs body
+            addContext clTel $ do
+              intval <- typeOfBV i --bridge or cubical.
+              ifM (isInterval intval) (equalTermOnFace phi trhs lhs body) $ --else
+                return __IMPOSSIBLE__
+                --TODO-antva:
+                -- also the isInterval condition does not seem to work??
+                -- must generate bridge boundary constraints.
+                -- for now we set __IMPOSSIBLE__ here
 
             case body of
               MetaV m es_m' | Just es_m <- allApplyElims es_m' ->

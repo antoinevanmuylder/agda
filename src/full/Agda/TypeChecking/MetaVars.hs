@@ -1276,6 +1276,7 @@ assignMeta' m x t n ids v = do
             Nothing -> __IMPOSSIBLE__
             Just dom | (annLock $ argInfoAnnotation $ domInfo dom) == IsNotLock -> do
               -- cubical var case.  TODO-antva: could be safer to check type instead of annotation
+              -- TODO-antva: the above get can be restated with lookupBV?
               reportSDoc "tc.meta.assign" 30 $ "blockOnBoundary call ... (r,xy) is: " <+> prettyTCM (r, (x,y))
               equalTermOnFace (neg `apply1` r) t x v
               equalTermOnFace r  t y v

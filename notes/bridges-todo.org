@@ -14,11 +14,42 @@ know if it has a real impact though
 ~grep -r "path" src/full/Agda/TypeChecking/* --exclude="*.txt*" --exclude="*.err*" --exclude="*.agda*"~
 its reasonnable to think that path implementation should have bridge counterpart
 below, some issues caused by a lack of bridge compatible telescope I think
-*** cannot define bridges with left application. b : BridgeP x.A a0 a1,  b i = ...
+*** TODO cannot define bridges with left application. b : BridgeP x.A a0 a1,  b i = ...
 forced to do b = lam i -> ... for some reason
 see insertImplicitPatternsT, L92 uses piOrPath. it should be piOrPath or bridge :>
-*** cannot refine C-c C-r and automatically intro bridge vars
-*** Metvars:1248:7 ~__IMPOSSIBLE__~ is reached
+
+#+begin_src 
+(agda2-verbose "Checking IApply confluence of Cubical.Bridges.BridgeExamples.PlayBridgeP.mmk\n")
+(agda2-verbose "length cls = 1\n")
+(agda2-verbose "Debug printing tc.iapply:20 failed due to exception:\n  An internal error has occurred. Please report this as a bug.\n  Location of the error: impossible, called at src/full/Agda/TypeChecking/Rules/LHS.hs:746:95 in Agda-2.6.3-IDfR5qyJYA4K752vtcutk4:Agda.TypeChecking.Rules.LHS\n")
+(agda2-verbose "compareTerm mmk f i0 = ?0 (f = f) (x = i0) : A₁ i0\n")
+(agda2-verbose "compareTerm (not syntactically equal)\n  mmk f i0 = ?0 (f = f) (x = i0)\n  : A₁ i0\n")
+(agda2-verbose "attempting shortcut ?0 (f = f) (x = i0) := mmk f i0\n")
+(agda2-verbose "term ?0 (f = f) (x = i0) :DirEq mmk f i0\n")
+(agda2-verbose "term ?0 (f = f) (x = i0) :DirEq mmk f i0\n")
+(agda2-verbose "aborting: meta is frozen!\n")
+(agda2-verbose "Solving awake constraints. 0 remaining.\n")
+(agda2-verbose "{ compareTerm\n")
+(agda2-verbose "compareTerm mmk f i0 = ?0 (f = f) (x = i0) : A₁ i0\n")
+(agda2-verbose "{ compareAtom\n")
+(agda2-verbose "compareAtom f bi0 = [ ?0 (f = f) (x = i0) ]_14 : A₁ i0\n")
+(agda2-verbose "term ?0 (f = f) (x = i0) :DirEq f bi0\n")
+(agda2-verbose "term ?0 (f = f) (x = i0) :DirEq f bi0\n")
+(agda2-verbose "aborting: meta is frozen!\n")
+(agda2-verbose "Solving awake constraints. 0 remaining.\n")
+(agda2-verbose "adding constraint mmk f i0 = ?0 (f = f) (x = i0) : A₁ i0\n                    (blocked on _14)\n")
+#+end_src
+the compareTerm call is issued by compareTermOnFace
+So something calls this cubical function and should be calling
+a bridge aware function instead. --> it is equalTermOnFace which
+is probably called in IApplyConfluence.hs?
+~grep -r "equalTermOnFace" .*/~ is ok
+
+TODO in checkIApplyConfluence I have to generate bridge boundary constraints under
+some (unclear at the time) conditions. the second part of the code ~case _ of MetaV~
+must also be updated with bridges?
+*** DONE cannot refine C-c C-r and automatically intro bridge vars
+*** DONE Metvars:1248:7 ~__IMPOSSIBLE__~ is reached
 because of telViewUpToPathBoundary'
 *** _partial solution_
 Part of these bugs come from the fact that functions building and handling telescopes
