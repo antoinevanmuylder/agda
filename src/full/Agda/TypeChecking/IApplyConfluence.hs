@@ -73,7 +73,7 @@ checkIApplyConfluence f cl = case cl of
             trhs = unArg t
           reportSDoc "tc.cover.iapply" 40 $ "tel =" <+> prettyTCM clTel
           reportSDoc "tc.cover.iapply" 40 $ "ps =" <+> pretty ps
-          reportSDoc "tc.cover.iapply" 40 $ "and clauseType =" <+> prettyTCM t
+          addContext clTel $ reportSDoc "tc.cover.iapply" 40 $ "and clauseType =" <+> prettyTCM trhs
           ps <- normaliseProjP ps
           forM_ (iApplyVars ps) $ \ i -> do
             unview <- intervalUnview'
@@ -84,14 +84,13 @@ checkIApplyConfluence f cl = case cl of
             reportSDoc "tc.iapply" 40 $ text "clause:" <+> pretty ps <+> "->" <+> pretty body
             reportSDoc "tc.iapply" 20 $ "body =" <+> prettyTCM body
 
+            isCubicalVar <- addContext clTel $ do
+              intval <- typeOfBV i
+              isInterval intval
+              
             addContext clTel $ do
-              intval <- typeOfBV i --bridge or cubical.
-              ifM (isInterval intval) (equalTermOnFace phi trhs lhs body) $ --else
-                return __IMPOSSIBLE__
-                --TODO-antva:
-                -- also the isInterval condition does not seem to work??
-                -- must generate bridge boundary constraints.
-                -- for now we set __IMPOSSIBLE__ here
+              if isCubicalVar then (equalTermOnFace phi trhs lhs body)
+              else (equalTermOnBridgeFace i trhs lhs body)
 
             case body of
               MetaV m es_m' | Just es_m <- allApplyElims es_m' ->
@@ -110,7 +109,7 @@ checkIApplyConfluence f cl = case cl of
                   let over = if size mTel == size es_m then NotOverapplied else Overapplied
 
                   -- extend telescope to handle extra elims
-                  TelV mTel1 _ <- telViewUpToPath (size es_m) ty
+                  TelV mTel1 _ <- telViewUpToPathBridge (size es_m) ty
                   reportSDoc "tc.iapply.ip" 20 $ "mTel1 =" <+> prettyTCM mTel1
 
                   addContext (mTel1 `apply` teleArgs mTel) $ do

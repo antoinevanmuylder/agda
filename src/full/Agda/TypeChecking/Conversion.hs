@@ -1961,6 +1961,7 @@ forallFaceMaps t kb k = do
            , prettyTCM t
            ]
   as <- decomposeInterval t
+  reportSDoc "conv.forall" 30 $ "decomposeInterval call, as = " <+> prettyTCM as
   boolToI <- do
     io <- primIOne
     iz <- primIZero
@@ -1969,20 +1970,26 @@ forallFaceMaps t kb k = do
    ifBlockeds ts (kb ms) $ \ _ _ -> do
     let xs = map (second boolToI) $ Map.toAscList ms
     cxt <- getContext
-    reportSDoc "conv.forall" 20 $
-      fsep ["substContextN"
+    reportSDoc "conv.forall" 40 $
+      fsep ["substContextN, cxt xs params: "
            , prettyTCM cxt
-           , prettyTCM xs
+           , text $ prettyShow xs
            ]
     (cxt',sigma) <- substContextN cxt xs
+    reportSDoc "conv.forall" 40 $
+      fsep ["substContextN results"
+           , "cxt' = " <+> prettyTCM cxt'
+           , "sigma = " <+> prettyTCM sigma
+           ]
     resolved <- forM xs (\ (i,t) -> (,) <$> lookupBV i <*> return (applySubst sigma t))
+    reportSDoc "conv.forall" 40 $ "resolved = " <+> prettyTCM resolved
     updateContext sigma (const cxt') $
       addBindings resolved $ do
         cl <- buildClosure ()
         tel <- getContextTelescope
         m <- currentModule
         sub <- getModuleParameterSub m
-        reportS "conv.forall" 10
+        reportS "conv.forall" 50
           [ replicate 10 '-'
           , show (envCurrentModule $ clEnv cl)
           , show (envLetBindings $ clEnv cl)
@@ -2125,6 +2132,59 @@ compareTermOnFace' k cmp phi ty u v = do
              phi
     addConstraint blocker (ValueCmpOnFace cmp phi ty u v)
 
+
+-- | equalTermOnBridgeFace (x) (x.ty) (x.u) (x.v) generates endpoints constraints
+--   u[x \bi0] = v[x \bi0] at ty[ x \bi0] ; u[x \bi1] = v[x \bi1] ty[ x \bi1]
+equalTermOnBridgeFace :: MonadConversion m =>
+  Int -- ^ de Bruijn index of bridge variable x
+  -> Type -- ^ comparison happens at this type. depends on x
+  -> Term -- ^ lhs of comparison, depends on x.
+  -> Term -- ^ rhs of comparison, depends on x.
+  -> m ()
+equalTermOnBridgeFace xi ty u v = do
+  reportSDoc "tc.conv.bridgeface" 40
+    ("equalTermOnBridgeFace: " <+> "@int" <+> pretty xi <+> "=bi0 or bi1"  <+> "|-" <+> pretty u <+> "==" <+> pretty v <+> ":" <+> pretty ty)
+  cxt <- getContext
+  
+  let go :: MonadConversion m => Term -> m ()
+      go biEps = do --biEps is either bi0 or bi1
+        (cxt', sigma) <- substContextN cxt [(xi, biEps)]
+        resolved <- forM [(xi, biEps)] (\ (i,t) -> (,) <$> lookupBV i <*> return (applySubst sigma t))
+        updateContext sigma (const cxt') $ addBindings resolved $ do
+          compareTerm CmpEq (applySubst sigma ty) (applySubst sigma u) (applySubst sigma v)
+  
+  bi0 <- primBIZero
+  bi1 <- primBIOne
+  go bi0
+  go bi1
+  return ()
+
+  where
+    substContextN :: MonadConversion m => Context -> [(Int,Term)] -> m (Context , Substitution)
+    substContextN c [] = return (c, idS)
+    substContextN c ((i,t):xs) = do
+      (c', sigma) <- substContext i t c
+      (c'', sigma')  <- substContextN c' (map (subtract 1 -*- applySubst sigma) xs)
+      return (c'', applySubst sigma' sigma)
+
+    substContext :: MonadConversion m => Int -> Term -> Context -> m (Context , Substitution)
+    substContext i t [] = __IMPOSSIBLE__
+    substContext i t (x:xs) | i == 0 = return $ (xs , singletonS 0 t)
+    substContext i t (x:xs) | i > 0 = do
+                                  reportSDoc "tc.conv.bridgeface" 50 $
+                                    fsep ["substContext"
+                                        , text (show (i-1))
+                                        , prettyTCM t
+                                        , prettyTCM xs
+                                        ]
+                                  (c,sigma) <- substContext (i-1) t xs
+                                  let e = applySubst sigma x
+                                  return (e:c, liftS 1 sigma)
+    substContext i t (x:xs) = __IMPOSSIBLE__
+
+    addBindings [] m = m
+    addBindings ((Dom{domInfo = info,unDom = (nm,ty)},t):bs) m = addLetBinding info nm t ty (addBindings bs m)
+    
 ---------------------------------------------------------------------------
 -- * Definitions
 ---------------------------------------------------------------------------
