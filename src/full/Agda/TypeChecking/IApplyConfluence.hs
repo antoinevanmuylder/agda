@@ -117,7 +117,8 @@ checkIApplyConfluence f cl = case cl of
 
                   addContext clTel $ do -- mTel.clTel ⊢
                     () <- reportSDoc "tc.iapply.ip" 40 $ "mTel.clTel =" <+> (prettyTCM =<< getContextTelescope)
-                    forallFaceMaps phi __IMPOSSIBLE__ $ \ alpha -> do
+                    let pathOrBridgeHandler = if isCubicalVar then (forallFaceMaps phi  __IMPOSSIBLE__) else forallBridgeFaceMaps i
+                    pathOrBridgeHandler $ \ alpha -> do
                     -- mTel.clTel' ⊢
                     -- mTel.clTel  ⊢ alpha : mTel.clTel'
                     reportSDoc "tc.iapply.ip" 40 $ "mTel.clTel' =" <+> (prettyTCM =<< getContextTelescope)
@@ -127,7 +128,7 @@ checkIApplyConfluence f cl = case cl of
                     reportSDoc "tc.iapply.ip" 20 $ fsep ["es :", pretty es]
                     reportSDoc "tc.iapply.ip" 20 $ fsep ["es_alpha :", pretty (alpha `applySubst` es) ]
 
-                    -- reducing path applications on endpoints in lhs
+                    -- reducing path/bridge applications on endpoints in lhs
                     let
                        loop t@(Def _ es) = loop' t es
                        loop t@(Var _ es) = loop' t es
@@ -137,12 +138,11 @@ checkIApplyConfluence f cl = case cl of
                        loop' t es = ignoreBlocking <$> (reduceIApply' (pure . notBlocked) (pure . notBlocked $ t) es)
                     lhs <- liftReduce $ traverseTermM loop (Def f (alpha `applySubst` es))
 
-                    let
-                        idG = raise (size clTel) $ (teleElims mTel [])
+                    -- let idG = raise (size clTel) $ (teleElims mTel [])
 
                     reportSDoc "tc.iapply.ip" 20 $ fsep ["lhs :", pretty lhs]
                     reportSDoc "tc.iapply.ip" 40 $ "cxt1 =" <+> (prettyTCM =<< getContextTelescope)
-                    reportSDoc "tc.iapply.ip" 40 $ prettyTCM $ alpha `applySubst` ValueCmpOnFace CmpEq phi trhs lhs (MetaV m idG)
+                    -- reportSDoc "tc.iapply.ip" 40 $ prettyTCM $ alpha `applySubst` ValueCmpOnFace CmpEq phi trhs lhs (MetaV m idG)
 
                     unifyElims (teleArgs mTel) (alpha `applySubst` es_m) $ \ sigma eqs -> do
                     -- mTel.clTel'' ⊢

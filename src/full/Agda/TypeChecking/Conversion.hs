@@ -2006,33 +2006,58 @@ forallFaceMaps t kb k = do
       io  <- primIOne
       let t = foldr (\ x r -> and `apply` [argN x,argN r]) io ts
       ifBlocked t blocked unblocked
-    addBindings [] m = m
-    addBindings ((Dom{domInfo = info,unDom = (nm,ty)},t):bs) m = addLetBinding info nm t ty (addBindings bs m)
 
-    substContextN :: MonadConversion m => Context -> [(Int,Term)] -> m (Context , Substitution)
-    substContextN c [] = return (c, idS)
-    substContextN c ((i,t):xs) = do
-      (c', sigma) <- substContext i t c
-      (c'', sigma')  <- substContextN c' (map (subtract 1 -*- applySubst sigma) xs)
-      return (c'', applySubst sigma' sigma)
+-- | @forallBridgeFaceMaps t k@ does continuation k in case bridge variable x = @xi : BI is set to bi0, bi1
+forallBridgeFaceMaps :: MonadConversion m => Int -> (Substitution -> m a) -> m [a]
+forallBridgeFaceMaps xi k = do
+  reportSDoc "conv.forall" 20 $
+      fsep ["forallBridgeFaceMaps"
+           , "@" <+> prettyTCM xi
+           ]
+  bi0 <- primBIZero
+  bi1 <- primBIOne
+  thing0 <- goK k xi bi0
+  thing1 <- goK k xi bi1
+  return [thing0, thing1]
+  where
+    goK :: MonadConversion m => (Substitution -> m a) -> Int -> Term -> m a
+    goK k xi biEps = do --biEps is either bi0 or bi1
+      cxt <- getContext
+      (cxt', sigma) <- substContextN cxt [(xi, biEps)]
+      resolved <- forM [(xi, biEps)] (\ (i,t) -> (,) <$> lookupBV i <*> return (applySubst sigma t))
+      updateContext sigma (const cxt') $ addBindings resolved $ do
+        k sigma
+
+-- | 3 helper functions for path/bridge face methods above
+addBindings :: MonadConversion m => [(Dom (Name, Type), Term)] -> m a -> m a
+addBindings [] m = m
+addBindings ((Dom{domInfo = info,unDom = (nm,ty)},t):bs) m = addLetBinding info nm t ty (addBindings bs m)
+
+substContextN :: MonadConversion m => Context -> [(Int,Term)] -> m (Context , Substitution)
+substContextN c [] = return (c, idS)
+substContextN c ((i,t):xs) = do
+  (c', sigma) <- substContext i t c
+  (c'', sigma')  <- substContextN c' (map (subtract 1 -*- applySubst sigma) xs)
+  return (c'', applySubst sigma' sigma)
 
 
-    -- assumes the term can be typed in the shorter telescope
-    -- the terms we get from toFaceMaps are closed.
-    substContext :: MonadConversion m => Int -> Term -> Context -> m (Context , Substitution)
-    substContext i t [] = __IMPOSSIBLE__
-    substContext i t (x:xs) | i == 0 = return $ (xs , singletonS 0 t)
-    substContext i t (x:xs) | i > 0 = do
-                                  reportSDoc "conv.forall" 20 $
-                                    fsep ["substContext"
-                                        , text (show (i-1))
-                                        , prettyTCM t
-                                        , prettyTCM xs
-                                        ]
-                                  (c,sigma) <- substContext (i-1) t xs
-                                  let e = applySubst sigma x
-                                  return (e:c, liftS 1 sigma)
-    substContext i t (x:xs) = __IMPOSSIBLE__
+-- assumes the term can be typed in the shorter telescope
+-- the terms we get from toFaceMaps are closed.
+substContext :: MonadConversion m => Int -> Term -> Context -> m (Context , Substitution)
+substContext i t [] = __IMPOSSIBLE__
+substContext i t (x:xs) | i == 0 = return $ (xs , singletonS 0 t)
+substContext i t (x:xs) | i > 0 = do
+                              reportSDoc "conv.forall" 20 $
+                                fsep ["substContext"
+                                    , text (show (i-1))
+                                    , prettyTCM t
+                                    , prettyTCM xs
+                                    ]
+                              (c,sigma) <- substContext (i-1) t xs
+                              let e = applySubst sigma x
+                              return (e:c, liftS 1 sigma)
+substContext i t (x:xs) = __IMPOSSIBLE__
+
 
 compareInterval :: MonadConversion m => Comparison -> Type -> Term -> Term -> m ()
 compareInterval cmp i t u = do
@@ -2144,46 +2169,9 @@ equalTermOnBridgeFace :: MonadConversion m =>
 equalTermOnBridgeFace xi ty u v = do
   reportSDoc "tc.conv.bridgeface" 40
     ("equalTermOnBridgeFace: " <+> "@int" <+> pretty xi <+> "=bi0 or bi1"  <+> "|-" <+> pretty u <+> "==" <+> pretty v <+> ":" <+> pretty ty)
-  cxt <- getContext
-  
-  let go :: MonadConversion m => Term -> m ()
-      go biEps = do --biEps is either bi0 or bi1
-        (cxt', sigma) <- substContextN cxt [(xi, biEps)]
-        resolved <- forM [(xi, biEps)] (\ (i,t) -> (,) <$> lookupBV i <*> return (applySubst sigma t))
-        updateContext sigma (const cxt') $ addBindings resolved $ do
-          compareTerm CmpEq (applySubst sigma ty) (applySubst sigma u) (applySubst sigma v)
-  
-  bi0 <- primBIZero
-  bi1 <- primBIOne
-  go bi0
-  go bi1
+  _ <- forallBridgeFaceMaps xi $ \ alpha -> do
+    compareTerm CmpEq (applySubst alpha ty) (applySubst alpha u) (applySubst alpha v)
   return ()
-
-  where
-    substContextN :: MonadConversion m => Context -> [(Int,Term)] -> m (Context , Substitution)
-    substContextN c [] = return (c, idS)
-    substContextN c ((i,t):xs) = do
-      (c', sigma) <- substContext i t c
-      (c'', sigma')  <- substContextN c' (map (subtract 1 -*- applySubst sigma) xs)
-      return (c'', applySubst sigma' sigma)
-
-    substContext :: MonadConversion m => Int -> Term -> Context -> m (Context , Substitution)
-    substContext i t [] = __IMPOSSIBLE__
-    substContext i t (x:xs) | i == 0 = return $ (xs , singletonS 0 t)
-    substContext i t (x:xs) | i > 0 = do
-                                  reportSDoc "tc.conv.bridgeface" 50 $
-                                    fsep ["substContext"
-                                        , text (show (i-1))
-                                        , prettyTCM t
-                                        , prettyTCM xs
-                                        ]
-                                  (c,sigma) <- substContext (i-1) t xs
-                                  let e = applySubst sigma x
-                                  return (e:c, liftS 1 sigma)
-    substContext i t (x:xs) = __IMPOSSIBLE__
-
-    addBindings [] m = m
-    addBindings ((Dom{domInfo = info,unDom = (nm,ty)},t):bs) m = addLetBinding info nm t ty (addBindings bs m)
     
 ---------------------------------------------------------------------------
 -- * Definitions
