@@ -217,7 +217,7 @@ sortOf t = do
         hd' <- applyE <$> applyDef o f (argFromDom b $> hd [])
         sortOfE (c `absApp` (hd [])) hd' es
       IApply x y r -> do
-        (b , c) <- fromMaybe __IMPOSSIBLE__ <$> isPath a
+        (b , c) <- fromMaybe __IMPOSSIBLE__ <$> isPathBridge a
         sortOfE (c `absApp` r) (hd . (e:)) es
 
 -- | Reconstruct the minimal sort of a type (ignoring the sort annotation).
