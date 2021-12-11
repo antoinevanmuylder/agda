@@ -153,7 +153,13 @@ primExtent' = do
       -- QST: no need to check that #occ of r in M <= 1 because this will be checked later?
       -- in order to reduce extent_r(M ; ..) we need to check that M has no timefull r-laters
       BOTerm rtm@(Var ri []) -> do
+        reportSLn "tc.prim.extent" 30 $ "Trying to reduce extent of bvar. all args:  " ++ psh extentArgs
+        reportSLn "tc.prim.extent" 30 $ "About to reduce principal (last) argument: " ++ psh bM
         bM' <- reduceB' bM --because some timefull r-laters may disappear
+        -- TODO-antva. by default the above reduction could be disabled
+        -- this reduction would happen only if shouldRedExtent (of bM, not bM') below is False
+        -- This way the reduction would still yield human readable stuff 
+        reportSLn "tc.prim.extent" 30 $ "Result of reduction is " ++ (psh $ ignoreBlocking bM')
         let bMtm' = unArg $ ignoreBlocking $ bM'
         let fvM0 = freeVarsIgnore IgnoreNot $ bMtm' -- correct ignore flag?
         -- let rigidFvM = rigidVars fvM0
@@ -162,23 +168,27 @@ primExtent' = do
         shouldRedExtent <- semiFreshForFvars fvM ri
         case shouldRedExtent of
           False -> do
-            reportSLn "tc.prim.extent" 30 $ P.prettyShow rtm ++ " not semifresh for " ++ P.prettyShow bMtm'
-            reportSLn "tc.prim.extent" 30 $ "Its has " ++ show (getAnnotation rinfo)
+            reportSLn "tc.prim.extent" 30 $
+              P.prettyShow rtm ++ " NOT semifresh for princ arg (showed unreduced): " ++ psh bM
+            reportSLn "tc.prim.extent" 30 $
+              "Its bridge var argument has " ++ show (getAnnotation rinfo) ++ ".It should be locked."
             reportSLn "tc.prim.extent" 30 $ "because fvs are " ++ P.prettyShow fvM
             return $ NoReduction $ map notReduced [lA, lB, bA, bB, n0, n1, nn]  ++ map reduced [ r', bM'] --should throw error?
           True -> do
-            reportSLn "tc.prim.extent" 30 $ P.prettyShow rtm ++ " is semifresh for " ++ P.prettyShow bMtm'
+            reportSLn "tc.prim.extent" 30 $ P.prettyShow rtm ++ " is semifresh for princ arg (showed unreduced): " ++ psh bM
             bi0 <- getTerm "primExtent" builtinBIZero
             bi1 <- getTerm "primExtent" builtinBIOne
             let lamM = captureIn bMtm' ri   -- λ r. M
-            reportSLn "tc.prim.extent" 30 $ "captureIn (( " ++ P.prettyShow bMtm' ++" )) (( " ++ P.prettyShow ri ++ " ))"
-            reportSLn "tc.prim.extent" 30 $ "captureIn ((M)) ((r)) is " ++ P.prettyShow lamM
+            reportSLn "tc.prim.extent" 30 $ "captureIn (( " ++ psh bM ++" )) (( " ++ psh ri ++ " ))"
+            reportSLn "tc.prim.extent" 30 $ "captureIn ((M)) ((r)) is " ++ psh lamM
+            lamMBi0 <- reduce' $ lamM `apply` [argN bi0]
+            reportSLn "tc.prim.extent" 30 $ "lamM bi0 is: " ++ psh lamMBi0
             redReturn $ nntm `applyE` [Apply $ argN $ lamM `apply` [argN bi0],
                                    Apply $ argN $ lamM `apply` [argN bi1],
                                    Apply $ argN $ lamM,
                                    IApply n0tm n1tm rtm  ]
       _ -> do
-        reportSLn "tc.prim.extent" 30 $ "awkward bridge var as extent argument: " ++ P.prettyShow ( unArg $ ignoreBlocking r' )
+        reportSLn "tc.prim.extent" 30 $ "awkward bridge var as extent argument: " ++ psh ( unArg $ ignoreBlocking r' )
         return $ NoReduction $ map notReduced [lA, lB, bA, bB, n0, n1, nn] ++ [reduced r' , notReduced bM]
   where
     -- | captures r in M, ie returns λ r. M. This is sound thanks to the fv-analysis.
