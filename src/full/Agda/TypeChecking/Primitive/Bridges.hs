@@ -178,14 +178,17 @@ primExtent' = do
             reportSLn "tc.prim.extent" 30 $ P.prettyShow rtm ++ " is semifresh for princ arg (showed unreduced): " ++ psh bM
             bi0 <- getTerm "primExtent" builtinBIZero
             bi1 <- getTerm "primExtent" builtinBIOne
-            let lamM = captureIn bMtm' ri   -- λ r. M
+            let lamM = captureIn bMtm' ri   -- λ r. M (where M has been reduced = weak head normalized)
+            sbMtm <- simplify' $ unArg bM 
+            let sLamM = captureIn sbMtm ri  -- λ r. M (where M has been simplified)
+            let readableLamM = captureIn (unArg bM) ri --  λ r. M (where M is untouched)
             reportSLn "tc.prim.extent" 30 $ "captureIn (( " ++ psh bM ++" )) (( " ++ psh ri ++ " ))"
             reportSLn "tc.prim.extent" 30 $ "captureIn ((M)) ((r)) is " ++ psh lamM
-            lamMBi0 <- reduce' $ lamM `apply` [argN bi0]
+            lamMBi0 <- reduce' $ readableLamM `apply` [argN bi0]
             reportSLn "tc.prim.extent" 30 $ "lamM bi0 is: " ++ psh lamMBi0
-            redReturn $ nntm `applyE` [Apply $ argN $ lamM `apply` [argN bi0],
-                                   Apply $ argN $ lamM `apply` [argN bi1],
-                                   Apply $ argN $ lamM,
+            redReturn $ nntm `applyE` [Apply $ argN $ readableLamM `apply` [argN bi0],
+                                   Apply $ argN $ readableLamM `apply` [argN bi1],
+                                   Apply $ argN $ sLamM,
                                    IApply n0tm n1tm rtm  ]
       _ -> do
         reportSLn "tc.prim.extent" 30 $ "awkward bridge var as extent argument: " ++ psh ( unArg $ ignoreBlocking r' )
