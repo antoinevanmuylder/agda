@@ -518,15 +518,31 @@ getInteractionRange = ipRange <.> lookupInteractionPoint
 getMetaRange :: (MonadFail m, ReadTCState m) => MetaId -> m Range
 getMetaRange = getRange <.> lookupMeta
 
-getInteractionScope :: InteractionId -> TCM ScopeInfo
+getInteractionScope
+  :: (MonadFail m, ReadTCState m, MonadError TCErr m, MonadTCEnv m)
+  => InteractionId -> m ScopeInfo
 getInteractionScope = getMetaScope <.> lookupMeta <=< lookupInteractionId
 
-withMetaInfo' :: MetaVariable -> TCM a -> TCM a
+withMetaInfo' :: (MonadTCEnv m, ReadTCState m, MonadTrace m) => MetaVariable -> m a -> m a
 withMetaInfo' mv = withMetaInfo (miClosRange $ mvInfo mv)
 
-withMetaInfo :: Closure Range -> TCM a -> TCM a
+withMetaInfo :: (MonadTCEnv m, ReadTCState m, MonadTrace m) => Closure Range -> m a -> m a
 withMetaInfo mI cont = enterClosure mI $ \ r ->
   setCurrentRange r cont
+
+withInteractionId
+  :: (MonadFail m, ReadTCState m, MonadError TCErr m, MonadTCEnv m, MonadTrace m)
+  => InteractionId -> m a -> m a
+withInteractionId i ret = do
+  m <- lookupInteractionId i
+  withMetaId m ret
+
+withMetaId
+  :: (MonadFail m, MonadTCEnv m, ReadTCState m, MonadTrace m)
+  => MetaId -> m a -> m a
+withMetaId m ret = do
+  mv <- lookupMeta m
+  withMetaInfo' mv ret
 
 getMetaVariableSet :: ReadTCState m => m IntSet
 getMetaVariableSet = IntMap.keysSet <$> getMetaStore

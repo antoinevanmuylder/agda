@@ -112,63 +112,61 @@ parseExprIn ii rng s = do
     withMetaInfo mi $
       concreteToAbstract (clScope mi) e
 
-giveExpr :: UseForce -> Maybe InteractionId -> MetaId -> Expr -> TCM ()
--- When translator from internal to abstract is given, this function might return
--- the expression returned by the type checker.
+-- Type check the given expression and assign its value to the meta
+-- Precondition: we are in the context where the given meta was created.
+giveExpr :: UseForce -> Maybe InteractionId -> MetaId -> Expr -> TCM Term
 giveExpr force mii mi e = do
     mv <- lookupMeta mi
-    -- In the context (incl. signature) of the meta variable,
-    -- type check expression and assign meta
-    withMetaInfo (getMetaInfo mv) $ do
-      let t = case mvJudgement mv of
-                IsSort{}    -> __IMPOSSIBLE__
-                HasType _ _ t -> t
-      reportSDoc "interaction.give" 20 $
-        "give: meta type =" TP.<+> prettyTCM t
-      -- Here, we must be in the same context where the meta was created.
-      -- Thus, we can safely apply its type to the context variables.
-      ctx <- getContextArgs
-      t' <- t `piApplyM` permute (takeP (length ctx) $ mvPermutation mv) ctx
-      traceCall (CheckExprCall CmpLeq e t') $ do
-        reportSDoc "interaction.give" 20 $ do
-          a <- asksTC envAbstractMode
-          TP.hsep
-            [ TP.text ("give(" ++ show a ++ "): instantiated meta type =")
-            , prettyTCM t'
+    let t = case mvJudgement mv of
+              IsSort{}    -> __IMPOSSIBLE__
+              HasType _ _ t -> t
+    reportSDoc "interaction.give" 20 $
+      "give: meta type =" TP.<+> prettyTCM t
+    -- Here, we must be in the same context where the meta was created.
+    -- Thus, we can safely apply its type to the context variables.
+    ctx <- getContextArgs
+    t' <- t `piApplyM` permute (takeP (length ctx) $ mvPermutation mv) ctx
+    traceCall (CheckExprCall CmpLeq e t') $ do
+      reportSDoc "interaction.give" 20 $ do
+        a <- asksTC envAbstractMode
+        TP.hsep
+          [ TP.text ("give(" ++ show a ++ "): instantiated meta type =")
+          , prettyTCM t'
+          ]
+      -- Andreas, 2020-05-27 AIM XXXII, issue #4679
+      -- Clear envMutualBlock since cubical only executes
+      -- certain checks (checkIApplyConfluence) for an extended lambda
+      -- when not in a mutual block.
+      v <- locallyTC eMutualBlock (const Nothing) $
+        checkExpr e t'
+      case mvInstantiation mv of
+
+        InstV{} -> unlessM ((Irrelevant ==) <$> asksTC getRelevance) $ do
+          v' <- instantiate $ MetaV mi $ map Apply ctx
+          reportSDoc "interaction.give" 20 $ TP.sep
+            [ "meta was already set to value v' = " TP.<+> prettyTCM v'
+            , "now comparing it to given value v = " TP.<+> prettyTCM v
+            , "in context " TP.<+> inTopContext (prettyTCM ctx)
             ]
-        -- Andreas, 2020-05-27 AIM XXXII, issue #4679
-        -- Clear envMutualBlock since cubical only executes
-        -- certain checks (checkIApplyConfluence) for an extended lambda
-        -- when not in a mutual block.
-        v <- locallyTC eMutualBlock (const Nothing) $
-          checkExpr e t'
-        case mvInstantiation mv of
+          equalTerm t' v v'
 
-          InstV{} -> unlessM ((Irrelevant ==) <$> asksTC getRelevance) $ do
-            v' <- instantiate $ MetaV mi $ map Apply ctx
-            reportSDoc "interaction.give" 20 $ TP.sep
-              [ "meta was already set to value v' = " TP.<+> prettyTCM v'
-              , "now comparing it to given value v = " TP.<+> prettyTCM v
-              , "in context " TP.<+> inTopContext (prettyTCM ctx)
-              ]
-            equalTerm t' v v'
+        _ -> do -- updateMeta mi v
+          reportSLn "interaction.give" 20 "give: meta unassigned, assigning..."
+          args <- getContextArgs
+          nowSolvingConstraints $ assign DirEq mi args v (AsTermsOf t')
 
-          _ -> do -- updateMeta mi v
-            reportSLn "interaction.give" 20 "give: meta unassigned, assigning..."
-            args <- getContextArgs
-            nowSolvingConstraints $ assign DirEq mi args v (AsTermsOf t')
-
-        reportSDoc "interaction.give" 20 $ "give: meta variable updated!"
-        unless (force == WithForce) $ redoChecks mii
-        wakeupConstraints mi
-        solveSizeConstraints DontDefaultToInfty
-        cubical <- isJust . optCubical <$> pragmaOptions
-        -- don't double check with cubical, because it gets in the way too often.
-        unless (cubical || force == WithForce) $ do
-          -- Double check.
-          reportSDoc "interaction.give" 20 $ "give: double checking"
-          vfull <- instantiateFull v
-          checkInternal vfull CmpLeq t'
+      reportSDoc "interaction.give" 20 $ "give: meta variable updated!"
+      unless (force == WithForce) $ redoChecks mii
+      wakeupConstraints mi
+      solveSizeConstraints DontDefaultToInfty
+      cubical <- isJust . optCubical <$> pragmaOptions
+      -- don't double check with cubical, because it gets in the way too often.
+      unless (cubical || force == WithForce) $ do
+        -- Double check.
+        reportSDoc "interaction.give" 20 $ "give: double checking"
+        vfull <- instantiateFull v
+        checkInternal vfull CmpLeq t'
+      return v
 
 -- | After a give, redo termination etc. checks for function which was complemented.
 redoChecks :: Maybe InteractionId -> TCM ()
@@ -202,7 +200,8 @@ give force ii mr e = liftTCM $ do
   reportSDoc "interaction.give" 10 $ "giving expression" TP.<+> prettyTCM e
   reportSDoc "interaction.give" 50 $ TP.text $ show $ deepUnscope e
   -- Try to give mi := e
-  do setMetaOccursCheck mi DontRunMetaOccursCheck -- #589, #2710: Allow giving recursive solutions.
+  _ <- withInteractionId ii $ do
+     setMetaOccursCheck mi DontRunMetaOccursCheck -- #589, #2710: Allow giving recursive solutions.
      giveExpr force (Just ii) mi e
     `catchError` \ case
       -- Turn PatternErr into proper error:
@@ -212,6 +211,32 @@ give force ii mr e = liftTCM $ do
   removeInteractionPoint ii
   return e
 
+-- | Try to fill hole by elaborated expression.
+elaborate_give
+  :: Rewrite        -- ^ Normalise result?
+  -> UseForce       -- ^ Skip safety checks?
+  -> InteractionId  -- ^ Hole.
+  -> Maybe Range
+  -> Expr           -- ^ The expression to give.
+  -> TCM Expr       -- ^ If successful, return the elaborated expression.
+elaborate_give norm force ii mr e = withInteractionId ii $ do
+  -- if Range is given, update the range of the interaction meta
+  mi  <- lookupInteractionId ii
+  whenJust mr $ updateMetaVarRange mi
+  reportSDoc "interaction.give" 10 $ "giving expression" TP.<+> prettyTCM e
+  reportSDoc "interaction.give" 50 $ TP.text $ show $ deepUnscope e
+  -- Try to give mi := e
+  v <- withInteractionId ii $ do
+     setMetaOccursCheck mi DontRunMetaOccursCheck -- #589, #2710: Allow giving recursive solutions.
+     locallyTC eCurrentlyElaborating (const True) $
+       giveExpr force (Just ii) mi e
+    `catchError` \ case
+      -- Turn PatternErr into proper error:
+      PatternErr{} -> typeError . GenericDocError =<< do
+        withInteractionId ii $ "Failed to give" TP.<+> prettyTCM e
+      err -> throwError err
+  nv <- normalForm norm v
+  locallyTC ePrintMetasBare (const True) $ reify nv
 
 -- | Try to refine hole by expression @e@.
 --
@@ -1002,16 +1027,6 @@ typeInMeta ii norm e =
         mi <- getMetaInfo <$> lookupMeta m
         withMetaInfo mi $
             typeInCurrent norm e
-
-withInteractionId :: InteractionId -> TCM a -> TCM a
-withInteractionId i ret = do
-  m <- lookupInteractionId i
-  withMetaId m ret
-
-withMetaId :: MetaId -> TCM a -> TCM a
-withMetaId m ret = do
-  mv <- lookupMeta m
-  withMetaInfo' mv ret
 
 -- | The intro tactic.
 --
