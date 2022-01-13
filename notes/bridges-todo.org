@@ -1,5 +1,5 @@
 * TODOS
-** TODO git issue #2: freshness messed up under lambdas
+** TODO git issue #2: freshness messed up under lambdas -> extent reduction not complete
 ** TODO bridge vars always lock annotated? /!\ see git issue #3
 pre bridges must be lock annoted? eg bridge form, intro. In other words should
 we use lPi' vs nPi' when writing types in internal syntax?
@@ -110,6 +110,29 @@ a bridge variable)
 *** DONE Sort.hs:220:30
 *** DONE Bridges.hs:179
 the case where r is a meta is not implemented I think
+** TODO eager mechanism for extent reduction
+I propose the following alternative mechanism to reduce ~extent ... @r M~:
+1) semi freshness analysis r in M. if it succeeds then ~extent f0 f1 h @r M  ->  h M0 M1 M r~. This counts as simplification. Else goto 2
+2) semi freshness analysis r in ~simpl M~. if yes then ~extent f0 f1 h @r simpl(M)  ->  h M0 M1 simpl(M) r~. counts as simpl. Else goto 3
+3) semi freshness analysis r in ~whnf M~. if yes then ~extent f0 f1 h @r whnf(M)  ->  h M0 M1 whnf(M) r~. does not count as simpl? Else goto 4.
+4) semi freshness analysis r in ~nf M~. if yes then ~extent f0 f1 h @r nf(M)  ->  h M0 M1 nf(M) r~. does not count as simpl? Else goto 5
+5) NoReduction. include the data that has been reduced.
+** TODO important parametricity principles
+*** Equiv vs Bdg princple
+stated as
+#+begin_src agda
+{A B : (@tick x : BI) → Type ℓ} (I0 : A bi0 ≃ B bi0) (I1 : A bi1 ≃ B bi1) →
+
+(H : (a0 : A bi0) (a1 : A bi1) → BridgeP A a0 a1 ≃ BridgeP B (I0 .fst a0) (I1 .fst a1)) ≃
+BridgeP (λ x → A x ≃ B x) I0 I1
+#+end_src
+**** current possible obstructions
+***** we might need comp/bdg computational behaviour that is not currently implemented
+***** Issue #2 (freshness messed up under lambdas) causes our computational behaviour to be incomplete. This might be problematic to achieve the proof
+***** or the tc is not smart enoough to know that cst path + given path = given path
+and we somehow have to explain that
+*** relativity (bdg vs universe): A bridge btw types is a relation
+relies on equiv vs bdg princple
 ** --------------
 ** TODO there are TODO-antva's lying around. + comment in Bridges.hs
 ** TODO semifreshness by freshness?
