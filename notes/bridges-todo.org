@@ -127,12 +127,27 @@ stated as
 BridgeP (λ x → A x ≃ B x) I0 I1
 #+end_src
 **** current possible obstructions
-***** we might need comp/bdg computational behaviour that is not currently implemented
-***** Issue #2 (freshness messed up under lambdas) causes our computational behaviour to be incomplete. This might be problematic to achieve the proof
-***** or the tc is not smart enoough to know that cst path + given path = given path
+***** we might need comp/bdg computational behaviour that is not currently implemented -> FALSE
+***** Issue #2 (freshness messed up under lambdas) causes our computational behaviour to be incomplete. This might be problematic to achieve the proof -> FALSE
+***** DONE or the tc is not smart enoough to know that cst path + given path = given path -> TRUE, solved
 and we somehow have to explain that
+***** DONE locked x is unfresh in extent-casing proof, solved
+A lock constraint is unsolved ; in order to apply an affine function g : @tick r -> ...
+to a bridge variable x, the corresponding affinity constraint should hold:
+the free vars of g must be strictly earlier than x (left to x in context on paper)
+or in other words, no x-laters (this include x for me) can appear in g freely.
+
+Currently I don't see the reason why this constraint is not satisfied.
+The bad x-later variables accounted in g happen to be flexible, meaning that they come
+from some meta (I don't know which currently).
+
+solution: meta was not useful, was coming from a typo (unspecified universe level)
+conlusion: sometimes when freshness fails it is because of flexible laters, and you can
+just specify more info in the agda file to get rid of those flexible laters
 *** relativity (bdg vs universe): A bridge btw types is a relation
 relies on equiv vs bdg princple
+** freeVarsIgnore ~IgnoreInAnnotations~ instead of ~IgnoreNot~
+might be sound and improve performance
 ** --------------
 ** TODO there are TODO-antva's lying around. + comment in Bridges.hs
 ** TODO semifreshness by freshness?

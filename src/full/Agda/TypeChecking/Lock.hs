@@ -52,7 +52,7 @@ checkLockedVars
      -- ^ type of the lock
   -> TCM ()
 checkLockedVars t ty lk lk_ty = catchConstraint (CheckLockedVars t ty lk lk_ty) $ do
-  reportSDoc "tc.term.lock" 40 $ "Checking locked vars.."
+  reportSDoc "tc.term.lock" 40 $ "Checking locked vars.." <+> "lk    = " <+> (pretty lk) <+> " : " <+> (pretty lk_ty)
   reportSDoc "tc.term.lock" 50 $ nest 2 $ vcat
      [ text "t     = " <+> pretty t
      , text "ty    = " <+> pretty ty
@@ -66,6 +66,10 @@ checkLockedVars t ty lk lk_ty = catchConstraint (CheckLockedVars t ty lk lk_ty) 
 
   cxt <- getContext
   let toCheck = zip [0..] $ zipWith raise [1..] (take i cxt)
+  reportSDoc "tc.term.lock" 70 $ vcat
+     [ text "toCheck list is: "
+     , nest 2 $ pretty toCheck
+     ]
 
   let fv = freeVarsIgnore IgnoreInAnnotations (t,ty)
   let
@@ -73,7 +77,16 @@ checkLockedVars t ty lk lk_ty = catchConstraint (CheckLockedVars t ty lk lk_ty) 
     -- flexible = IMap.keysSet $ flexibleVars fv
     termVars = allVars fv -- ISet.union rigid flexible
     earlierVars = ISet.fromList [i+1 .. size cxt - 1]
-  if termVars `ISet.isSubsetOf` earlierVars then return () else do
+  reportSDoc "tc.term.lock" 50 $ vcat
+     [ text "Displaying first fv analysis... holds iff termVars in earlierVars"
+     , nest 2 $ text "rigid = " <+> pretty rigid
+     , nest 2 $ text "termVars = " <+> pretty termVars
+     , nest 2 $ text "earlierVars = " <+> pretty earlierVars
+     ]
+  if termVars `ISet.isSubsetOf` earlierVars then do
+    reportSDoc "tc.term.lock" 40 $ "Above lk is for sure fresh in term"
+    return ()
+  else do
 
   checked <- fmap catMaybes . forM toCheck $ \ (j,dom) -> do
     ifM (isTimeless (snd . unDom $ dom))
