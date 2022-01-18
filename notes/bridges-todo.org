@@ -110,7 +110,8 @@ a bridge variable)
 *** DONE Sort.hs:220:30
 *** DONE Bridges.hs:179
 the case where r is a meta is not implemented I think
-** TODO eager mechanism for extent reduction
+** TODO lazy mechanism for extent reduction
+cxt \r, r |- M
 I propose the following alternative mechanism to reduce ~extent ... @r M~:
 1) semi freshness analysis r in M. if it succeeds then ~extent f0 f1 h @r M  ->  h M0 M1 M r~. This counts as simplification. Else goto 2
 2) semi freshness analysis r in ~simpl M~. if yes then ~extent f0 f1 h @r simpl(M)  ->  h M0 M1 simpl(M) r~. counts as simpl. Else goto 3
