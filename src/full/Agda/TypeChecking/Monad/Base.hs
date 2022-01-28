@@ -204,6 +204,9 @@ data PreScopeState = PreScopeState
     --   files (or @Nothing@ if there are none).
   , stPreAgdaLibFiles   :: !(Map FilePath AgdaLibFile)
     -- ^ Contents of .agda-lib files that have already been parsed.
+  , stPreModuleNameHashes :: !(Map ModuleNameHash C.QName)
+    -- ^ Module name hashes that have been used so far. Used to detect
+    -- hash collisions.
   }
   deriving Generic
 
@@ -383,6 +386,9 @@ initPreScopeState = PreScopeState
   , stPreImportedPartialDefs  = Set.empty
   , stPreProjectConfigs       = Map.empty
   , stPreAgdaLibFiles         = Map.empty
+  , stPreModuleNameHashes     = Map.singleton noModuleNameHash (C.QName C.noName_)
+    -- We should get a hash collision if the hash of any actual module
+    -- name is noModuleNameHash.
   }
 
 initPostScopeState :: PostScopeState
@@ -551,6 +557,11 @@ stAgdaLibFiles :: Lens' (Map FilePath AgdaLibFile) TCState
 stAgdaLibFiles f s =
   f (stPreAgdaLibFiles (stPreScopeState s)) <&>
   \ x -> s {stPreScopeState = (stPreScopeState s) {stPreAgdaLibFiles = x}}
+
+stModuleNameHashes :: Lens' (Map ModuleNameHash C.QName) TCState
+stModuleNameHashes f s =
+  f (stPreModuleNameHashes (stPreScopeState s)) <&>
+  \ x -> s {stPreScopeState = (stPreScopeState s) {stPreModuleNameHashes = x}}
 
 stFreshNameId :: Lens' NameId TCState
 stFreshNameId f s =
@@ -1002,6 +1013,11 @@ instance Pretty Interface where
 iFullHash :: Interface -> Hash
 iFullHash i = combineHashes $ iSourceHash i : List.map snd (iImportedModules i)
 
+-- | A lens for the 'iSignature' field of the 'Interface' type.
+
+intSignature :: Lens' Signature Interface
+intSignature f i = f (iSignature i) <&> \s -> i { iSignature = s }
+
 ---------------------------------------------------------------------------
 -- ** Closure
 ---------------------------------------------------------------------------
@@ -1280,7 +1296,10 @@ data MetaVariable =
                 , mvInstantiation :: MetaInstantiation
                 , mvListeners     :: Set Listener -- ^ meta variables scheduled for eta-expansion but blocked by this one
                 , mvFrozen        :: Frozen -- ^ are we past the point where we can instantiate this meta variable?
-                , mvTwin          :: Maybe MetaId -- ^ @Just m@ means this meta will be equated to @m@ when the latter is unblocked. See @blockedTermOnProblem@.
+                , mvTwin          :: Maybe MetaId
+                  -- ^ @Just m@ means that this meta-variable will be
+                  -- equated to @m@ when the latter is unblocked. See
+                  -- 'Agda.TypeChecking.MetaVars.blockTermOnProblem'.
                 }
   deriving Generic
 

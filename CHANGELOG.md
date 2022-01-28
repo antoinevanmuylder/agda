@@ -64,6 +64,27 @@ Language
     pickWhatever _ = typeError (strErr "Already solved!" ∷ [])
   ```
 
+* The reflection primitives `getContext` and `inContext` use a nominal context
+  `List (Σ String λ _ → Arg Type)` instead of  `List (Arg Type)` for printing
+  type information better. Similarly, `extendContext` takes an extra argument
+  of type `String`.
+
+* `macro` definitions can now be used even when they are declared as erased.
+  For example, this is now accepted:
+  ```agda
+  macro
+    @0 trivial : Term → TC ⊤
+    trivial = unify (con (quote refl) [])
+
+  test : 42 ≡ 42
+  test = trivial
+  ```
+
+* A new reflection primitive `formatErrorParts : List ErrorPart → TC String`
+  is added. It takes a list of `ErrorPart` and return its formatted string.
+
+* A new constructor `pattErr : Pattern → ErrorPart` of `ErrorPart` for reflection
+  is added.
 
 Syntax
 ------

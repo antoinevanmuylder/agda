@@ -9,9 +9,10 @@ import Control.Monad.Writer (tell)
 
 import Data.Either (partitionEithers)
 import qualified Data.Foldable as Fold
+import qualified Data.IntMap as IntMap
+import qualified Data.IntSet as IntSet
 import Data.Maybe
 import qualified Data.Set as Set
-import qualified Data.IntSet as IntSet
 import Data.Set (Set)
 
 import Agda.Interaction.Highlighting.Generate
@@ -213,7 +214,7 @@ checkDecl d = setCurrentRange d $ do
             A.Generalize{} -> pure ()
             _ -> do
               reportSLn "tc.decl" 20 $ "Freezing all metas."
-              void $ freezeMetas' $ \ (MetaId x) -> IntSet.member x metas
+              void $ freezeMetas metas
 
         theMutualChecks
 
@@ -335,7 +336,8 @@ unquoteTop xs e = do
   lzero <- primLevelZero
   let vArg = defaultArg
       hArg = setHiding Hidden . vArg
-  m    <- checkExpr e $ El (mkType 0) $ apply tcm [hArg lzero, vArg unit]
+  m    <- applyQuantityToContext zeroQuantity $
+            checkExpr e $ El (mkType 0) $ apply tcm [hArg lzero, vArg unit]
   res  <- runUnquoteM $ tell xs >> evalTCM m
   case res of
     Left err      -> typeError $ UnquoteFailed err
@@ -522,10 +524,10 @@ whenAbstractFreezeMetasAfter Info.DefInfo{ defAccess, defAbstract} m = do
     (a, ms) <- metasCreatedBy m
     reportSLn "tc.decl" 20 $ "Attempting to solve constraints before freezing."
     wakeupConstraints_   -- solve emptiness and instance constraints
-    xs <- freezeMetas' $ (`IntSet.member` ms) . metaId
+    xs <- freezeMetas ms
     reportSDoc "tc.decl.ax" 20 $ vcat
-      [ "Abstract type signature produced new metas: " <+> sep (map prettyTCM $ IntSet.toList ms)
-      , "We froze the following ones of these:       " <+> sep (map prettyTCM xs)
+      [ "Abstract type signature produced new metas: " <+> sep (map prettyTCM $ IntMap.keys ms)
+      , "We froze the following ones of these:       " <+> sep (map prettyTCM $ IntSet.toList xs)
       ]
     return a
 

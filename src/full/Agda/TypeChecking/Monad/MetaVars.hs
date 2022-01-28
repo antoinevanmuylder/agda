@@ -4,6 +4,7 @@ module Agda.TypeChecking.Monad.MetaVars where
 
 import Prelude hiding (null)
 
+import Control.DeepSeq
 import Control.Monad.Except
 import Control.Monad.State
 import Control.Monad.Trans.Identity ( IdentityT )
@@ -127,12 +128,17 @@ modifyMetaStore :: (MetaStore -> MetaStore) -> TCM ()
 modifyMetaStore f = stMetaStore `modifyTCLens` f
 
 -- | Run a computation and record which new metas it created.
-metasCreatedBy :: ReadTCState m => m a -> m (a, IntSet)
+metasCreatedBy :: ReadTCState m => m a -> m (a, MetaStore)
 metasCreatedBy m = do
-  before <- IntMap.keysSet <$> useTC stMetaStore
-  a <- m
-  after  <- IntMap.keysSet <$> useTC stMetaStore
-  return (a, after IntSet.\\ before)
+  -- Compute largestMeta strictly to avoid leaking memory.
+  !largestMeta <- force . fmap fst . IntMap.lookupMax <$>
+                    useTC stMetaStore
+  a            <- m
+  ms           <- useTC stMetaStore
+  let createdMetas = case largestMeta of
+        Nothing          -> ms
+        Just largestMeta -> snd $ IntMap.split largestMeta ms
+  return (a, createdMetas)
 
 -- | Lookup a meta variable.
 lookupMeta' :: ReadTCState m => MetaId -> m (Maybe MetaVariable)
@@ -544,22 +550,10 @@ withMetaId m ret = do
   mv <- lookupMeta m
   withMetaInfo' mv ret
 
-getMetaVariableSet :: ReadTCState m => m IntSet
-getMetaVariableSet = IntMap.keysSet <$> getMetaStore
-
 getMetaVariables :: ReadTCState m => (MetaVariable -> Bool) -> m [MetaId]
 getMetaVariables p = do
   store <- getMetaStore
   return [ MetaId i | (i, mv) <- IntMap.assocs store, p mv ]
-
-getInstantiatedMetas :: ReadTCState m => m [MetaId]
-getInstantiatedMetas = getMetaVariables (isInst . mvInstantiation)
-  where
-    isInst Open                           = False
-    isInst OpenInstance                   = False
-    isInst BlockedConst{}                 = False
-    isInst PostponedTypeCheckingProblem{} = False
-    isInst InstV{}                        = True
 
 getOpenMetas :: ReadTCState m => m [MetaId]
 getOpenMetas = getMetaVariables (isOpenMeta . mvInstantiation)
@@ -594,41 +588,31 @@ clearMetaListeners m =
 -- * Freezing and unfreezing metas.
 ---------------------------------------------------------------------------
 
--- | Freeze all so far unfrozen metas for the duration of the given computation.
-withFreezeMetas :: TCM a -> TCM a
-withFreezeMetas cont = do
-  ms <- Set.fromList <$> freezeMetas
-  x  <- cont
-  unfreezeMetas' (`Set.member` ms)
-  return x
-
--- | Freeze all meta variables and return the list of metas that got frozen.
-freezeMetas :: TCM [MetaId]
-freezeMetas = freezeMetas' $ const True
-
--- | Freeze some meta variables and return the list of metas that got frozen.
-freezeMetas' :: (MetaId -> Bool) -> TCM [MetaId]
-freezeMetas' p = execWriterT $ modifyTCLensM stMetaStore $ IntMap.traverseWithKey (freeze . MetaId)
+-- | Freeze the given meta-variables and return those that were not
+--   already frozen.
+freezeMetas :: MetaStore -> TCM IntSet
+freezeMetas ms =
+  execWriterT $
+  modifyTCLensM stMetaStore $
+  execStateT (mapM_ freeze $ IntMap.keys ms)
   where
-  freeze :: Monad m => MetaId -> MetaVariable -> WriterT [MetaId] m MetaVariable
-  freeze m mvar
-    | p m && mvFrozen mvar /= Frozen = do
-        tell [m]
-        return $ mvar { mvFrozen = Frozen }
-    | otherwise = return mvar
+  freeze :: Monad m => Int -> StateT MetaStore (WriterT IntSet m) ()
+  freeze m = do
+    store <- get
+    case IntMap.lookup m store of
+      Just mvar
+        | mvFrozen mvar /= Frozen -> do
+          lift $ tell (IntSet.singleton m)
+          put $ IntMap.insert m (mvar { mvFrozen = Frozen }) store
+        | otherwise -> return ()
+      Nothing -> __IMPOSSIBLE__
 
 -- | Thaw all meta variables.
 unfreezeMetas :: TCM ()
-unfreezeMetas = unfreezeMetas' $ const True
-
--- | Thaw some metas, as indicated by the passed condition.
-unfreezeMetas' :: (MetaId -> Bool) -> TCM ()
-unfreezeMetas' cond = modifyMetaStore $ IntMap.mapWithKey $ unfreeze . MetaId
+unfreezeMetas = modifyMetaStore $ IntMap.map unfreeze
   where
-  unfreeze :: MetaId -> MetaVariable -> MetaVariable
-  unfreeze m mvar
-    | cond m    = mvar { mvFrozen = Instantiable }
-    | otherwise = mvar
+  unfreeze :: MetaVariable -> MetaVariable
+  unfreeze mvar = mvar { mvFrozen = Instantiable }
 
 isFrozen :: (MonadFail m, ReadTCState m) => MetaId -> m Bool
 isFrozen x = do

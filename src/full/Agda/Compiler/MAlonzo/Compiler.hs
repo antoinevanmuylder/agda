@@ -24,7 +24,9 @@ import GHC.Generics (Generic)
 import qualified Agda.Utils.Haskell.Syntax as HS
 
 import System.Directory (createDirectoryIfMissing)
+import System.Environment (setEnv)
 import System.FilePath hiding (normalise)
+import System.IO (utf8)
 
 import Agda.Compiler.CallCompiler
 import Agda.Compiler.Common
@@ -269,6 +271,7 @@ ghcPreCompile flags = do
       , builtinAgdaTCMIsMacro
       , builtinAgdaTCMWithNormalisation
       , builtinAgdaTCMWithReconsParams
+      , builtinAgdaTCMFormatErrorParts
       , builtinAgdaTCMDebugPrint
       , builtinAgdaTCMOnlyReduceDefs
       , builtinAgdaTCMDontReduceDefs
@@ -1290,8 +1293,10 @@ callGHC = do
 
   let ghcBin = optGhcBin opts
 
+  -- Make GHC use UTF-8 when writing to stdout and stderr.
+  liftIO $ setEnv "GHC_CHARENC" "UTF-8"
   -- Note: Some versions of GHC use stderr for progress reports. For
   -- those versions of GHC we don't print any progress information
   -- unless an error is encountered.
   let doCall = optGhcCallGhc opts
-  liftTCM $ callCompiler doCall ghcBin args
+  liftTCM $ callCompiler doCall ghcBin args (Just utf8)

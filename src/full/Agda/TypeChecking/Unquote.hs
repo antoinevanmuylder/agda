@@ -1,7 +1,7 @@
 
 module Agda.TypeChecking.Unquote where
 
-import Control.Arrow (first, second)
+import Control.Arrow (first, second, (&&&))
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
@@ -35,6 +35,7 @@ import Agda.Interaction.Options ( optTrustedExecutables, optAllowExec )
 import Agda.TypeChecking.Constraints
 import Agda.TypeChecking.Monad
 import Agda.TypeChecking.Free
+import Agda.TypeChecking.Irrelevance ( workOnTypes )
 import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Substitute
@@ -279,11 +280,12 @@ unquoteString x = T.unpack <$> unquote x
 unquoteNString :: Arg Term -> UnquoteM Text
 unquoteNString = unquoteN
 
-data ErrorPart = StrPart String | TermPart A.Expr | NamePart QName
+data ErrorPart = StrPart String | TermPart A.Expr | PattPart A.Pattern | NamePart QName
 
 instance PrettyTCM ErrorPart where
-  prettyTCM (StrPart s) = text s
+  prettyTCM (StrPart s)  = text s
   prettyTCM (TermPart t) = prettyTCM t
+  prettyTCM (PattPart p) = prettyTCM p
   prettyTCM (NamePart x) = prettyTCM x
 
 -- | We do a little bit of work here to make it possible to generate nice
@@ -299,6 +301,7 @@ prettyErrorParts = vcat . map (hcat . map prettyTCM) . splitLines
         (s0, "")        -> consLine (StrPart s0) (splitLines ss)
         _               -> __IMPOSSIBLE__
     splitLines (p@TermPart{} : ss) = consLine p (splitLines ss)
+    splitLines (p@PattPart{} : ss) = consLine p (splitLines ss)
     splitLines (p@NamePart{} : ss) = consLine p (splitLines ss)
 
     consLine l []        = [[l]]
@@ -312,6 +315,7 @@ instance Unquote ErrorPart where
       Con c _ es | Just [x] <- allApplyElims es ->
         choice [ (c `isCon` primAgdaErrorPartString, StrPart . T.unpack <$> unquoteNString x)
                , (c `isCon` primAgdaErrorPartTerm,   TermPart <$> ((liftTCM . toAbstractWithoutImplicit) =<< (unquoteN x :: UnquoteM R.Term)))
+               , (c `isCon` primAgdaErrorPartPatt,   PattPart <$> ((liftTCM . toAbstractWithoutImplicit) =<< (unquoteN x :: UnquoteM R.Pattern)))
                , (c `isCon` primAgdaErrorPartName,   NamePart <$> unquoteN x) ]
                __IMPOSSIBLE__
       _ -> throwError $ NonCanonical "error part" t
@@ -556,6 +560,7 @@ evalTCM v = do
              , (f `isDef` primAgdaTCMReduce,                     tcFun1 tcReduce                     u)
              , (f `isDef` primAgdaTCMGetType,                    tcFun1 tcGetType                    u)
              , (f `isDef` primAgdaTCMGetDefinition,              tcFun1 tcGetDefinition              u)
+             , (f `isDef` primAgdaTCMFormatErrorParts,           tcFun1 tcFormatErrorParts           u)
              , (f `isDef` primAgdaTCMIsMacro,                    tcFun1 tcIsMacro                    u)
              , (f `isDef` primAgdaTCMFreshName,                  tcFun1 tcFreshName                  u)
              , (f `isDef` primAgdaTCMGetInstances,               uqFun1 tcGetInstances               u)
@@ -571,25 +576,28 @@ evalTCM v = do
              ]
              failEval
     I.Def f [l, a, u] ->
-      choice [ (f `isDef` primAgdaTCMReturn,      return (unElim u))
-             , (f `isDef` primAgdaTCMTypeError,   tcFun1 tcTypeError   u)
-             , (f `isDef` primAgdaTCMQuoteTerm,   tcQuoteTerm (unElim u))
-             , (f `isDef` primAgdaTCMUnquoteTerm, tcFun1 (tcUnquoteTerm (mkT (unElim l) (unElim a))) u)
-             , (f `isDef` primAgdaTCMBlockOnMeta, uqFun1 tcBlockOnMeta u)
-             , (f `isDef` primAgdaTCMDebugPrint,  tcFun3 tcDebugPrint l a u)
-             , (f `isDef` primAgdaTCMNoConstraints, tcNoConstraints (unElim u))
-             , (f `isDef` primAgdaTCMWithReconsParams, tcWithReconsParams (unElim u))
-             , (f `isDef` primAgdaTCMRunSpeculative, tcRunSpeculative (unElim u))
+      choice [ (f `isDef` primAgdaTCMReturn,             return (unElim u))
+             , (f `isDef` primAgdaTCMTypeError,          tcFun1 tcTypeError   u)
+             , (f `isDef` primAgdaTCMQuoteTerm,          tcQuoteTerm (unElim u))
+             , (f `isDef` primAgdaTCMUnquoteTerm,        tcFun1 (tcUnquoteTerm (mkT (unElim l) (unElim a))) u)
+             , (f `isDef` primAgdaTCMBlockOnMeta,        uqFun1 tcBlockOnMeta u)
+             , (f `isDef` primAgdaTCMDebugPrint,         tcFun3 tcDebugPrint l a u)
+             , (f `isDef` primAgdaTCMNoConstraints,      tcNoConstraints (unElim u))
+             , (f `isDef` primAgdaTCMWithReconsParams,   tcWithReconsParams (unElim u))
+             , (f `isDef` primAgdaTCMRunSpeculative,     tcRunSpeculative (unElim u))
              , (f `isDef` primAgdaTCMExec, tcFun3 tcExec l a u)
              ]
              failEval
     I.Def f [_, _, u, v] ->
       choice [ (f `isDef` primAgdaTCMCatchError,    tcCatchError    (unElim u) (unElim v))
              , (f `isDef` primAgdaTCMWithNormalisation, tcWithNormalisation (unElim u) (unElim v))
-             , (f `isDef` primAgdaTCMExtendContext, tcExtendContext (unElim u) (unElim v))
              , (f `isDef` primAgdaTCMInContext,     tcInContext     (unElim u) (unElim v))
              , (f `isDef` primAgdaTCMOnlyReduceDefs, tcOnlyReduceDefs (unElim u) (unElim v))
              , (f `isDef` primAgdaTCMDontReduceDefs, tcDontReduceDefs (unElim u) (unElim v))
+             ]
+             failEval
+    I.Def f [_, _, u, v, w] ->
+      choice [ (f `isDef` primAgdaTCMExtendContext, tcExtendContext (unElim u) (unElim v) (unElim w))
              ]
              failEval
     I.Def f [_, _, _, _, m, k] ->
@@ -686,6 +694,9 @@ evalTCM v = do
       modify (second $ const s)
       liftTCM primUnitUnit
 
+    tcFormatErrorParts :: [ErrorPart] -> TCM Term
+    tcFormatErrorParts msg = quoteString . prettyShow <$> prettyErrorParts msg
+
     tcTypeError :: [ErrorPart] -> TCM a
     tcTypeError err = typeError . GenericDocError =<< prettyErrorParts err
 
@@ -713,7 +724,7 @@ evalTCM v = do
     tcCheckType :: R.Term -> R.Type -> TCM Term
     tcCheckType v a = do
       r <- isReconstructed
-      a <- locallyReduceAllDefs $ isType_ =<< toAbstract_ a
+      a <- workOnTypes $ locallyReduceAllDefs $ isType_ =<< toAbstract_ a
       e <- toAbstract_ v
       v <- checkExpr e a
       if r then do
@@ -760,32 +771,36 @@ evalTCM v = do
     tcGetContext :: UnquoteM Term
     tcGetContext = liftTCM $ do
       r <- isReconstructed
-      as <- map (fmap snd) <$> getContext
+      as <- map (nameToArgName . fst . unDom &&& fmap snd) <$> getContext
       as <- etaContract =<< process as
       if r then do
-         as <- recons (reverse as)
-         let as' = reverse as
-         locallyReconstructed $ buildList <*> mapM quoteDom as'
+        as <- recons (reverse as)
+        let as' = reverse as
+        locallyReconstructed $ buildList <*> mapM quoteDomWithName as'
       else
-         buildList <*> mapM quoteDom as
+        buildList <*> mapM quoteDomWithName as
       where
-         recons :: [Dom Type] -> TCM [Dom Type]
-         recons [] = return []
-         recons (d@Dom {unDom=t} : ds) = do
-           t <- locallyReduceAllDefs $ reconstructParametersInType t
-           let d' = d{unDom=t}
-           ds' <- addContext d' $ recons ds
-           return $ d' : ds'
+        recons :: [(ArgName, Dom Type)] -> TCM [(ArgName, Dom Type)]
+        recons []                        = return []
+        recons ((s, d@Dom {unDom=t}):ds) = do
+          t <- locallyReduceAllDefs $ reconstructParametersInType t
+          let d' = d{unDom=t}
+          ds' <- addContext (s, d') $ recons ds
+          return $ (s, d'):ds'
 
-    extendCxt :: Arg R.Type -> UnquoteM a -> UnquoteM a
-    extendCxt a m = do
-      a <- locallyReduceAllDefs $ liftTCM $ traverse (isType_ <=< toAbstract_) a
-      liftU1 (addContext ("x" :: String, domFromArg a :: Dom Type)) m
+        quoteDomWithName :: (ArgName, Dom Type) -> TCM Term
+        quoteDomWithName (x, t) = toTerm <*> pure (T.pack x, t)
 
-    tcExtendContext :: Term -> Term -> UnquoteM Term
-    tcExtendContext a m = do
+    extendCxt :: Text -> Arg R.Type -> UnquoteM a -> UnquoteM a
+    extendCxt s a m = do
+      a <- workOnTypes $ locallyReduceAllDefs $ liftTCM $ traverse (isType_ <=< toAbstract_) a
+      liftU1 (addContext (s, domFromArg a :: Dom Type)) m
+
+    tcExtendContext :: Term -> Term -> Term -> UnquoteM Term
+    tcExtendContext s a m = do
+      s <- unquote s
       a <- unquote a
-      fmap (strengthen impossible) $ extendCxt a $ do
+      fmap (strengthen impossible) $ extendCxt s a $ do
         v <- evalTCM $ raise 1 m
         when (freeIn 0 v) $ liftTCM $ genericDocError =<<
           hcat ["Local variable '", prettyTCM (var 0), "' escaping in result of extendContext:"]
@@ -797,9 +812,9 @@ evalTCM v = do
       c <- unquote c
       liftU1 unsafeInTopContext $ go c (evalTCM m)
       where
-        go :: [Arg R.Type] -> UnquoteM Term -> UnquoteM Term
-        go []       m = m
-        go (a : as) m = go as (extendCxt a m)
+        go :: [(Text , Arg R.Type)] -> UnquoteM Term -> UnquoteM Term
+        go []             m = m
+        go ((s , a) : as) m = go as (extendCxt s a m)
 
     constInfo :: QName -> TCM Definition
     constInfo x = either err return =<< getConstInfo' x
