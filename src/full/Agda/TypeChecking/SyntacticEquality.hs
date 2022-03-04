@@ -7,42 +7,90 @@
 --   by a more efficient routine which only traverses and instantiates the terms
 --   as long as they are equal.
 
-module Agda.TypeChecking.SyntacticEquality (SynEq, checkSyntacticEquality) where
+module Agda.TypeChecking.SyntacticEquality
+  ( SynEq
+  , checkSyntacticEquality
+  , syntacticEqualityFuelRemains
+  )
+  where
 
-import Control.Arrow ((***))
-import Control.Monad.State
+import Control.Arrow            ( (***) )
+import Control.Monad            ( zipWithM )
+import Control.Monad.State      ( MonadState(..), StateT, runStateT )
+import Control.Monad.Trans      ( lift )
 
-import Agda.Interaction.Options (optSyntacticEquality)
+import Agda.Interaction.Options ( optSyntacticEquality )
 
 import Agda.Syntax.Common
 import Agda.Syntax.Internal
 
-import Agda.TypeChecking.Monad (ReduceM, MonadReduce(..), pragmaOptions, isInstantiatedMeta)
+import Agda.TypeChecking.Monad
+  (ReduceM, MonadReduce(..), TCEnv(..), MonadTCEnv(..), pragmaOptions,
+   isInstantiatedMeta)
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Substitute
 
-import Agda.Utils.Monad (ifM)
+import qualified Agda.Utils.Maybe.Strict as Strict
+import Agda.Utils.Monad (ifM, and2M)
 
-
--- | Syntactic equality check for terms.
+-- | Syntactic equality check for terms. If syntactic equality
+-- checking has fuel left, then 'checkSyntacticEquality' behaves as if
+-- it were implemented in the following way (which does not match the
+-- given type signature), only that @v@ and @v'@ are only fully
+-- instantiated to the depth where they are equal (and the amount of
+-- fuel is reduced by one unit in the failure branch):
 --   @
---      checkSyntacticEquality v v' = do
+--      checkSyntacticEquality v v' s f = do
 --        (v, v') <- instantiateFull (v, v')
---         return ((v, v'), v==v')
+--        if v == v' then s v v' else f v v'
 --   @
---   only that @v, v'@ are only fully instantiated to the depth
---   where they are equal.
+-- If syntactic equality checking does not have fuel left, then
+-- 'checkSyntacticEquality' instantiates the two terms and takes the
+-- failure branch.
 --
---   This means in particular that the returned @v,v'@ cannot be @MetaV@s
---   that are instantiated.
+-- Note that in either case the returned values @v@ and @v'@ cannot be
+-- @MetaV@s that are instantiated.
 
-{-# SPECIALIZE checkSyntacticEquality :: Term -> Term -> ReduceM ((Term, Term), Bool) #-}
-{-# SPECIALIZE checkSyntacticEquality :: Type -> Type -> ReduceM ((Type, Type), Bool) #-}
-checkSyntacticEquality :: (Instantiate a, SynEq a, MonadReduce m) => a -> a -> m ((a, a), Bool)
-checkSyntacticEquality v v' = liftReduce $ do
-  ifM (optSyntacticEquality <$> pragmaOptions)
-  {-then-} (synEq v v' `runStateT` True)
-  {-else-} ((,False) <$> instantiate (v,v'))
+{-# SPECIALIZE checkSyntacticEquality ::
+      Term -> Term ->
+      (Term -> Term -> ReduceM a) ->
+      (Term -> Term -> ReduceM a) ->
+      ReduceM a #-}
+{-# SPECIALIZE checkSyntacticEquality ::
+      Type -> Type ->
+      (Type -> Type -> ReduceM a) ->
+      (Type -> Type -> ReduceM a) ->
+      ReduceM a #-}
+checkSyntacticEquality
+  :: (Instantiate a, SynEq a, MonadReduce m)
+  => a
+  -> a
+  -> (a -> a -> m b)  -- ^ Continuation used upon success.
+  -> (a -> a -> m b)  -- ^ Continuation used upon failure, or if
+                      --   syntactic equality checking has been turned
+                      --   off.
+  -> m b
+checkSyntacticEquality v v' s f =
+  ifM syntacticEqualityFuelRemains
+  {-then-} (do ((v, v'), equal) <-
+                 liftReduce $ synEq v v' `runStateT` True
+               if equal then s v v' else localTC decreaseFuel (f v v'))
+  {-else-} (uncurry f =<< instantiate (v,v'))
+  where
+  decreaseFuel env =
+    case envSyntacticEqualityFuel env of
+      Strict.Nothing -> env
+      Strict.Just n  ->
+        env { envSyntacticEqualityFuel = Strict.Just (pred n) }
+
+-- | Does the syntactic equality check have any remaining fuel?
+
+syntacticEqualityFuelRemains :: MonadReduce m => m Bool
+syntacticEqualityFuelRemains = do
+  fuel <- envSyntacticEqualityFuel <$> askTC
+  return $ case fuel of
+    Strict.Nothing -> True
+    Strict.Just n  -> n > 0
 
 -- | Monad for checking syntactic equality
 type SynEqM = StateT Bool ReduceM

@@ -5,7 +5,7 @@ module Agda.TypeChecking.Monad.State where
 
 import qualified Control.Exception as E
 
-import Control.Monad.State (void)
+import Control.Monad       (void)
 import Control.Monad.Trans (MonadIO, liftIO)
 
 import Data.Maybe
@@ -342,6 +342,10 @@ setTopLevelModule x = do
           prettyShow m ++ " (you may want to consider renaming one " ++
           "of these modules)"
   stFreshNameId `setTCLens` NameId 0 hash
+  stFreshMetaId `setTCLens`
+    MetaId { metaId     = 0
+           , metaModule = hash
+           }
   where
   name = prettyShow x
   hash = ModuleNameHash (hashString name)
@@ -350,10 +354,12 @@ setTopLevelModule x = do
 --   names for imported modules.
 withTopLevelModule :: C.QName -> TCM a -> TCM a
 withTopLevelModule x m = do
-  next <- useTC stFreshNameId
+  nextN <- useTC stFreshNameId
+  nextM <- useTC stFreshMetaId
   setTopLevelModule x
   y <- m
-  stFreshNameId `setTCLens` next
+  stFreshMetaId `setTCLens` nextM
+  stFreshNameId `setTCLens` nextN
   return y
 
 currentModuleNameHash :: ReadTCState m => m ModuleNameHash

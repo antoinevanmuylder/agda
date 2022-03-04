@@ -3,10 +3,11 @@
 
 module Agda.TypeChecking.Serialise.Instances.Common (SerialisedRange(..)) where
 
-import Control.Monad.Except
-import Control.Monad.Reader
-import Control.Monad.State.Strict (gets, modify)
-
+import Control.Monad              ( (<=<) )
+import Control.Monad.IO.Class     ( MonadIO(..) )
+import Control.Monad.Except       ( MonadError(..) )
+import Control.Monad.Reader       ( MonadReader(..), asks )
+import Control.Monad.State.Strict ( gets, modify )
 
 import Data.Array.IArray
 import Data.Word
@@ -404,8 +405,9 @@ instance EmbPrj NotationPart where
     valu _         = malformed
 
 instance EmbPrj MetaId where
-  icod_ (MetaId n) = icod_ n
-  value i = MetaId <$> value i
+  icod_ (MetaId a b) = icode (a, b)
+
+  value m = uncurry MetaId <$> value m
 
 instance EmbPrj A.QName where
   icod_ n@(A.QName a b) = icodeMemo qnameD qnameC (qnameId n) $ icodeN' A.QName a b

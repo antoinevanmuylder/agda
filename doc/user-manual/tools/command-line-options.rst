@@ -233,6 +233,34 @@ Printing and debugging
 
      Set verbosity level to ``N``.
 
+.. option:: --profile={PROF}
+
+    Turn on profiling option ``PROF``. Available options are
+
+    .. list-table::
+
+       * - ``internal``
+         - Measure time taken by various parts of the system (type checking, serialization, etc)
+       * - ``modules``
+         - Measure time spent on individual (Agda) modules
+       * - ``definitions``
+         - Measure time spent on individual (Agda) definitions
+       * - ``sharing``
+         - Measure things related to sharing
+       * - ``serialize``
+         - Collect detailed statistics about serialization
+       * - ``constraints``
+         - Collect statistics about constraint solving
+       * - ``metas``
+         - Count number of created metavariables
+       * - ``interactive``
+         - Measure time of interactive commands
+
+    Only one of ``internal``, ``modules``, and ``definitions`` can be turned on
+    at a time. You can also give ``--profile=all`` to turn on all profiling
+    options (choosing ``internal`` over ``modules`` and ``definitions``, use
+    ``--profile=modules --profile=all`` to pick ``modules`` instead).
+
 Copatterns and projections
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -448,6 +476,21 @@ Other features
      Disable the syntactic equality shortcut in the conversion
      checker.
 
+.. option:: --syntactic-equality={N}
+
+     .. versionadded:: 2.6.3
+
+     Give the syntactic equality shortcut ``N`` units of fuel (``N``
+     must be a natural number).
+
+     If ``N`` is omitted, then the syntactic equality shortcut is
+     enabled without any restrictions.
+
+     If ``N`` is given, then the syntactic equality shortcut is given
+     ``N`` units of fuel. The exact meaning of this is
+     implementation-dependent, but successful uses of the shortcut do
+     not affect the amount of fuel.
+
 .. option:: --safe
 
      Disable postulates, unsafe :ref:`OPTIONS<options-pragma>` pragmas
@@ -498,6 +541,15 @@ Other features
 
      Disable the implicit statement `open import Agda.Primitive using
      (Set; Prop)` at the start of each top-level Agda module.
+
+.. option:: --save-metas, --no-save-metas
+
+     .. versionadded:: 2.6.3
+
+     Save [or do not save] meta-variables in ``.agdai`` files. The
+     alternative is to expand the meta-variables to their definitions.
+     This option can affect performance. The default is to not save
+     the meta-variables.
 
 .. _warnings:
 
@@ -861,6 +913,7 @@ again, the source file is re-typechecked instead:
 * :option:`--inversion-max-depth`
 * :option:`--warning`
 * :option:`--allow-exec`
+* :option:`--save-metas`
 
 
 .. _Vim: https://www.vim.org/

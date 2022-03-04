@@ -15,14 +15,16 @@ import qualified Control.Exception as E
 
 import qualified Control.Monad.Fail as Fail
 
+import Control.Monad                ( void )
 import Control.Monad.Except
-import Control.Monad.State
-import Control.Monad.Reader
-import Control.Monad.Writer hiding ((<>))
+import Control.Monad.IO.Class       ( MonadIO(..) )
+import Control.Monad.State          ( MonadState(..), modify, StateT(..), runStateT )
+import Control.Monad.Reader         ( MonadReader(..), ReaderT(..), runReaderT )
+import Control.Monad.Writer         ( WriterT )
 import Control.Monad.Trans          ( MonadTrans(..), lift )
 import Control.Monad.Trans.Control  ( MonadTransControl(..), liftThrough )
-import Control.Monad.Trans.Identity
-import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Identity ( IdentityT(..), runIdentityT )
+import Control.Monad.Trans.Maybe    ( MaybeT(..) )
 
 import Control.Parallel             ( pseq )
 
@@ -207,6 +209,8 @@ data PreScopeState = PreScopeState
   , stPreModuleNameHashes :: !(Map ModuleNameHash C.QName)
     -- ^ Module name hashes that have been used so far. Used to detect
     -- hash collisions.
+  , stPreImportedMetaStore :: !RemoteMetaStore
+    -- ^ Used for meta-variables from other modules.
   }
   deriving Generic
 
@@ -224,7 +228,10 @@ data PostScopeState = PostScopeState
     -- ^ Disambiguation carried out by the type checker.
     --   Maps position of first name character to disambiguated @'A.QName'@
     --   for each @'A.AmbiguousQName'@ already passed by the type checker.
-  , stPostMetaStore           :: !MetaStore
+  , stPostOpenMetaStore       :: !LocalMetaStore
+    -- ^ Used for open meta-variables.
+  , stPostSolvedMetaStore     :: !LocalMetaStore
+    -- ^ Used for local, instantiated meta-variables.
   , stPostInteractionPoints   :: !InteractionPoints -- scope checker first
   , stPostAwakeConstraints    :: !Constraints
   , stPostSleepingConstraints :: !Constraints
@@ -361,6 +368,14 @@ initPersistentState = PersistentTCSt
   , stPersistBackends           = []
   }
 
+-- | An initial 'MetaId'.
+
+initialMetaId :: MetaId
+initialMetaId = MetaId
+  { metaId     = 0
+  , metaModule = noModuleNameHash
+  }
+
 -- | Empty state of type checker.
 
 initPreScopeState :: PreScopeState
@@ -389,13 +404,15 @@ initPreScopeState = PreScopeState
   , stPreModuleNameHashes     = Map.singleton noModuleNameHash (C.QName C.noName_)
     -- We should get a hash collision if the hash of any actual module
     -- name is noModuleNameHash.
+  , stPreImportedMetaStore    = HMap.empty
   }
 
 initPostScopeState :: PostScopeState
 initPostScopeState = PostScopeState
   { stPostSyntaxInfo           = mempty
   , stPostDisambiguatedNames   = IntMap.empty
-  , stPostMetaStore            = IntMap.empty
+  , stPostOpenMetaStore        = Map.empty
+  , stPostSolvedMetaStore      = Map.empty
   , stPostInteractionPoints    = empty
   , stPostAwakeConstraints     = []
   , stPostSleepingConstraints  = []
@@ -413,7 +430,7 @@ initPostScopeState = PostScopeState
   , stPostTCWarnings           = []
   , stPostMutualBlocks         = Map.empty
   , stPostLocalBuiltins        = Map.empty
-  , stPostFreshMetaId          = 0
+  , stPostFreshMetaId          = initialMetaId
   , stPostFreshMutualId        = 0
   , stPostFreshProblemId       = 1
   , stPostFreshCheckpointId    = 1
@@ -563,6 +580,11 @@ stModuleNameHashes f s =
   f (stPreModuleNameHashes (stPreScopeState s)) <&>
   \ x -> s {stPreScopeState = (stPreScopeState s) {stPreModuleNameHashes = x}}
 
+stImportedMetaStore :: Lens' RemoteMetaStore TCState
+stImportedMetaStore f s =
+  f (stPreImportedMetaStore (stPreScopeState s)) <&>
+  \x -> s {stPreScopeState = (stPreScopeState s) {stPreImportedMetaStore = x}}
+
 stFreshNameId :: Lens' NameId TCState
 stFreshNameId f s =
   f (stPostFreshNameId (stPostScopeState s)) <&>
@@ -578,10 +600,15 @@ stDisambiguatedNames f s =
   f (stPostDisambiguatedNames (stPostScopeState s)) <&>
   \x -> s {stPostScopeState = (stPostScopeState s) {stPostDisambiguatedNames = x}}
 
-stMetaStore :: Lens' MetaStore TCState
-stMetaStore f s =
-  f (stPostMetaStore (stPostScopeState s)) <&>
-  \x -> s {stPostScopeState = (stPostScopeState s) {stPostMetaStore = x}}
+stOpenMetaStore :: Lens' LocalMetaStore TCState
+stOpenMetaStore f s =
+  f (stPostOpenMetaStore (stPostScopeState s)) <&>
+  \x -> s {stPostScopeState = (stPostScopeState s) {stPostOpenMetaStore = x}}
+
+stSolvedMetaStore :: Lens' LocalMetaStore TCState
+stSolvedMetaStore f s =
+  f (stPostSolvedMetaStore (stPostScopeState s)) <&>
+  \x -> s {stPostScopeState = (stPostScopeState s) {stPostSolvedMetaStore = x}}
 
 stInteractionPoints :: Lens' InteractionPoints TCState
 stInteractionPoints f s =
@@ -957,6 +984,8 @@ data Interface = Interface
     --   Used in 'Agda.Interaction.BasicOps.AtTopLevel'
     --   and     'Agda.Interaction.CommandLine.interactionLoop'.
   , iSignature       :: Signature
+  , iMetaBindings    :: RemoteMetaStore
+    -- ^ Instantiations for meta-variables that come from this module.
   , iDisplayForms    :: DisplayForms
     -- ^ Display forms added for imported identifiers.
   , iUserWarnings    :: Map A.QName Text
@@ -982,9 +1011,9 @@ data Interface = Interface
 instance Pretty Interface where
   pretty (Interface
             sourceH source fileT importedM moduleN scope insideS signature
-            display userwarn importwarn builtin foreignCode highlighting
-            libPragmaO filePragmaO
-            oUsed patternS warnings partialdefs) =
+            metas display userwarn importwarn builtin foreignCode
+            highlighting libPragmaO filePragmaO oUsed patternS warnings
+            partialdefs) =
 
     hang "Interface" 2 $ vcat
       [ "source hash:"         <+> (pretty . show) sourceH
@@ -995,6 +1024,7 @@ instance Pretty Interface where
       , "scope:"               <+> (pretty . show) scope
       , "inside scope:"        <+> (pretty . show) insideS
       , "signature:"           <+> (pretty . show) signature
+      , "meta-variables:"      <+> (pretty . show) metas
       , "display:"             <+> (pretty . show) display
       , "user warnings:"       <+> (pretty . show) userwarn
       , "import warning:"      <+> (pretty . show) importwarn
@@ -1255,7 +1285,7 @@ data Judgement a
     { jMetaId   :: a
     , jMetaType :: Type -- Andreas, 2011-04-26: type needed for higher-order sort metas
     }
-  deriving Generic
+  deriving (Show, Generic)
 
 instance Pretty a => Pretty (Judgement a) where
     pretty (HasType a cmp t) = hsep [ pretty a, ":"    , pretty t ]
@@ -1284,6 +1314,8 @@ data GeneralizedValue = GeneralizedValue
 ---------------------------------------------------------------------------
 -- ** Meta variables
 ---------------------------------------------------------------------------
+
+-- | Information about local meta-variables.
 
 data MetaVariable =
         MetaVar { mvInfo          :: MetaInfo
@@ -1328,12 +1360,55 @@ data Frozen
     deriving (Eq, Show, Generic)
 
 data MetaInstantiation
-        = InstV [Arg String] Term -- ^ solved by term (abstracted over some free variables)
-        | Open               -- ^ unsolved
-        | OpenInstance       -- ^ open, to be instantiated by instance search
-        | BlockedConst Term  -- ^ solution blocked by unsolved constraints
+        = InstV Instantiation -- ^ solved
+        | Open                -- ^ unsolved
+        | OpenInstance        -- ^ open, to be instantiated by instance search
+        | BlockedConst Term   -- ^ solution blocked by unsolved constraints
         | PostponedTypeCheckingProblem (Closure TypeCheckingProblem)
   deriving Generic
+
+-- | Meta-variable instantiations.
+
+data Instantiation = Instantiation
+  { instTel :: [Arg String]
+    -- ^ The solution is abstracted over these free variables.
+  , instBody :: Term
+    -- ^ The body of the solution.
+  }
+  deriving (Show, Generic)
+
+-- | Information about remote meta-variables.
+--
+-- Remote meta-variables are meta-variables originating in other
+-- modules. These meta-variables are always instantiated. We do not
+-- retain all the information about a local meta-variable when
+-- creating an interface:
+--
+-- * The 'mvPriority' field is not needed, because the meta-variable
+--   cannot be instantiated.
+-- * The 'mvFrozen' field is not needed, because there is no point in
+--   freezing instantiated meta-variables.
+-- * The 'mvListeners' field is not needed, because no meta-variable
+--   should be listening to this one.
+-- * The 'mvTwin' field is not needed, because the meta-variable has
+--   already been instantiated.
+-- * The 'mvPermutation' is currently removed, but could be retained
+--   if it turns out to be useful for something.
+-- * The only part of the 'mvInfo' field that is kept is the
+--   'miModality' field. The 'miMetaOccursCheck' and 'miGeneralizable'
+--   fields are omitted, because the meta-variable has already been
+--   instantiated. The 'Range' that is part of the 'miClosRange' field
+--   and the 'miNameSuggestion' field are omitted because instantiated
+--   meta-variables are typically not presented to users. Finally the
+--   'Closure' part of the 'miClosRange' field is omitted because it
+--   can be large (at least if we ignore potential sharing).
+
+data RemoteMetaVariable = RemoteMetaVariable
+  { rmvInstantiation :: Instantiation
+  , rmvModality      :: Modality
+  , rmvJudgement     :: Judgement MetaId
+  }
+  deriving (Show, Generic)
 
 -- | Solving a 'CheckArgs' constraint may or may not check the target type. If
 --   it did, it returns a handle to any unsolved constraints.
@@ -1364,7 +1439,9 @@ data TypeCheckingProblem
   deriving Generic
 
 instance Show MetaInstantiation where
-  show (InstV tel t) = "InstV " ++ show tel ++ " (" ++ show t ++ ")"
+  show (InstV inst) =
+    "InstV " ++ show (instTel inst) ++
+    " (" ++ show (instBody inst) ++ ")"
   show Open      = "Open"
   show OpenInstance = "OpenInstance"
   show (BlockedConst t) = "BlockedConst (" ++ show t ++ ")"
@@ -1405,6 +1482,9 @@ instance LensQuantity MetaInfo where
   getQuantity   = getQuantity . getModality
   mapQuantity f = mapModality (mapQuantity f)
 
+instance LensRelevance MetaInfo where
+  mapRelevance f = mapModality (mapRelevance f)
+
 -- | Name suggestion for meta variable.  Empty string means no suggestion.
 type MetaNameSuggestion = String
 
@@ -1419,7 +1499,13 @@ instance Pretty NamedMeta where
   pretty (NamedMeta "_" x) = pretty x
   pretty (NamedMeta s  x) = text $ "_" ++ s ++ prettyShow x
 
-type MetaStore = IntMap MetaVariable
+-- | Used for meta-variables from the current module.
+
+type LocalMetaStore = Map MetaId MetaVariable
+
+-- | Used for meta-variables from other modules (and in 'Interface's).
+
+type RemoteMetaStore = HashMap MetaId RemoteMetaVariable
 
 instance HasRange MetaInfo where
   getRange = clValue . miClosRange
@@ -1438,8 +1524,21 @@ instance LensModality MetaVariable where
   setModality mod mv = mv { mvInfo = setModality mod $ mvInfo mv }
   mapModality f mv = mv { mvInfo = mapModality f $ mvInfo mv }
 
+instance LensRelevance MetaVariable where
+  setRelevance mod mv = mv { mvInfo = setRelevance mod $ mvInfo mv }
+
 instance LensQuantity MetaVariable where
   getQuantity   = getQuantity . getModality
+  mapQuantity f = mapModality (mapQuantity f)
+
+instance LensModality RemoteMetaVariable where
+  getModality      = rmvModality
+  mapModality f mv = mv { rmvModality = f $ rmvModality mv }
+
+instance LensRelevance RemoteMetaVariable where
+  mapRelevance f = mapModality (mapRelevance f)
+
+instance LensQuantity RemoteMetaVariable where
   mapQuantity f = mapModality (mapQuantity f)
 
 normalMetaPriority :: MetaPriority
@@ -1462,12 +1561,6 @@ getMetaEnv m = clEnv $ getMetaInfo m
 
 getMetaSig :: MetaVariable -> Signature
 getMetaSig m = clSignature $ getMetaInfo m
-
-getMetaRelevance :: MetaVariable -> Relevance
-getMetaRelevance = getRelevance . getModality
-
-getMetaModality :: MetaVariable -> Modality
-getMetaModality = getModality
 
 -- Lenses
 
@@ -2935,6 +3028,15 @@ data TCEnv =
           , envCurrentlyElaborating :: Bool
                 -- ^ Are we currently in the process of executing an
                 --   elaborate-and-give interactive command?
+          , envSyntacticEqualityFuel :: !(Strict.Maybe Int)
+                -- ^ If this counter is 'Strict.Nothing', then
+                -- syntactic equality checking is unrestricted. If it
+                -- is zero, then syntactic equality checking is not
+                -- run at all. If it is a positive number, then
+                -- syntactic equality checking is allowed to run, but
+                -- the counter is decreased in the failure
+                -- continuation of
+                -- 'Agda.TypeChecking.SyntacticEquality.checkSyntacticEquality'.
           }
     deriving (Generic)
 
@@ -2995,6 +3097,7 @@ initEnv = TCEnv { envContext             = []
                 , envActiveBackendName      = Nothing
                 , envConflComputingOverlap  = False
                 , envCurrentlyElaborating   = False
+                , envSyntacticEqualityFuel  = Strict.Nothing
                 }
 
 class LensTCEnv a where
@@ -3870,8 +3973,12 @@ enableCaching = optCaching <$> pragmaOptions
 
 -- | Environment of the reduce monad.
 data ReduceEnv = ReduceEnv
-  { redEnv :: TCEnv    -- ^ Read only access to environment.
-  , redSt  :: TCState  -- ^ Read only access to state (signature, metas...).
+  { redEnv  :: TCEnv    -- ^ Read only access to environment.
+  , redSt   :: TCState  -- ^ Read only access to state (signature, metas...).
+  , redPred :: Maybe (MetaId -> ReduceM Bool)
+    -- ^ An optional predicate that is used by 'instantiate'' and
+    -- 'instantiateFull'': meta-variables are only instantiated if
+    -- they satisfy this predicate.
   }
 
 mapRedEnv :: (TCEnv -> TCEnv) -> ReduceEnv -> ReduceEnv
@@ -3882,7 +3989,7 @@ mapRedSt f s = s { redSt = f (redSt s) }
 
 mapRedEnvSt :: (TCEnv -> TCEnv) -> (TCState -> TCState) -> ReduceEnv
             -> ReduceEnv
-mapRedEnvSt f g (ReduceEnv e s) = ReduceEnv (f e) (g s)
+mapRedEnvSt f g (ReduceEnv e s p) = ReduceEnv (f e) (g s) p
 
 -- Lenses
 reduceEnv :: Lens' TCEnv ReduceEnv
@@ -3975,7 +4082,7 @@ instance ReadTCState ReduceM where
 runReduceM :: ReduceM a -> TCM a
 runReduceM m = TCM $ \ r e -> do
   s <- readIORef r
-  E.evaluate $ unReduceM m $ ReduceEnv e s
+  E.evaluate $ unReduceM m $ ReduceEnv e s Nothing
   -- Andreas, 2021-05-13, issue #5379
   -- This was the following, which is apparently not strict enough
   -- to force all unsafePerformIOs...
@@ -3988,7 +4095,7 @@ runReduceF :: (a -> ReduceM b) -> TCM (a -> b)
 runReduceF f = do
   e <- askTC
   s <- getTC
-  return $ \x -> unReduceM (f x) (ReduceEnv e s)
+  return $ \x -> unReduceM (f x) (ReduceEnv e s Nothing)
 
 instance MonadTCEnv ReduceM where
   askTC   = ReduceM redEnv
@@ -4233,38 +4340,45 @@ pureTCM f = TCM $ \ r e -> do
 -- [1] When compiled with -auto-all and run with -p: roughly 750%
 -- faster for one example.
 
-returnTCMT :: MonadIO m => a -> TCMT m a
-returnTCMT = \x -> TCM $ \_ _ -> return x
+returnTCMT :: Applicative m => a -> TCMT m a
+returnTCMT = \x -> TCM $ \_ _ -> pure x
 {-# INLINE returnTCMT #-}
 
-bindTCMT :: MonadIO m => TCMT m a -> (a -> TCMT m b) -> TCMT m b
+bindTCMT :: Monad m => TCMT m a -> (a -> TCMT m b) -> TCMT m b
 bindTCMT = \(TCM m) k -> TCM $ \r e -> m r e >>= \x -> unTCM (k x) r e
 {-# INLINE bindTCMT #-}
 
-thenTCMT :: MonadIO m => TCMT m a -> TCMT m b -> TCMT m b
-thenTCMT = \(TCM m1) (TCM m2) -> TCM $ \r e -> m1 r e >> m2 r e
+thenTCMT :: Applicative m => TCMT m a -> TCMT m b -> TCMT m b
+thenTCMT = \(TCM m1) (TCM m2) -> TCM $ \r e -> m1 r e *> m2 r e
 {-# INLINE thenTCMT #-}
 
-instance MonadIO m => Functor (TCMT m) where
+instance Functor m => Functor (TCMT m) where
   fmap = fmapTCMT
 
-fmapTCMT :: MonadIO m => (a -> b) -> TCMT m a -> TCMT m b
+fmapTCMT :: Functor m => (a -> b) -> TCMT m a -> TCMT m b
 fmapTCMT = \f (TCM m) -> TCM $ \r e -> fmap f (m r e)
 {-# INLINE fmapTCMT #-}
 
-instance MonadIO m => Applicative (TCMT m) where
+instance Applicative m => Applicative (TCMT m) where
   pure  = returnTCMT
   (<*>) = apTCMT
 
-apTCMT :: MonadIO m => TCMT m (a -> b) -> TCMT m a -> TCMT m b
-apTCMT = \(TCM mf) (TCM m) -> TCM $ \r e -> ap (mf r e) (m r e)
+apTCMT :: Applicative m => TCMT m (a -> b) -> TCMT m a -> TCMT m b
+apTCMT = \(TCM mf) (TCM m) -> TCM $ \r e -> mf r e <*> m r e
 {-# INLINE apTCMT #-}
 
 instance MonadTrans TCMT where
     lift m = TCM $ \_ _ -> m
 
 -- We want a special monad implementation of fail.
+#if __GLASGOW_HASKELL__ < 808
 instance MonadIO m => Monad (TCMT m) where
+#else
+-- Andreas, 2022-02-02, issue #5659:
+-- @transformers-0.6@ requires exactly a @Monad@ superclass constraint here
+-- if we want @instance MonadTrans TCMT@.
+instance Monad m => Monad (TCMT m) where
+#endif
     return = pure
     (>>=)  = bindTCMT
     (>>)   = (*>)
@@ -4716,6 +4830,8 @@ instance NFData GeneralizedValue
 instance NFData MetaVariable
 instance NFData Listener
 instance NFData MetaInstantiation
+instance NFData Instantiation
+instance NFData RemoteMetaVariable
 instance NFData Frozen
 instance NFData PrincipalArgTypeMetas
 instance NFData TypeCheckingProblem

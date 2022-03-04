@@ -35,13 +35,16 @@ Some other tricks that improves performance:
 module Agda.TypeChecking.Reduce.Fast
   ( fastReduce, fastNormalise ) where
 
+import Prelude hiding ((!!))
+
 import Control.Applicative hiding (empty)
 import Control.Monad.ST
 import Control.Monad.ST.Unsafe (unsafeSTToIO, unsafeInterleaveST)
 
+import qualified Data.HashMap.Strict as HMap
 import Data.Map (Map)
 import qualified Data.Map as Map
-import qualified Data.IntMap as IntMap
+import qualified Data.Map.Strict as MapS
 import qualified Data.IntSet as IntSet
 import qualified Data.List as List
 import Data.Semigroup ((<>))
@@ -502,9 +505,11 @@ derefPointer (Pointer ptr) = readSTRef ptr
 
 -- | In most cases pointers that we dereference do not contain black holes.
 derefPointer_ :: Pointer s -> ST s (Closure s)
-derefPointer_ ptr = do
-  Thunk cl <- derefPointer ptr
-  return cl
+derefPointer_ ptr =
+  derefPointer ptr <&> \case
+    Thunk cl  -> cl
+    BlackHole -> __IMPOSSIBLE__
+
 
 -- | Only use for debug printing!
 unsafeDerefPointer :: Pointer s -> Thunk (Closure s)
@@ -802,11 +807,15 @@ reduceTm rEnv bEnv !constInfo normalisation ReductionFlags{..} =
     compileAndRun . traceDoc "-- fast reduce --"
   where
     -- Helpers to get information from the ReduceEnv.
-    metaStore      = redSt rEnv ^. stMetaStore
+    localMetas     = redSt rEnv ^. stSolvedMetaStore
+    remoteMetas    = redSt rEnv ^. stImportedMetaStore
     -- Are we currently instance searching. In that case we don't fail hard on missing clauses. This
     -- is a (very unsatisfactory) work-around for #3870.
     speculative    = redSt rEnv ^. stConsideringInstance
-    getMeta m      = maybe __IMPOSSIBLE__ mvInstantiation (IntMap.lookup (metaId m) metaStore)
+    getMetaInst m  = case MapS.lookup m localMetas of
+                       Just mv -> Just (mvInstantiation mv)
+                       Nothing -> InstV . rmvInstantiation <$>
+                                    HMap.lookup m remoteMetas
     partialDefs    = runReduce getPartialDefs
     rewriteRules f = cdefRewriteRules (constInfo f)
     callByNeed     = envCallByNeed (redEnv rEnv) && not (optCallByName $ redSt rEnv ^. stPragmaOptions)
@@ -957,12 +966,17 @@ reduceTm rEnv bEnv !constInfo normalisation ReductionFlags{..} =
         -- environment for the closure. Avoiding shifting spines for open metas
         -- save a bit of performance.
         MetaV m es -> evalIApplyAM spine ctrl $
-          case getMeta m of
-            InstV xs t -> do
+          case getMetaInst m of
+            Nothing ->
+              runAM (Eval (mkValue (blocked m ()) cl) ctrl)
+            Just (InstV i) -> do
               spine' <- elimsToSpine env es
-              let (zs, env, !spine'') = buildEnv xs (spine' <> spine)
-              runAM (evalClosure (lams zs t) env spine'' ctrl)
-            _ -> runAM (Eval (mkValue (blocked m ()) cl) ctrl)
+              let (zs, env, !spine'') = buildEnv (instTel i) (spine' <> spine)
+              runAM (evalClosure (lams zs (instBody i)) env spine'' ctrl)
+            Just Open{}                         -> __IMPOSSIBLE__
+            Just OpenInstance{}                 -> __IMPOSSIBLE__
+            Just BlockedConst{}                 -> __IMPOSSIBLE__
+            Just PostponedTypeCheckingProblem{} -> __IMPOSSIBLE__
 
         -- Case: unsupported. These terms are not handled by the abstract machine, so we fall back
         -- to slowReduceTerm for these.

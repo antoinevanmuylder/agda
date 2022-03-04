@@ -126,6 +126,39 @@ Library management
   files for `A.B.C` have to reside in `Root`, or further up the
   directory hierarchy.
 
+Pragmas and options
+-------------------
+
+* Profiling options are now turned on with a new `--profile` flag instead of
+  abusing the debug verbosity option. (See [#5781](https://github.com/agda/agda/issues/5731).)
+
+Performance
+-----------
+
+* Meta-variables can now be saved in `.agdai` files, instead
+  of being expanded. This can affect performance. (See
+  [#5731](https://github.com/agda/agda/issues/5731).)
+
+  Meta-variables are saved if the pragma option `--save-metas` is
+  used. This option can be overridden by `--no-save-metas`.
+
+* The new option `--syntactic-equality[=FUEL]` can be used to limit
+  how many times the syntactic equality shortcut is allowed to fail
+  (see [#5801](https://github.com/agda/agda/issues/5801)).
+
+  If `FUEL` is omitted, then the syntactic equality shortcut is
+  enabled without any restrictions.
+
+  If `FUEL` is given, then the syntactic equality shortcut is given
+  `FUEL` units of fuel. The exact meaning of this is
+  implementation-dependent, but successful uses of the shortcut do not
+  affect the amount of fuel. Currently the fuel is decreased in the
+  failure continuations of the implementation of the syntactic
+  equality shortcut.
+
+  The idea for this option comes from András Kovács'
+  [smalltt](https://github.com/AndrasKovacs/smalltt/blob/989b020309686e04374f1ab7844f468386d2eb2f/README.md#approximate-conversion-checking).
+
 Compiler backends
 -----------------
 
@@ -151,3 +184,11 @@ DOT backend
 * The generated graphs no longer contain "redundant" edges: if a
   module is imported both directly and indirectly, then the edge
   corresponding to the direct import is omitted.
+
+JSON API
+--------
+
+* The JSON API now represents meta-variables differently, using
+  objects containing two keys, `id` and `module`, both with values
+  that are (natural) numbers. See
+  [#5731](https://github.com/agda/agda/issues/5731).

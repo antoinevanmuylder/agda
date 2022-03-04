@@ -1,8 +1,8 @@
 # Top-level Makefile for Agda 2
 # Authors: Ulf Norell, Nils Anders Danielsson, Francesco Mazzoli, Liang-Ting Chen
 
-# Profiling verbosity for std-lib-test
-PROFVERB=7
+# Profiling settings for std-lib-test
+PROFILEOPTS=--profile=internal
 
 # Various paths and commands
 
@@ -223,7 +223,7 @@ else
 	time $(QUICK_CABAL_INSTALL) $(CABAL_INSTALL_BIN_OPTS) --program-suffix=-quicker
 endif
 
-.PHONY: type-check ## Type check the Agda source only (-fno-code).
+.PHONY: v2-type-check ## Type check the Agda source only (-fno-code) with v2-cabal.
 # Takes max 40s; can be quicker than make quicker-install-bin (max 5min).
 #
 # Might "fail" with errors like
@@ -232,12 +232,35 @@ endif
 #   ...
 #
 # Thus, ignore exit code.
+# Also prefixing it with `time` has no effect since it formally fails.
+v2-type-check:
+	@echo "=============== Type checking using v2 Cabal with -fno-code =============="
+	-$(CABAL) v2-build --project-file=cabal.project.tc --builddir=dist-no-code \
+          2>&1 \
+          | $(SED) -e '/.*dist.*build.*: No such file or directory/d' \
+                   -e '/.*Warning: the following files would be used as linker inputs, but linking is not being done:.*/d'
+
+# Andreas, 2022-01-30:
+# According to my experiments, `make type-check-no-deps` on an
+# unchanged project runs slightly faster than `make v2-type-check`.
+# Thus keeping the `v1` style as the default.
+
+.PHONY: type-check ## Type check the Agda source only (-fno-code) with v1-cabal.
+# Takes max 40s; can be quicker than make quicker-install-bin (max 5min).
+#
+# Might "fail" with errors like
+#
+#   ar: ./dist-2.6.2-no-code/build/Agda/Auto/Auto.o: No such file or directory
+#   ...
+#
+# Thus, ignore exit code.
+# Also prefixing it with `time` has no effect since it formally fails.
 type-check: install-deps type-check-no-deps
 
 .PHONY: type-check-no-deps ##
 type-check-no-deps :
-	@echo "================= Type checking using Cabal with -fno-code ==============="
-	-time $(CABAL) $(CABAL_BUILD_CMD) --builddir=$(BUILD_DIR)-no-code \
+	@echo "=============== Type checking using v1 Cabal with -fno-code =============="
+	-$(CABAL) $(CABAL_BUILD_CMD) --builddir=$(BUILD_DIR)-no-code \
           --ghc-options=-fno-code \
           --ghc-options=-fwrite-interface \
           2>&1 \
@@ -492,7 +515,7 @@ quicklatex-test :
 std-lib-test :
 	@$(call decorate, "Standard library test", \
 		(cd std-lib && cabal run GenerateEverything && \
-						time $(AGDA_BIN) $(AGDA_OPTS) --ignore-interfaces --no-default-libraries -v profile:$(PROFVERB) \
+						time $(AGDA_BIN) $(AGDA_OPTS) --ignore-interfaces --no-default-libraries $(PROFILEOPTS) \
 														 -i. -isrc README.agda \
 														 +RTS -s))
 
@@ -506,7 +529,7 @@ cubical-test :
 .PHONY : continue-std-lib-test ##
 continue-std-lib-test :
 	@(cd std-lib && \
-          time $(AGDA_BIN) -v profile:$(PROFVERB) --no-default-libraries -i. -isrc README.agda +RTS -s)
+          time $(AGDA_BIN) $(PROFILEOPTS) --no-default-libraries -i. -isrc README.agda +RTS -s)
 
 .PHONY : std-lib-succeed ##
 std-lib-succeed :
@@ -524,9 +547,14 @@ compiler-test :
 	@$(call decorate, "Compiler tests", \
 		AGDA_BIN=$(AGDA_BIN) $(AGDA_TESTS_BIN) $(AGDA_TESTS_OPTIONS) --regex-include all/Compiler --regex-exclude AllStdLib)
 
+.PHONY : ghc-compiler-test ##
+ghc-compiler-test :
+	@$(call decorate, "GHC Compiler tests", \
+		AGDA_BIN=$(AGDA_BIN) $(AGDA_TESTS_BIN) $(AGDA_TESTS_OPTIONS) --regex-include all/Compiler/MAlonzo_Lazy --regex-exclude AllStdLib)
+
 .PHONY : js-compiler-test ##
 js-compiler-test :
-	@$(call decorate, "Compiler tests", \
+	@$(call decorate, "JS Compiler tests", \
 		AGDA_BIN=$(AGDA_BIN) $(AGDA_TESTS_BIN) $(AGDA_TESTS_OPTIONS) --regex-include all/Compiler/JS_MinifiedOptimized --regex-exclude AllStdLib)
 
 .PHONY : std-lib-compiler-test ##

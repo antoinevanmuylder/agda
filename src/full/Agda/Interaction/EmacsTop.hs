@@ -7,7 +7,11 @@ module Agda.Interaction.EmacsTop
     , prettyTypeOfMeta
     ) where
 
-import Control.Monad.State hiding (state)
+import Control.Monad
+import Control.Monad.IO.Class ( MonadIO(..) )
+import Control.Monad.State    ( evalStateT )
+import Control.Monad.Trans    ( lift )
+
 import qualified Data.List as List
 
 import Agda.Syntax.Common
@@ -120,7 +124,9 @@ lispifyDisplayInfo info = case info of
       -- abusing the goals field since we ignore the title
         (body, _) = formatWarningsAndErrors msg warnings errors
       format body "*Compilation result*"
-    Info_Constraints s -> format (show $ vcat $ map pretty s) "*Constraints*"
+    Info_Constraints s -> do
+      doc <- TCP.vcat $ map prettyTCM s
+      format (render doc) "*Constraints*"
     Info_AllGoalsWarnings ms ws -> do
       goals <- showGoals ms
       warnings <- prettyTCWarnings (tcWarnings ws)
@@ -223,18 +229,19 @@ lispifyGoalSpecificDisplayInfo ii kind = localTCState $ withInteractionId ii $
             | otherwise  = [ text $ delimiter "Boundary"
                            , vcat $ map pretty bndry
                            ]
-      let constraintsDoc = if (null constraints)
-            then  []
-            else  [ text $ delimiter "Constraints"
-                  , vcat $ map pretty constraints
-                  ]
-      let doc = vcat $
-            [ "Goal:" <+> goalDoc
-            , auxDoc
-            , vcat boundaryDoc
-            , text (replicate 60 '\x2014')
-            , ctxDoc
-            ] ++ constraintsDoc
+      let constraintsDoc
+            | null constraints = []
+            | otherwise        =
+              [ TCP.text $ delimiter "Constraints"
+              , TCP.vcat $ map prettyTCM constraints
+              ]
+      doc <- TCP.vcat $
+        [ "Goal:" TCP.<+> return goalDoc
+        , return auxDoc
+        , return (vcat boundaryDoc)
+        , TCP.text (replicate 60 '\x2014')
+        , return ctxDoc
+        ] ++ constraintsDoc
       format (render doc) "*Goal type etc.*"
     Goal_CurrentGoal norm -> do
       doc <- prettyTypeOfMeta norm ii

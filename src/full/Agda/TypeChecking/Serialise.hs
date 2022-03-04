@@ -33,6 +33,7 @@ import Control.DeepSeq
 import qualified Control.Exception as E
 import Control.Monad
 import Control.Monad.Except
+import Control.Monad.IO.Class ( MonadIO(..) )
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
@@ -70,6 +71,7 @@ import Agda.Utils.FileName (canonicalizeAbsolutePath)
 import Agda.Utils.Hash
 import Agda.Utils.IORef
 import Agda.Utils.Null
+import qualified Agda.Utils.ProfileOptions as Profile
 
 import Agda.Utils.Impossible
 
@@ -78,7 +80,7 @@ import Agda.Utils.Impossible
 -- 32-bit machines). Word64 does not have these problems.
 
 currentInterfaceVersion :: Word64
-currentInterfaceVersion = 20211026 * 10 + 0
+currentInterfaceVersion = 20220217 * 10 + 0
 
 -- | The result of 'encode' and 'encodeInterface'.
 
@@ -95,7 +97,7 @@ data Encoded = Encoded
 
 encode :: EmbPrj a => a -> TCM Encoded
 encode a = do
-    collectStats <- hasVerbosity "profile.serialize" 20
+    collectStats <- hasProfileOption Profile.Serialize
     fileMod <- sourceToModule
     newD@(Dict nD ltD stD bD iD dD _tD
       _nameD
@@ -114,9 +116,9 @@ encode a = do
     iL  <- benchSort $ l iD
     dL  <- benchSort $ l dD
     -- Record reuse statistics.
-    verboseS "profile.sharing" 10 $ do
+    whenProfile Profile.Sharing $ do
       statistics "pointers" tC
-    verboseS "profile.serialize" 10 $ do
+    whenProfile Profile.Serialize $ do
       statistics "Integer"     iC
       statistics "Lazy Text"   ltC
       statistics "Strict Text" stC
@@ -166,7 +168,7 @@ encode a = do
 --       (shared, total) <- readIORef stats
 --       return (B.encode currentInterfaceVersion <>
 --               G.compress (B.encode (root, nL, sL, iL, dL)), shared, total)
---     verboseS "profile.sharing" 10 $ do
+--     whenProfile Profile.Sharing $ do
 --       tickN "pointers (reused)" $ fromIntegral shared
 --       tickN "pointers" $ fromIntegral total
 --     return x

@@ -1,11 +1,14 @@
 
 module Agda.TypeChecking.Unquote where
 
-import Control.Arrow (first, second, (&&&))
-import Control.Monad.Except
-import Control.Monad.Reader
-import Control.Monad.State
-import Control.Monad.Writer hiding ((<>))
+import Control.Arrow          ( first, second, (&&&) )
+import Control.Monad          ( (<=<) )
+import Control.Monad.Except   ( MonadError(..), ExceptT(..), runExceptT )
+import Control.Monad.IO.Class ( MonadIO(..) )
+import Control.Monad.Reader   ( ReaderT(..), runReaderT )
+import Control.Monad.State    ( gets, modify, StateT(..), runStateT )
+import Control.Monad.Writer   ( MonadWriter(..), WriterT(..), runWriterT )
+import Control.Monad.Trans    ( lift )
 
 import Data.Char
 import Data.Map (Map)
@@ -17,6 +20,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Word
 
+import System.Directory (doesFileExist, getPermissions, executable)
 import System.Process ( readProcessWithExitCode )
 import System.Exit ( ExitCode(..) )
 
@@ -414,7 +418,7 @@ instance Unquote MetaId where
             m <- fromMaybe __IMPOSSIBLE__ <$> lookupModuleFromSource f
             typeError . GenericDocError =<<
               sep [ "Can't unquote stale metavariable"
-                  , pretty m <> "." <> pretty x ]
+                  , pretty m <> "._" <> pretty (metaId x) ]
         return x
       _ -> throwError $ NonCanonical "meta variable" t
 
@@ -990,8 +994,13 @@ tcExec exe args stdIn = do
   requireAllowExec
   exes <- optTrustedExecutables <$> commandLineOptions
   case Map.lookup exe exes of
-    Nothing -> raiseExeNotFound exe exes
+    Nothing -> raiseExeNotTrusted exe exes
     Just fp -> do
+      -- Check that the executable exists.
+      unlessM (liftIO $ doesFileExist fp) $ raiseExeNotFound exe fp
+      -- Check that the executable is executable.
+      unlessM (liftIO $ executable <$> getPermissions fp) $ raiseExeNotExecutable exe fp
+
       let strArgs    = T.unpack <$> args
       let strStdIn   = T.unpack stdIn
       (datExitCode, strStdOut, strStdErr) <- lift $ readProcessWithExitCode fp strArgs strStdIn
@@ -1003,8 +1012,16 @@ tcExec exe args stdIn = do
 
 -- | Raise an error if the trusted executable cannot be found.
 --
-raiseExeNotFound :: ExeName -> Map ExeName FilePath -> TCM a
-raiseExeNotFound exe exes = genericDocError =<< do
+raiseExeNotTrusted :: ExeName -> Map ExeName FilePath -> TCM a
+raiseExeNotTrusted exe exes = genericDocError =<< do
   vcat . map pretty $
     ("Could not find '" ++ T.unpack exe ++ "' in list of trusted executables:") :
     [ "  - " ++ T.unpack exe | exe <- Map.keys exes ]
+
+raiseExeNotFound :: ExeName -> FilePath -> TCM a
+raiseExeNotFound exe fp = genericDocError =<< do
+  text $ "Could not find file '" ++ fp ++ "' for trusted executable " ++ T.unpack exe
+
+raiseExeNotExecutable :: ExeName -> FilePath -> TCM a
+raiseExeNotExecutable exe fp = genericDocError =<< do
+  text $ "File '" ++ fp ++ "' for trusted executable" ++ T.unpack exe ++ " does not have permission to execute"

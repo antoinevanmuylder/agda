@@ -23,9 +23,9 @@ module Agda.Syntax.Translation.InternalToAbstract
 
 import Prelude hiding (null)
 
-import Control.Applicative (liftA2)
-import Control.Arrow ((&&&))
-import Control.Monad.State
+import Control.Applicative ( liftA2 )
+import Control.Arrow       ( (&&&) )
+import Control.Monad       ( filterM, forM )
 
 import qualified Data.List as List
 import qualified Data.Map as Map
@@ -177,9 +177,9 @@ instance Reify MetaId where
     type ReifiesTo MetaId = Expr
 
     reifyWhen = reifyWhenE
-    reify x@(MetaId n) = do
+    reify x = do
       b <- asksTC envPrintMetasBare
-      mi  <- mvInfo <$> lookupMeta x
+      mi  <- mvInfo <$> lookupLocalMeta x
       let mi' = Info.MetaInfo
                  { metaRange          = getRange $ miClosRange mi
                  , metaScope          = clScope $ miClosRange mi
@@ -556,7 +556,7 @@ reifyTerm expandAnonDefs0 v0 = do
 
           es' <- reify es
 
-          mv <- lookupMeta x
+          mv <- lookupLocalMeta x
           (msub1,meta_tel,msub2) <- do
             local_chkpt <- viewTC eCurrentCheckpoint
             (chkpt, tel, msub2) <- enterClosure mv $ \ _ ->

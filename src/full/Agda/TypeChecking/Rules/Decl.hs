@@ -9,8 +9,7 @@ import Control.Monad.Writer (tell)
 
 import Data.Either (partitionEithers)
 import qualified Data.Foldable as Fold
-import qualified Data.IntMap as IntMap
-import qualified Data.IntSet as IntSet
+import qualified Data.Map.Strict as MapS
 import Data.Maybe
 import qualified Data.Set as Set
 import Data.Set (Set)
@@ -201,7 +200,8 @@ checkDecl d = setCurrentRange d $ do
       highlight_ DontHightlightModuleContents d
 
       -- Defaulting of levels (only when --cumulativity)
-      whenM (optCumulativity <$> pragmaOptions) $ defaultLevelsToZero metas
+      whenM (optCumulativity <$> pragmaOptions) $
+        defaultLevelsToZero (openMetas metas)
 
       -- Post-typing checks.
       whenJust finalChecks $ \ theMutualChecks -> do
@@ -213,8 +213,8 @@ checkDecl d = setCurrentRange d $ do
         case d of
             A.Generalize{} -> pure ()
             _ -> do
-              reportSLn "tc.decl" 20 $ "Freezing all metas."
-              void $ freezeMetas metas
+              reportSLn "tc.decl" 20 $ "Freezing all open metas."
+              void $ freezeMetas (openMetas metas)
 
         theMutualChecks
 
@@ -524,10 +524,12 @@ whenAbstractFreezeMetasAfter Info.DefInfo{ defAccess, defAbstract} m = do
     (a, ms) <- metasCreatedBy m
     reportSLn "tc.decl" 20 $ "Attempting to solve constraints before freezing."
     wakeupConstraints_   -- solve emptiness and instance constraints
-    xs <- freezeMetas ms
+    xs <- freezeMetas (openMetas ms)
     reportSDoc "tc.decl.ax" 20 $ vcat
-      [ "Abstract type signature produced new metas: " <+> sep (map prettyTCM $ IntMap.keys ms)
-      , "We froze the following ones of these:       " <+> sep (map prettyTCM $ IntSet.toList xs)
+      [ "Abstract type signature produced new open metas: " <+>
+        sep (map prettyTCM $ MapS.keys (openMetas ms))
+      , "We froze the following ones of these:            " <+>
+        sep (map prettyTCM $ Set.toList xs)
       ]
     return a
 

@@ -6,14 +6,15 @@ module Agda.Interaction.BasicOps where
 
 import Prelude hiding (null)
 
-import Control.Arrow (first)
+import Control.Arrow          ( first )
+import Control.Monad          ( (>=>), forM, guard )
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Identity
 
-import qualified Data.IntMap as IntMap
 import qualified Data.Map as Map
+import qualified Data.Map.Strict as MapS
 import qualified Data.Set as Set
 import qualified Data.List as List
 import Data.Maybe
@@ -60,6 +61,7 @@ import Agda.TypeChecking.Coverage.Match ( SplitPattern )
 import Agda.TypeChecking.Records
 import Agda.TypeChecking.Irrelevance (wakeIrrelevantVars)
 import Agda.TypeChecking.Pretty ( PrettyTCM, prettyTCM )
+import Agda.TypeChecking.Pretty.Constraint (prettyRangeConstraint)
 import Agda.TypeChecking.IApplyConfluence
 import Agda.TypeChecking.Primitive
 import Agda.TypeChecking.Names
@@ -79,6 +81,7 @@ import Agda.Utils.List
 import Agda.Utils.List1 (List1, pattern (:|))
 import qualified Agda.Utils.List1 as List1
 import Agda.Utils.Maybe
+import qualified Agda.Utils.Maybe.Strict as Strict
 import Agda.Utils.Monad
 import Agda.Utils.Null
 import Agda.Utils.Pretty as P
@@ -102,7 +105,7 @@ parseExprIn :: InteractionId -> Range -> String -> TCM Expr
 parseExprIn ii rng s = do
     mId <- lookupInteractionId ii
     updateMetaVarRange mId rng
-    mi  <- getMetaInfo <$> lookupMeta mId
+    mi  <- getMetaInfo <$> lookupLocalMeta mId
     e   <- parseExpr rng s
     -- Andreas, 2019-08-19, issue #4007
     -- We need to be in the TCEnv of the meta variable
@@ -116,7 +119,7 @@ parseExprIn ii rng s = do
 -- Precondition: we are in the context where the given meta was created.
 giveExpr :: UseForce -> Maybe InteractionId -> MetaId -> Expr -> TCM Term
 giveExpr force mii mi e = do
-    mv <- lookupMeta mi
+    mv <- lookupLocalMeta mi
     let t = case mvJudgement mv of
               IsSort{}    -> __IMPOSSIBLE__
               HasType _ _ t -> t
@@ -250,7 +253,7 @@ refine
   -> TCM Expr       -- ^ The successfully given expression.
 refine force ii mr e = do
   mi <- lookupInteractionId ii
-  mv <- lookupMeta mi
+  mv <- lookupLocalMeta mi
   let range = fromMaybe (getRange mv) mr
       scope = M.getMetaScope mv
   reportSDoc "interaction.refine" 10 $
@@ -333,7 +336,7 @@ evalInCurrent cmode e = do
 evalInMeta :: InteractionId -> ComputeMode -> Expr -> TCM Expr
 evalInMeta ii cmode e =
    do   m <- lookupInteractionId ii
-        mi <- getMetaInfo <$> lookupMeta m
+        mi <- getMetaInfo <$> lookupLocalMeta m
         withMetaInfo mi $
             evalInCurrent cmode e
 
@@ -433,7 +436,7 @@ instance Reify Constraint where
         tac <- A.App defaultAppInfo_ (A.Unquote exprNoRange) . defaultNamedArg <$> reify tac
         OfType tac <$> reify goal
     reify (UnBlock m) = do
-        mi <- mvInstantiation <$> lookupMeta m
+        mi <- lookupMetaInstantiation m
         m' <- reify (MetaV m [])
         case mi of
           BlockedConst t -> do
@@ -477,9 +480,13 @@ instance Reify Constraint where
       return $ PTSInstance a b
     reify (CheckLockedVars t _ lk _) = CheckLock <$> reify t <*> reify (unArg lk)
     reify (CheckMetaInst m) = do
-      t <- jMetaType . mvJudgement <$> lookupMeta m
+      t <- jMetaType . mvJudgement <$> lookupLocalMeta m
       OfType <$> reify (MetaV m []) <*> reify t
     reify (UsableAtModality mod t) = UsableAtMod mod <$> reify t
+
+instance (Pretty a, Pretty b) => PrettyTCM (OutputForm a b) where
+  prettyTCM (OutputForm r pids unblock c) =
+    prettyRangeConstraint r pids unblock (pretty c)
 
 instance (Pretty a, Pretty b) => Pretty (OutputForm a b) where
   pretty (OutputForm r pids unblock c) =
@@ -673,6 +680,16 @@ stripConstraintPids cs = List.sortBy (compare `on` isBlocked) $ map stripPids cs
     interestingPids = Set.unions $ map (allBlockingProblems . constraintUnblocker) cs
     stripPids (PConstr pids unblock c) = PConstr (Set.intersection pids interestingPids) unblock c
 
+-- | Converts an 'InteractionId' to a 'MetaId'.
+
+interactionIdToMetaId :: ReadTCState m => InteractionId -> m MetaId
+interactionIdToMetaId i = do
+  h <- currentModuleNameHash
+  return MetaId
+    { metaId     = fromIntegral i
+    , metaModule = h
+    }
+
 getConstraints' :: (ProblemConstraint -> TCM ProblemConstraint) -> (ProblemConstraint -> Bool) -> TCM [OutputForm C.Expr C.Expr]
 getConstraints' g f = liftTCM $ do
     cs <- stripConstraintPids . filter f <$> (mapM g =<< M.getAllConstraints)
@@ -683,9 +700,10 @@ getConstraints' g f = liftTCM $ do
     return $ ss ++ cs
   where
     toOutputForm (ii, mi, e) = do
-      mv <- getMetaInfo <$> lookupMeta mi
+      mv <- getMetaInfo <$> lookupLocalMeta mi
       withMetaInfo mv $ do
-        let m = QuestionMark emptyMetaInfo{ metaNumber = Just $ fromIntegral ii } ii
+        mi <- interactionIdToMetaId ii
+        let m = QuestionMark emptyMetaInfo{ metaNumber = Just mi } ii
         abstractToConcrete_ $ OutputForm noRange [] alwaysUnblock $ Assign m e
 
 
@@ -756,7 +774,7 @@ getSolvedInteractionPoints all norm = concat <$> do
   mapM solution =<< getInteractionIdsAndMetas
   where
     solution (i, m) = do
-      mv <- lookupMeta m
+      mv <- lookupLocalMeta m
       withMetaInfo (getMetaInfo mv) $ do
         args  <- getContextArgs
         scope <- getScope
@@ -777,7 +795,7 @@ getSolvedInteractionPoints all norm = concat <$> do
 
 typeOfMetaMI :: Rewrite -> MetaId -> TCM (OutputConstraint Expr NamedMeta)
 typeOfMetaMI norm mi =
-     do mv <- lookupMeta mi
+     do mv <- lookupLocalMeta mi
         withMetaInfo (getMetaInfo mv) $
           rewriteJudg mv (mvJudgement mv)
    where
@@ -822,13 +840,13 @@ typesOfVisibleMetas norm =
 typesOfHiddenMetas :: Rewrite -> TCM [OutputConstraint Expr NamedMeta]
 typesOfHiddenMetas norm = liftTCM $ do
   is    <- getInteractionMetas
-  store <- IntMap.filterWithKey (openAndImplicit is . MetaId) <$> getMetaStore
-  mapM (typeOfMetaMI norm . MetaId) $ IntMap.keys store
+  store <- MapS.filterWithKey (implicit is) <$> useR stOpenMetaStore
+  mapM (typeOfMetaMI norm) $ MapS.keys store
   where
-  openAndImplicit is x m | isJust (mvTwin m) = False
-  openAndImplicit is x m =
+  implicit is x m | isJust (mvTwin m) = False
+  implicit is x m =
     case mvInstantiation m of
-      M.InstV{} -> False
+      M.InstV{} -> __IMPOSSIBLE__
       M.Open    -> x `notElem` is
       M.OpenInstance -> x `notElem` is  -- OR: True !?
       M.BlockedConst{} -> False
@@ -975,7 +993,7 @@ metaHelperType norm ii rng s = case words s of
 
 contextOfMeta :: InteractionId -> Rewrite -> TCM [ResponseContextEntry]
 contextOfMeta ii norm = withInteractionId ii $ do
-  info <- getMetaInfo <$> (lookupMeta =<< lookupInteractionId ii)
+  info <- getMetaInfo <$> (lookupLocalMeta =<< lookupInteractionId ii)
   withMetaInfo info $ do
     -- List of local variables.
     cxt <- getContext
@@ -1024,7 +1042,7 @@ typeInCurrent norm e =
 typeInMeta :: InteractionId -> Rewrite -> Expr -> TCM Expr
 typeInMeta ii norm e =
    do   m <- lookupInteractionId ii
-        mi <- getMetaInfo <$> lookupMeta m
+        mi <- getMetaInfo <$> lookupLocalMeta m
         withMetaInfo mi $
             typeInCurrent norm e
 
@@ -1037,7 +1055,7 @@ typeInMeta ii norm e =
 introTactic :: Bool -> InteractionId -> TCM [String]
 introTactic pmLambda ii = do
   mi <- lookupInteractionId ii
-  mv <- lookupMeta mi
+  mv <- lookupLocalMeta mi
   withMetaInfo (getMetaInfo mv) $ case mvJudgement mv of
     HasType _ _ t -> do
         t <- reduce =<< piApplyM t =<< getContextArgs

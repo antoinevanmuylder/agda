@@ -3,9 +3,12 @@ module Agda.Compiler.MAlonzo.Compiler where
 
 import Control.Arrow (second)
 import Control.DeepSeq
-import Control.Monad.Except (throwError)
-import Control.Monad.Reader
-import Control.Monad.Writer hiding ((<>))
+import Control.Monad
+import Control.Monad.Except   ( throwError )
+import Control.Monad.IO.Class ( MonadIO(..) )
+import Control.Monad.Reader   ( MonadReader(..), asks, ReaderT, runReaderT, withReaderT)
+import Control.Monad.Trans    ( lift )
+import Control.Monad.Writer   ( MonadWriter(..), WriterT, runWriterT )
 
 import qualified Data.HashSet as HashSet
 import qualified Data.List as List
@@ -70,6 +73,7 @@ import Agda.Utils.List
 import Agda.Utils.Maybe
 import Agda.Utils.Monad
 import Agda.Utils.Pretty (prettyShow, render)
+import Agda.Utils.Singleton
 import qualified Agda.Utils.IO.UTF8 as UTF8
 import Agda.Utils.String
 
@@ -1212,7 +1216,16 @@ writeModule (HS.Module m ps imp ds) = do
   -- Note that GHC assumes that sources use ASCII or UTF-8.
   out <- snd <$> outFileAndDir m
   strict <- optGhcStrict <$> askGhcOpts
-  let p = HS.LanguagePragma $ List.map HS.Ident $
+  let languagePragmas =
+        List.map (HS.LanguagePragma . singleton . HS.Ident) $
+          List.sort $
+            [ "QualifiedDo" | strict ] ++
+                -- If --ghc-strict is used, then the language extension
+                -- QualifiedDo is activated. At the time of writing no
+                -- code is generated that depends on this extension
+                -- (except for the pragmas), but --ghc-strict is broken
+                -- with at least some versions of GHC prior to version 9,
+                -- and QualifiedDo was introduced with GHC 9.
             [ "BangPatterns"
             , "EmptyDataDecls"
             , "EmptyCase"
@@ -1222,22 +1235,23 @@ writeModule (HS.Module m ps imp ds) = do
             , "RankNTypes"
             , "PatternSynonyms"
             , "OverloadedStrings"
-            ] ++
-            -- If --ghc-strict is used, then the language extension
-            -- QualifiedDo is activated. At the time of writing no
-            -- code is generated that depends on this extension
-            -- (except for the pragmas), but --ghc-strict is broken
-            -- with at least some versions of GHC prior to version 9,
-            -- and QualifiedDo was introduced with GHC 9.
-            if strict
-            then ["QualifiedDo"]
-            else []
+            ]
+  let ghcOptions =
+        List.map HS.OtherPragma
+          [ ""  -- to separate from LANGUAGE pragmas
+          , "{-# OPTIONS_GHC -Wno-overlapping-patterns #-}"
+              -- Andreas, 2022-01-26, issue #5758:
+              -- Place this in generated file rather than
+              -- passing it only when calling GHC from within Agda.
+              -- This will silence the warning for the Agda-generated .hs
+              -- files while it can be on for other .hs files in the same
+              -- project.  (E.g., when using cabal/stack to compile.)
+          ]
   liftIO $ UTF8.writeFile out $ (++ "\n") $ prettyPrint $
     -- TODO: It might make sense to skip bang patterns for the unused
     -- arguments of the "non-stripped" functions.
-    (if strict then makeStrict else id) $
-    HS.Module m (p : ps) imp ds
-  where
+    applyWhen strict makeStrict $
+    HS.Module m (concat [languagePragmas, ghcOptions, ps]) imp ds
 
 outFileAndDir :: MonadGHCIO m => HS.ModuleName -> m (FilePath, FilePath)
 outFileAndDir m = do
@@ -1262,9 +1276,7 @@ callGHC = do
   opts    <- askGhcOpts
   hsmod   <- prettyPrint <$> curHsMod
   agdaMod <- curAgdaMod
-  let outputName = case mnameToList agdaMod of
-        [] -> __IMPOSSIBLE__
-        m:ms -> last1 m ms
+  let outputName = lastWithDefault __IMPOSSIBLE__ $ mnameToList agdaMod
   (mdir, fp) <- curOutFileAndDir
   let ghcopts = optGhcFlags opts
 
@@ -1287,7 +1299,6 @@ callGHC = do
         [ fp
         , "--make"
         , "-fwarn-incomplete-patterns"
-        , "-fno-warn-overlapping-patterns"
         ]
       args     = overridableArgs ++ ghcopts ++ otherArgs
 

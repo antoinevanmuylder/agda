@@ -38,10 +38,12 @@ module Agda.Interaction.Library
   , findLib'
   ) where
 
-import Control.Arrow ( first , second )
+import Control.Arrow          ( first , second )
+import Control.Monad          ( filterM, forM )
 import Control.Monad.Except
 import Control.Monad.State
 import Control.Monad.Writer
+import Control.Monad.IO.Class ( MonadIO(..) )
 
 import Data.Char
 import Data.Data ( Data )
@@ -388,26 +390,12 @@ parseExecutablesFile
 parseExecutablesFile ef files =
   fmap (Map.fromList . catMaybes) . forM files $ \(ln, fp) -> do
 
-    -- Check if the executable exists.
-    fpExists <- liftIO $ doesFileExist fp
-    if not fpExists
-      then do warnings' [ExeNotFound ef fp]
-              return Nothing
-      else do
-
-      -- Check if the executable is executable.
-      fpPerms <- liftIO $ getPermissions fp
-      if not (executable fpPerms)
-        then do warnings' [ExeNotExecutable ef fp]
-                return Nothing
-        else do
-
-        -- Compute canonical executable name and absolute filepath.
-        let strExeName  = takeFileName fp
-        let strExeName' = fromMaybe strExeName $ stripExtension exeExtension strExeName
-        let txtExeName  = T.pack strExeName'
-        exePath <- liftIO $ makeAbsolute fp
-        return $ Just (txtExeName, exePath)
+    -- Compute canonical executable name and absolute filepath.
+    let strExeName  = takeFileName fp
+    let strExeName' = fromMaybe strExeName $ stripExtension exeExtension strExeName
+    let txtExeName  = T.pack strExeName'
+    exePath <- liftIO $ makeAbsolute fp
+    return $ Just (txtExeName, exePath)
 
 ------------------------------------------------------------------------
 -- * Resolving library names to include pathes

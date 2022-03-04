@@ -13,13 +13,16 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM.TChan
 import Control.Concurrent.STM.TVar
-import qualified Control.Exception as E
-import Control.Monad.Except
-import Control.Monad.Fail (MonadFail)
-import Control.Monad.Identity
-import Control.Monad.Reader
-import Control.Monad.State hiding (state)
+
+import qualified Control.Exception  as E
+
+import Control.Monad
+import Control.Monad.Except         ( MonadError(..), ExceptT(..), runExceptT )
+import Control.Monad.IO.Class       ( MonadIO(..) )
+import Control.Monad.Fail           ( MonadFail )
+import Control.Monad.State          ( MonadState(..), gets, modify, runStateT )
 import Control.Monad.STM
+import Control.Monad.Trans          ( lift )
 
 import qualified Data.Char as Char
 import Data.Function
@@ -78,6 +81,7 @@ import qualified Agda.Utils.Maybe.Strict as Strict
 import Agda.Utils.Monad
 import Agda.Utils.Null
 import Agda.Utils.Pretty hiding (Mode)
+import qualified Agda.Utils.ProfileOptions as Profile
 import Agda.Utils.Singleton
 import Agda.Utils.String
 import Agda.Utils.Time
@@ -843,7 +847,7 @@ solveInstantiatedGoals norm mii = do
   putResponse $ Resp_SolveAll out
   where
       prt (i, m, e) = do
-        mi <- getMetaInfo <$> lookupMeta m
+        mi <- getMetaInfo <$> lookupLocalMeta m
         e' <- withMetaInfo mi $ abstractToConcreteCtx TopCtx e
         return (i, e')
 
@@ -1167,7 +1171,7 @@ parseAndDoAtToplevel cmd s = do
 
 maybeTimed :: CommandM a -> CommandM (Maybe CPUTime, a)
 maybeTimed work = do
-  doTime <- lift $ hasVerbosity "profile.interactive" 10
+  doTime <- lift $ hasProfileOption Profile.Interactive
   if not doTime
     then (Nothing,) <$> work
     else do

@@ -60,13 +60,13 @@
 module Agda.TypeChecking.Free.Lazy where
 
 import Control.Applicative hiding (empty)
-import Control.Monad.Reader
-
+import Control.Monad        ( guard )
+import Control.Monad.Reader ( MonadReader(..), asks, ReaderT, Reader, runReader )
 
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
-import Data.IntSet (IntSet)
-import qualified Data.IntSet as IntSet
+import Data.HashSet (HashSet)
+import qualified Data.HashSet as HashSet
 import Data.Semigroup ( Semigroup, (<>) )
 
 
@@ -87,17 +87,17 @@ import Agda.Utils.Size
 
 -- | A set of meta variables.  Forms a monoid under union.
 
-newtype MetaSet = MetaSet { theMetaSet :: IntSet }
+newtype MetaSet = MetaSet { theMetaSet :: HashSet MetaId }
   deriving (Eq, Show, Null, Semigroup, Monoid)
 
 instance Singleton MetaId MetaSet where
-  singleton = MetaSet . singleton . metaId
+  singleton = MetaSet . singleton
 
 insertMetaSet :: MetaId -> MetaSet -> MetaSet
-insertMetaSet (MetaId m) (MetaSet ms) = MetaSet $ IntSet.insert m ms
+insertMetaSet m (MetaSet ms) = MetaSet $ HashSet.insert m ms
 
 foldrMetaSet :: (MetaId -> a -> a) -> a -> MetaSet -> a
-foldrMetaSet f e ms = IntSet.foldr (f . MetaId) e $ theMetaSet ms
+foldrMetaSet f e ms = HashSet.foldr f e $ theMetaSet ms
 
 ---------------------------------------------------------------------------
 -- * Flexible and rigid occurrences (semigroup)

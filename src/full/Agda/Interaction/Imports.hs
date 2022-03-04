@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE NondecreasingIndentation #-}
 
 {-| This module deals with finding imported modules and loading their
     interface files.
@@ -24,7 +25,9 @@ module Agda.Interaction.Imports
 
 import Prelude hiding (null)
 
+import Control.Monad               ( forM, forM_, void )
 import Control.Monad.Except
+import Control.Monad.IO.Class      ( MonadIO(..) )
 import Control.Monad.State
 import Control.Monad.Trans.Maybe
 import qualified Control.Exception as E
@@ -92,8 +95,10 @@ import Agda.Utils.Monad
 import Agda.Utils.Null
 import Agda.Utils.IO.Binary
 import Agda.Utils.Pretty hiding (Mode)
+import qualified Agda.Utils.ProfileOptions as Profile
 import Agda.Utils.Hash
 import qualified Agda.Utils.Trie as Trie
+import Agda.Utils.WithDefault
 
 import Agda.Utils.Impossible
 
@@ -209,7 +214,10 @@ mergeInterface i = do
               | otherwise = typeError $ DuplicateBuiltinBinding b x y
         check _ _ _ = __IMPOSSIBLE__
     sequence_ $ Map.intersectionWithKey check bs bi
-    addImportedThings sig bi
+    addImportedThings
+      sig
+      (iMetaBindings i)
+      bi
       (iPatternSyns i)
       (iDisplayForms i)
       (iUserWarnings i)
@@ -228,6 +236,7 @@ mergeInterface i = do
 
 addImportedThings
   :: Signature
+  -> RemoteMetaStore
   -> BuiltinThings PrimFun
   -> A.PatternSynDefns
   -> DisplayForms
@@ -235,8 +244,10 @@ addImportedThings
   -> Set QName             -- ^ Name of imported definitions which are partial
   -> [TCWarning]
   -> TCM ()
-addImportedThings isig ibuiltin patsyns display userwarn partialdefs warnings = do
+addImportedThings isig metas ibuiltin patsyns display userwarn
+                  partialdefs warnings = do
   stImports              `modifyTCLens` \ imp -> unionSignatures [imp, isig]
+  stImportedMetaStore    `modifyTCLens` HMap.union metas
   stImportedBuiltins     `modifyTCLens` \ imp -> Map.union imp ibuiltin
   stImportedUserWarnings `modifyTCLens` \ imp -> Map.union imp userwarn
   stImportedPartialDefs  `modifyTCLens` \ imp -> Set.union imp partialdefs
@@ -739,6 +750,7 @@ createInterfaceIsolated x file msrc = do
       ds          <- getDecodedModules
       opts        <- stPersistentOptions . stPersistentState <$> getTC
       isig        <- useTC stImports
+      metas       <- useTC stImportedMetaStore
       ibuiltin    <- useTC stImportedBuiltins
       display     <- useTC stImportsDisplayForms
       userwarn    <- useTC stImportedUserWarnings
@@ -768,7 +780,8 @@ createInterfaceIsolated x file msrc = do
                setInteractionOutputCallback ho
                stModuleToSource `setTCLens` mf
                setVisitedModules vs
-               addImportedThings isig ibuiltin ipatsyns display userwarn partialdefs []
+               addImportedThings isig metas ibuiltin ipatsyns display
+                 userwarn partialdefs []
 
                r  <- createInterface x file NotMainInterface msrc
                mf' <- useTC stModuleToSource
@@ -938,6 +951,8 @@ createInterface mname file isMain msrc = do
     stTokens `modifyTCLens` (fileTokenInfo <>)
 
     setOptionsFromSourcePragmas src
+    syntactic <- optSyntacticEquality <$> pragmaOptions
+    localTC (\env -> env { envSyntacticEqualityFuel = syntactic }) $ do
 
     verboseS "import.iface.create" 15 $ do
       nestingLevel      <- asksTC (pred . length . envImportPath)
@@ -1006,9 +1021,9 @@ createInterface mname file isMain msrc = do
     unfreezeMetas
 
     -- Profiling: Count number of metas.
-    verboseS "profile.metas" 10 $ do
-      MetaId n <- fresh
-      tickN "metas" (fromIntegral n)
+    whenProfile Profile.Metas $ do
+      m <- fresh
+      tickN "metas" (fromIntegral (metaId m))
 
     -- Highlighting from type checker.
     reportSLn "import.iface.create" 7 "Starting highlighting from type info."
@@ -1112,13 +1127,13 @@ createInterface mname file isMain msrc = do
     -- stMetaStore `setTCLens` savedMetaStore
 
     -- Profiling: Print statistics.
-    printStatistics 30 (Just mname) =<< getStatistics
+    printStatistics (Just mname) =<< getStatistics
 
     -- Get the statistics of the current module
     -- and add it to the accumulated statistics.
     localStatistics <- getStatistics
     lensAccumStatistics `modifyTCLens` Map.unionWith (+) localStatistics
-    verboseS "profile" 1 $ reportSLn "import.iface" 5 "Accumulated statistics."
+    reportSLn "import.iface" 5 "Accumulated statistics."
 
     isPrimitiveModule <- Lens.isPrimitiveModule (filePath srcPath)
 
@@ -1182,12 +1197,14 @@ buildInterface src topLevel = do
     -- and should be dead-code eliminated (#1928).
     origDisplayForms <- HMap.filter (not . null) . HMap.map (filter isClosed) <$> useTC stImportsDisplayForms
     -- TODO: Kill some ranges?
-    (display, sig) <- eliminateDeadCode origDisplayForms =<< getSignature
-    userwarns      <- useTC stLocalUserWarnings
-    importwarn     <- useTC stWarningOnImport
-    syntaxInfo     <- useTC stSyntaxInfo
-    optionsUsed    <- useTC stPragmaOptions
-    partialDefs    <- useTC stLocalPartialDefs
+    (display, sig, solvedMetas) <-
+      eliminateDeadCode builtin origDisplayForms ==<<
+        (getSignature, useR stSolvedMetaStore)
+    userwarns   <- useTC stLocalUserWarnings
+    importwarn  <- useTC stWarningOnImport
+    syntaxInfo  <- useTC stSyntaxInfo
+    optionsUsed <- useTC stPragmaOptions
+    partialDefs <- useTC stLocalPartialDefs
 
     -- Andreas, 2015-02-09 kill ranges in pattern synonyms before
     -- serialization to avoid error locations pointing to external files
@@ -1195,31 +1212,38 @@ buildInterface src topLevel = do
     patsyns <- killRange <$> getPatternSyns
     let builtin' = Map.mapWithKey (\ x b -> (x,) . primFunName <$> b) builtin
     warnings <- getAllWarnings AllWarnings
-    reportSLn "import.iface" 7 "  instantiating all meta variables"
-    -- Note that the meta-variables in the definitions in "sig" have
-    -- already been instantiated (by eliminateDeadCode).
-    i <- instantiateFullExceptForDefinitions Interface
-      { iSourceHash      = hashText source
-      , iSource          = source
-      , iFileType        = fileType
-      , iImportedModules = mhs
-      , iModuleName      = mname
-      , iScope           = empty -- publicModules scope
-      , iInsideScope     = topLevelScope topLevel
-      , iSignature       = sig
-      , iDisplayForms    = display
-      , iUserWarnings    = userwarns
-      , iImportWarning   = importwarn
-      , iBuiltin         = builtin'
-      , iForeignCode     = foreignCode
-      , iHighlighting    = syntaxInfo
-      , iDefaultPragmaOptions = defPragmas
-      , iFilePragmaOptions    = filePragmas
-      , iOptionsUsed     = optionsUsed
-      , iPatternSyns     = patsyns
-      , iWarnings        = warnings
-      , iPartialDefs     = partialDefs
-      }
+    let i = Interface
+          { iSourceHash      = hashText source
+          , iSource          = source
+          , iFileType        = fileType
+          , iImportedModules = mhs
+          , iModuleName      = mname
+          , iScope           = empty -- publicModules scope
+          , iInsideScope     = topLevelScope topLevel
+          , iSignature       = sig
+          , iMetaBindings    = solvedMetas
+          , iDisplayForms    = display
+          , iUserWarnings    = userwarns
+          , iImportWarning   = importwarn
+          , iBuiltin         = builtin'
+          , iForeignCode     = foreignCode
+          , iHighlighting    = syntaxInfo
+          , iDefaultPragmaOptions = defPragmas
+          , iFilePragmaOptions    = filePragmas
+          , iOptionsUsed     = optionsUsed
+          , iPatternSyns     = patsyns
+          , iWarnings        = warnings
+          , iPartialDefs     = partialDefs
+          }
+    i <-
+      ifM (collapseDefault . optSaveMetas <$> pragmaOptions)
+        (return i)
+        (do reportSLn "import.iface" 7
+              "  instantiating all meta variables"
+            -- Note that the meta-variables in the definitions in
+            -- "sig" have already been instantiated (by
+            -- eliminateDeadCode).
+            instantiateFullExceptForDefinitions i)
     reportSLn "import.iface" 7 "  interface complete"
     return i
 

@@ -5,13 +5,14 @@ module Agda.TypeChecking.MetaVars where
 
 import Prelude hiding (null)
 
-import Control.Monad.Except
-import Control.Monad.Reader
+import Control.Monad        ( foldM, forM, forM_, liftM2, void )
+import Control.Monad.Except ( MonadError(..), ExceptT, runExceptT )
+import Control.Monad.Trans  ( lift )
 
 import Data.Function
-import qualified Data.IntMap as IntMap
 import qualified Data.IntSet as IntSet
 import qualified Data.List as List
+import qualified Data.Map.Strict as MapS
 import qualified Data.Set as Set
 import qualified Data.Foldable as Fold
 import qualified Data.Traversable as Trav
@@ -57,7 +58,8 @@ import Agda.Utils.Monad
 import Agda.Utils.Size
 import Agda.Utils.Tuple
 import Agda.Utils.Permutation
-import Agda.Utils.Pretty ( Pretty, prettyShow )
+import Agda.Utils.Pretty (Pretty, prettyShow, render)
+import qualified Agda.Utils.ProfileOptions as Profile
 import Agda.Utils.Singleton
 import qualified Agda.Utils.Graph.TopSort as Graph
 import Agda.Utils.VarSet (VarSet)
@@ -89,16 +91,18 @@ instance MonadMetaSolver TCM where
 findIdx :: Eq a => [a] -> a -> Maybe Int
 findIdx vs v = List.elemIndex v (reverse vs)
 
+-- | Does the given local meta-variable have a twin meta-variable?
+
 hasTwinMeta :: MetaId -> TCM Bool
 hasTwinMeta x = do
-    m <- lookupMeta x
+    m <- lookupLocalMeta x
     return $ isJust $ mvTwin m
 
 -- | Check whether a meta variable is a place holder for a blocked term.
 isBlockedTerm :: MetaId -> TCM Bool
 isBlockedTerm x = do
     reportSLn "tc.meta.blocked" 12 $ "is " ++ prettyShow x ++ " a blocked term? "
-    i <- mvInstantiation <$> lookupMeta x
+    i <- lookupMetaInstantiation x
     let r = case i of
             BlockedConst{}                 -> True
             PostponedTypeCheckingProblem{} -> True
@@ -111,7 +115,7 @@ isBlockedTerm x = do
 
 isEtaExpandable :: [MetaKind] -> MetaId -> TCM Bool
 isEtaExpandable kinds x = do
-    i <- mvInstantiation <$> lookupMeta x
+    i <- lookupMetaInstantiation x
     return $ case i of
       Open{}                         -> True
       OpenInstance{}                 -> Records `notElem` kinds
@@ -142,13 +146,13 @@ assignTermTCM' x tel v = do
      -- verify (new) invariants
     whenM (not <$> asksTC envAssignMetas) __IMPOSSIBLE__
 
-    verboseS "profile.metas" 10 $ liftTCM $ return () {-tickMax "max-open-metas" . (fromIntegral . size) =<< getOpenMetas-}
-    modifyMetaStore $ ins x $ InstV tel $ killRange v
+    whenProfile Profile.Metas $ liftTCM $ return () {-tickMax "max-open-metas" . (fromIntegral . size) =<< getOpenMetas-}
+    updateMetaVarTCM x $ \ mv ->
+      mv { mvInstantiation = InstV $ Instantiation
+             { instTel = tel, instBody = killRange v } }
     etaExpandListeners x
     wakeupConstraints x
     reportSLn "tc.meta.assign" 20 $ "completed assignment of " ++ prettyShow x
-  where
-    ins x i = IntMap.adjust (\ mv -> mv { mvInstantiation = i }) $ metaId x
 
 -- * Creating meta variables.
 
@@ -393,7 +397,7 @@ newQuestionMark' new ii cmp t = lookupInteractionMeta ii >>= \case
     MetaVar
       { mvInfo = MetaInfo{ miClosRange = Closure{ clEnv = TCEnv{ envContext = gamma }}}
       , mvPermutation = p
-      } <- fromMaybe __IMPOSSIBLE__ <$> lookupMeta' x
+      } <- fromMaybe __IMPOSSIBLE__ <$> lookupLocalMeta' x
     -- Get the current context Δ.
     delta <- getContext
     -- A bit hazardous:
@@ -636,8 +640,8 @@ wakeupListener (CheckConstraint _ c) = do
 etaExpandMetaSafe :: (MonadMetaSolver m) => MetaId -> m ()
 etaExpandMetaSafe = etaExpandMeta [SingletonRecords,Levels]
 
--- | Eta expand a metavariable, if it is of the specified kind.
---   Don't do anything if the metavariable is a blocked term.
+-- | Eta-expand a local meta-variable, if it is of the specified kind.
+--   Don't do anything if the meta-variable is a blocked term.
 etaExpandMetaTCM :: [MetaKind] -> MetaId -> TCM ()
 etaExpandMetaTCM kinds m = whenM ((not <$> isFrozen m) `and2M` asksTC envAssignMetas `and2M` isEtaExpandable kinds m) $ do
   verboseBracket "tc.meta.eta" 20 ("etaExpandMeta " ++ prettyShow m) $ do
@@ -651,7 +655,7 @@ etaExpandMetaTCM kinds m = whenM ((not <$> isFrozen m) `and2M` asksTC envAssignM
           reportSDoc "tc.meta.eta" 20 $ do
             "we do not expand meta variable" <+> prettyTCM m <+>
               text ("(requested was expansion of " ++ show kinds ++ ")")
-    meta <- lookupMeta m
+    meta <- lookupLocalMeta m
     case mvJudgement meta of
       IsSort{} -> dontExpand
       HasType _ cmp a -> do
@@ -767,7 +771,7 @@ assignWrapper dir x es v doAssign = do
 assign :: CompareDirection -> MetaId -> Args -> Term -> CompareAs -> TCM ()
 assign dir x args v target = addOrUnblocker (unblockOnMeta x) $ do
 
-  mvar <- lookupMeta x  -- information associated with meta x
+  mvar <- lookupLocalMeta x  -- information associated with meta x
   let t = jMetaType $ mvJudgement mvar
 
   -- Andreas, 2011-05-20 TODO!
@@ -1253,7 +1257,7 @@ assignMeta' m x t n ids v = do
 
     -- Andreas, 2013-10-25 double check solution before assigning
     whenM (optDoubleCheck  <$> pragmaOptions) $ do
-      m <- lookupMeta x
+      m <- lookupLocalMeta x
       reportSDoc "tc.meta.check" 30 $ "double checking solution"
       catchConstraint (CheckMetaInst x) $
         addContext tel' $ checkSolutionForMeta x m v' a
@@ -1288,18 +1292,19 @@ assignMeta' m x t n ids v = do
 --   instantiated, add a constraint to check the instantiation later.
 checkMetaInst :: MetaId -> TCM ()
 checkMetaInst x = do
-  m <- lookupMeta x
+  m <- lookupLocalMeta x
   let postpone = addConstraint (unblockOnMeta x) $ CheckMetaInst x
   case mvInstantiation m of
     BlockedConst{} -> postpone
     PostponedTypeCheckingProblem{} -> postpone
     Open{} -> postpone
     OpenInstance{} -> postpone
-    InstV xs v -> do
-      let n = size xs
+    InstV inst -> do
+      let n = size (instTel inst)
           t = jMetaType $ mvJudgement m
-      (telv@(TelV tel a),bs) <- telViewUpToPathBridgeBoundary n t
-      catchConstraint (CheckMetaInst x) $ addContext tel $ checkSolutionForMeta x m v a
+      (telv@(TelV tel a),bs) <- telViewUpToPathBoundary n t
+      catchConstraint (CheckMetaInst x) $ addContext tel $
+        checkSolutionForMeta x m (instBody inst) a
 
 -- | Check that the instantiation of the metavariable with the given
 --   term is well-typed.
@@ -1328,8 +1333,7 @@ checkSubtypeIsEqual a b = do
   reportSDoc "tc.meta.subtype" 30 $
     "checking that subtype" <+> prettyTCM a <+>
     "of" <+> prettyTCM b <+> "is actually equal."
-  ((a, b), equal) <- SynEq.checkSyntacticEquality a b
-  unless equal $ do
+  SynEq.checkSyntacticEquality a b (\_ _ -> return ()) $ \a b -> do
     cumulativity <- optCumulativity <$> pragmaOptions
     abortIfBlocked (unEl b) >>= \case
       Sort sb -> abortIfBlocked (unEl a) >>= \case
@@ -1360,8 +1364,8 @@ checkSubtypeIsEqual a b = do
 -- @_Y args <= u@.
 subtypingForSizeLt
   :: CompareDirection -- ^ @dir@
-  -> MetaId           -- ^ The meta variable @x@.
-  -> MetaVariable     -- ^ Its associated information @mvar <- lookupMeta x@.
+  -> MetaId           -- ^ The local meta-variable @x@.
+  -> MetaVariable     -- ^ Its associated information @mvar <- lookupLocalMeta x@.
   -> Type             -- ^ Its type @t = jMetaType $ mvJudgement mvar@
   -> Args             -- ^ Its arguments.
   -> Term             -- ^ Its to-be-assigned value @v@, such that @x args `dir` v@.
@@ -1673,35 +1677,35 @@ openMetasToPostulates = do
   m <- asksTC envCurrentModule
 
   -- Go through all open metas.
-  ms <- IntMap.assocs <$> useTC stMetaStore
+  ms <- MapS.assocs <$> useTC stOpenMetaStore
   forM_ ms $ \ (x, mv) -> do
-    when (isOpenMeta $ mvInstantiation mv) $ do
-      let t = dummyTypeToOmega $ jMetaType $ mvJudgement mv
+    let t = dummyTypeToOmega $ jMetaType $ mvJudgement mv
 
-      -- Create a name for the new postulate.
-      let r = clValue $ miClosRange $ mvInfo mv
-      -- s <- render <$> prettyTCM x -- Using _ is a bad idea, as it prints as prefix op
-      let s = "unsolved#meta." ++ prettyShow x
-      n <- freshName r s
-      let q = A.QName m n
+    -- Create a name for the new postulate.
+    let r = clValue $ miClosRange $ mvInfo mv
+    s' <- render <$> prettyTCM x -- Using _ is a bad idea, as it prints as prefix op
+    let s = "unsolved#meta." ++ filter (/= '_') s'
+    n <- freshName r s
+    let q = A.QName m n
 
-      -- Debug.
-      reportSDoc "meta.postulate" 20 $ vcat
-        [ text ("Turning " ++ if isSortMeta_ mv then "sort" else "value" ++ " meta ")
-            <+> prettyTCM (MetaId x) <+> " into postulate."
-        , nest 2 $ vcat
-          [ "Name: " <+> prettyTCM q
-          , "Type: " <+> prettyTCM t
-          ]
+    -- Debug.
+    reportSDoc "meta.postulate" 20 $ vcat
+      [ text ("Turning " ++ if isSortMeta_ mv then "sort" else "value" ++ " meta ")
+          <+> prettyTCM x <+> " into postulate."
+      , nest 2 $ vcat
+        [ "Name: " <+> prettyTCM q
+        , "Type: " <+> prettyTCM t
         ]
+      ]
 
-      -- Add the new postulate to the signature.
-      addConstant' q defaultArgInfo q t defaultAxiom
+    -- Add the new postulate to the signature.
+    addConstant' q defaultArgInfo q t defaultAxiom
 
-      -- Solve the meta.
-      let inst = InstV [] $ Def q []
-      updateMetaVar (MetaId x) $ \ mv0 -> mv0 { mvInstantiation = inst }
-      return ()
+    -- Solve the meta.
+    let inst = InstV $ Instantiation
+                 { instTel = [], instBody = Def q [] }
+    updateMetaVar x $ \ mv0 -> mv0 { mvInstantiation = inst }
+    return ()
   where
     -- Unsolved sort metas can have a type ending in a Dummy if they are allowed to be instantiated
     -- to Setω. This will crash the serializer (issue #3730). To avoid this we replace dummy type
@@ -1724,7 +1728,7 @@ dependencySortMetas metas = do
   where
     -- Sort metas don't have types, but we still want to sort them.
     getType m = do
-      mv <- lookupMeta m
-      case mvJudgement mv of
+      j <- lookupMetaJudgement m
+      case j of
         IsSort{}                 -> return Nothing
         HasType{ jMetaType = t } -> Just <$> instantiateFull t

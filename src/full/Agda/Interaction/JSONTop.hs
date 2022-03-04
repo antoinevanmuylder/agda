@@ -1,7 +1,9 @@
 module Agda.Interaction.JSONTop
     ( jsonREPL
     ) where
-import Control.Monad.State
+
+import Control.Monad          ( (<=<), forM )
+import Control.Monad.IO.Class ( MonadIO(..) )
 
 import Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy.Char8 as BS
@@ -20,12 +22,12 @@ import Agda.Syntax.Abstract.Pretty (prettyATop)
 import Agda.Syntax.Common
 import qualified Agda.Syntax.Concrete as C
 import Agda.Syntax.Concrete.Name (NameInScope(..), Name)
-import Agda.Syntax.Internal (telToList, Dom'(..), Dom, MetaId(..), ProblemId(..), Blocker(..))
-import Agda.Syntax.Position (Range, rangeIntervals, Interval'(..), Position'(..))
+import Agda.Syntax.Internal (telToList, Dom'(..), Dom, MetaId(..), ProblemId(..), Blocker(..), alwaysUnblock)
+import Agda.Syntax.Position (Range, rangeIntervals, Interval'(..), Position'(..), noRange)
 import Agda.VersionCommit
 
 import Agda.TypeChecking.Errors (getAllWarningsOfTCErr)
-import Agda.TypeChecking.Monad (Comparison(..), inTopContext, TCM, TCErr, TCWarning, NamedMeta(..))
+import Agda.TypeChecking.Monad (Comparison(..), inTopContext, TCM, TCErr, TCWarning, NamedMeta(..), withInteractionId)
 import Agda.TypeChecking.Monad.MetaVars (getInteractionRange, getMetaRange, withMetaId)
 import Agda.TypeChecking.Pretty (PrettyTCM(..), prettyTCM)
 -- borrowed from EmacsTop, for temporarily serialising stuff
@@ -95,7 +97,15 @@ instance EncodeTCM ProblemId where
 instance EncodeTCM MetaId    where
 
 instance ToJSON ProblemId where toJSON (ProblemId i) = toJSON i
-instance ToJSON MetaId    where toJSON (MetaId    i) = toJSON i
+
+instance ToJSON ModuleNameHash where
+  toJSON (ModuleNameHash h) = toJSON h
+
+instance ToJSON MetaId where
+  toJSON m = object
+    [ "id"     .= toJSON (metaId m)
+    , "module" .= toJSON (metaModule m)
+    ]
 
 instance EncodeTCM InteractionId where
   encodeTCM ii@(InteractionId i) = obj
@@ -241,7 +251,7 @@ instance EncodeTCM (OutputForm C.Expr C.Expr) where
     [ "range"      @= range
     , "problems"   @= problems
     , "unblocker"  @= unblock
-    , "constraint" #= encodeOC (pure . encodeShow) (pure . encodeShow) oc
+    , "constraint" #= encodeOC (pure . encodePretty) (pure . encodePretty) oc
     ]
 
 instance EncodeTCM Blocker where
@@ -260,7 +270,7 @@ instance EncodeTCM DisplayInfo where
     [ "constraints"       #= forM constraints encodeTCM
     ]
   encodeTCM (Info_AllGoalsWarnings (vis, invis) wes) = kind "AllGoalsWarnings"
-    [ "visibleGoals"      #= forM vis (encodeOC encodeTCM encodePrettyTCM)
+    [ "visibleGoals"      #= forM vis (\i -> withInteractionId (B.outputFormId $ OutputForm noRange [] alwaysUnblock i) $ encodeOC encodeTCM encodePrettyTCM i)
     , "invisibleGoals"    #= forM invis (encodeOC encodeTCM encodePrettyTCM)
     , "warnings"          #= encodeTCM (filterTCWarnings (tcWarnings wes))
     , "errors"            #= encodeTCM (filterTCWarnings (nonFatalErrors wes))
@@ -323,7 +333,7 @@ instance EncodeTCM DisplayInfo where
     ]
   encodeTCM (Info_GoalSpecific ii info) = kind "GoalSpecific"
     [ "interactionPoint"  @= ii
-    , "goalInfo"          #= encodeGoalSpecific ii info
+    , "goalInfo"          #= withInteractionId ii (encodeGoalSpecific ii info)
     ]
 
 instance EncodeTCM GoalTypeAux where

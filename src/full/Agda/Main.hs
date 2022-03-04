@@ -5,7 +5,9 @@ module Agda.Main where
 
 import Prelude hiding (null)
 
-import Control.Monad.Except
+import Control.Monad          ( void )
+import Control.Monad.Except   ( MonadError(..), ExceptT(..), runExceptT )
+import Control.Monad.IO.Class ( MonadIO(..) )
 
 import qualified Data.List as List
 import Data.Maybe
@@ -198,7 +200,7 @@ runAgdaWithOptions interactor progName opts = do
             Bench.print
 
             -- Print accumulated statistics.
-            printStatistics 1 Nothing =<< useTC lensAccumStatistics
+            printStatistics Nothing =<< useTC lensAccumStatistics
   where
     -- Options are fleshed out here so that (most) errors like
     -- "bad library path" are validated within the interactor,

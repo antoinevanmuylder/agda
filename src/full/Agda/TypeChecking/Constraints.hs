@@ -39,6 +39,7 @@ import Agda.Utils.Maybe
 import Agda.Utils.Monad
 import Agda.Utils.Null
 import Agda.Utils.Pretty (prettyShow)
+import qualified Agda.Utils.ProfileOptions as Profile
 
 import Agda.Utils.Impossible
 
@@ -224,7 +225,7 @@ solveAwakeConstraints' = solveSomeAwakeConstraints (const True)
 --   True solve constraints even if already 'isSolvingConstraints'.
 solveSomeAwakeConstraintsTCM :: (ProblemConstraint -> Bool) -> Bool -> TCM ()
 solveSomeAwakeConstraintsTCM solveThis force = do
-    verboseS "profile.constraints" 10 $ liftTCM $ tickMax "max-open-constraints" . List.genericLength =<< getAllConstraints
+    whenProfile Profile.Constraints $ liftTCM $ tickMax "max-open-constraints" . List.genericLength =<< getAllConstraints
     whenM ((force ||) . not <$> isSolvingConstraints) $ nowSolvingConstraints $ do
      -- solveSizeConstraints -- Andreas, 2012-09-27 attacks size constrs too early
      -- Ulf, 2016-12-06: Don't inherit problems here! Stored constraints
@@ -241,7 +242,7 @@ solveSomeAwakeConstraintsTCM solveThis force = do
 
 solveConstraintTCM :: Constraint -> TCM ()
 solveConstraintTCM c = do
-    verboseS "profile.constraints" 10 $ liftTCM $ tick "attempted-constraints"
+    whenProfile Profile.Constraints $ liftTCM $ tick "attempted-constraints"
     verboseBracket "tc.constr.solve" 20 "solving constraint" $ do
       pids <- asksTC envActiveProblems
       reportSDoc "tc.constr.solve.constr" 20 $ text (show $ Set.toList pids) <+> prettyTCM c
@@ -261,7 +262,7 @@ solveConstraint_ (UnBlock m)                =   -- alwaysUnblock since these hav
         reportSDoc "tc.constr.unblock" 15 $ hsep ["not unblocking", prettyTCM m, "because",
                                                   ifM (isFrozen m) "it's frozen" "meta assignments are turned off"]
         addConstraint alwaysUnblock $ UnBlock m) $ do
-    inst <- mvInstantiation <$> lookupMeta m
+    inst <- lookupMetaInstantiation m
     reportSDoc "tc.constr.unblock" 65 $ text ("unblocking a metavar yields the constraint: " ++ show inst)
     case inst of
       BlockedConst t -> do
