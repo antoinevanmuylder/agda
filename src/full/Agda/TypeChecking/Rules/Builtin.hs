@@ -236,7 +236,8 @@ coreBuiltins =
                                                    ( el' l (bA <@> primBIOne) ) -->
                                                    (sort . tmSort <$> l) ))
   , (builtinCstrUniv                          |-> BuiltinSort "primCstrUniv")
-    
+  , (builtinBCstr                             |-> BuiltinPostulate Relevant (requireBridges "" >> (return $ sort CstrUniv)))
+
   , (builtinAgdaSort                         |-> BuiltinData tset
                                                    [ builtinAgdaSortSet, builtinAgdaSortLit
                                                    , builtinAgdaSortProp, builtinAgdaSortPropLit
