@@ -355,3 +355,34 @@ prim_ungel' = do
 -- in unglue:
 -- begin by reduceB' the variable phi. we don't have such a variable anyway
 -- then they reduceB' the principal argument b
+
+
+
+-- next the 'constructors' of BCstr. Typically ψ:BCstr is x1=ε1 ∨ ... ∨ xn=εn
+-- There are also bottom and top constructors in BCstr.
+
+-- | bottom element in BCstr
+primBno' :: TCM PrimitiveImpl
+primBno' = do
+  requireBridges "in primBno'"
+  bcstr <- primBCstr
+  return $ PrimImpl (El CstrUniv bcstr) $ primFun __IMPOSSIBLE__ 0 $ \ _ ->
+    return $ NoReduction []
+
+-- | top element in BCstr
+primByes' :: TCM PrimitiveImpl
+primByes' = do
+  requireBridges "in primByes'"
+  bcstr <- primBCstr
+  return $ PrimImpl (El CstrUniv bcstr) $ primFun __IMPOSSIBLE__ 0 $ \ _ ->
+    return $ NoReduction []
+
+
+  -- return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 5 $ \gelArgs@[l, bA0, bA1,
+  --                                                              bR, absQ]-> do
+
+-- primINeg' :: TCM PrimitiveImpl
+-- primINeg' = do
+--   requireCubical CErased ""
+--   t <- primIntervalType --> primIntervalType
+
