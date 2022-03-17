@@ -387,7 +387,7 @@ primBisone' = do
   typ <- (primBridgeIntervalType --> primBCstrType)
   bno <- primBno
   byes <- primByes
-  return $ PrimImpl typ  $ primFun __IMPOSSIBLE__ 1 $ \args@[ r ] -> do -- @(Arg rinfo rtm)
+  return $ PrimImpl typ  $ primFun __IMPOSSIBLE__ 1 $ \args@[ r ] -> do
     r' <- reduceB' r
     viewr <- bridgeIntervalView $ unArg $ ignoreBlocking r'
     case viewr of
@@ -402,7 +402,7 @@ primBiszero' = do
   typ <- (primBridgeIntervalType --> primBCstrType)
   bno <- primBno
   byes <- primByes
-  return $ PrimImpl typ  $ primFun __IMPOSSIBLE__ 1 $ \args@[ r ] -> do -- @(Arg rinfo rtm)
+  return $ PrimImpl typ  $ primFun __IMPOSSIBLE__ 1 $ \args@[ r ] -> do
     r' <- reduceB' r
     viewr <- bridgeIntervalView $ unArg $ ignoreBlocking r'
     case viewr of
@@ -411,7 +411,112 @@ primBiszero' = do
       _ -> return $ NoReduction $ [reduced r'] --what about metas
 
 
-    -- case viewr of
+
+-- data BridgeIntervalView
+--       = BIZero
+--       | BIOne
+--       | BOTerm Term
+--       deriving Show
+
+-- bridgeIntervalView' :: HasBuiltins m => m (Term -> BridgeIntervalView)
+-- bridgeIntervalView' = do
+--   biz <- getBuiltinName' builtinBIZero
+--   bio <- getBuiltinName' builtinBIOne
+--   return $ \ t ->
+--     case t of
+--       Con q _ [] | Just (conName q) == biz -> BIZero
+--                  | Just (conName q) == bio -> BIOne
+--       _ -> BOTerm t
+
+-- intervalView' :: HasBuiltins m => m (Term -> IntervalView)
+-- intervalView' = do
+--   iz <- getBuiltinName' builtinIZero
+--   io <- getBuiltinName' builtinIOne
+--   imax <- getPrimitiveName' "primIMax"
+--   imin <- getPrimitiveName' "primIMin"
+--   ineg <- getPrimitiveName' "primINeg"
+--   return $ \ t ->
+--     case t of
+--       Def q es ->
+--         case es of
+--           [Apply x,Apply y] | Just q == imin -> IMin x y
+--           [Apply x,Apply y] | Just q == imax -> IMax x y
+--           [Apply x]         | Just q == ineg -> INeg x
+--           _                 -> OTerm t
+--       Con q _ [] | Just (conName q) == iz -> IZero
+--                  | Just (conName q) == io -> IOne
+--       _ -> OTerm t
+
+-- bridgeIntervalView :: HasBuiltins m => Term -> m BridgeIntervalView
+-- bridgeIntervalView t = do
+--   f <- bridgeIntervalView'
+--   return (f t)
+
+
+data BCstrView
+  = Bno
+  | Byes
+  | Bisone (Arg Term)
+  | Biszero (Arg Term)
+  | Bconj (Arg Term) (Arg Term)
+  | OtherBCstr Term
+
+bcstrView' :: HasBuiltins m => m (Term -> BCstrView)
+bcstrView' = do
+  bno <- getPrimitiveName' builtinBno
+  byes <- getPrimitiveName' builtinByes
+  biszero <- getPrimitiveName' builtinBiszero
+  bisone <- getPrimitiveName' builtinBisone
+  bconj <- getPrimitiveName' builtinBconj
+  return $ \ t ->
+    case t of
+      Def q es ->
+        case es of
+          [] | Just q == bno -> Bno
+          [] | Just q == byes -> Byes
+          [Apply x]         | Just q == bisone -> Bisone x
+          [Apply x]         | Just q == biszero -> Biszero x          
+          [Apply x,Apply y] | Just q == bconj -> Bconj x y
+          _                 -> OtherBCstr t
+      _ -> OtherBCstr t
+
+bcstrView :: HasBuiltins m => Term -> m BCstrView
+bcstrView t = do
+  f <- bcstrView'
+  return (f t)      
+
+-- | conjunction of bridge var constraints! primBconj : BCstr -> BCstr -> BCstr
+primBconj' :: TCM PrimitiveImpl
+primBconj' = do
+  requireBridges "in primBconj'"
+  typ <- (primBCstrType --> primBCstrType --> primBCstrType)
+  bno <- primBno
+  byes <- primByes
+  bisone <- primBisone
+  biszero <- primBiszero
+  return $ PrimImpl typ  $ primFun __IMPOSSIBLE__ 2 $ \args@[ psi1 , psi2 ] -> do
+    psi1' <- reduceB' psi1
+    psi2' <- reduceB' psi2
+    viewPsi1 <- bcstrView $ unArg $ ignoreBlocking psi1'
+    viewPsi2 <- bcstrView $ unArg $ ignoreBlocking psi2'
+    case (viewPsi1 , viewPsi2) of
+      -- absorption/identity
+      (Byes , _) -> redReturn byes
+      (_ , Byes) -> redReturn byes
+      (Bno , _) -> redReturn $ unArg $ ignoreBlocking $ psi2'
+      (_ , Bno) -> redReturn $ unArg $ ignoreBlocking $ psi1'
+      _ -> return $ NoReduction $ map reduced [ psi1' , psi2'] -- /!\ metas
+
+-- data BCstrView
+--   = Bno
+--   | Byes
+--   | Bisone (Arg Term)
+--   | Biszero (Arg Term)
+--   | Bconj (Arg Term) (Arg Term)
+--   | OtherBCstr Term
+
+
+      -- case viewr of
     --   BIZero ->  redReturn $ n0tm `apply` [bM] -- YesReduction, YesSimplification
     --   BIOne ->   redReturn $ n1tm `apply` [bM]
     --   -- QST: no need to check that #occ of r in M <= 1 because this will be checked later?
