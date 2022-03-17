@@ -68,6 +68,9 @@ requireBridges s = do
 primBridgeIntervalType :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m) => m Type
 primBridgeIntervalType = El LockUniv <$> primBridgeInterval
 
+primBCstrType :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m) => m Type
+primBCstrType = El CstrUniv <$> primBCstr
+
 -- | two functions to fill implementations holes
 dummyRedTerm0 :: ReduceM( Reduced MaybeReducedArgs Term)
 dummyRedTerm0 = do
@@ -376,6 +379,45 @@ primByes' = do
   bcstr <- primBCstr
   return $ PrimImpl (El CstrUniv bcstr) $ primFun __IMPOSSIBLE__ 0 $ \ _ ->
     return $ NoReduction []
+
+-- | primBisone : BI -> BCstr       constraint "r=1" for some bvar r.
+primBisone' :: TCM PrimitiveImpl
+primBisone' = do
+  requireBridges "in primBisone'"
+  typ <- (primBridgeIntervalType --> primBCstrType)
+  bno <- primBno
+  byes <- primByes
+  return $ PrimImpl typ  $ primFun __IMPOSSIBLE__ 1 $ \args@[ r ] -> do -- @(Arg rinfo rtm)
+    r' <- reduceB' r
+    viewr <- bridgeIntervalView $ unArg $ ignoreBlocking r'
+    case viewr of
+      BIZero -> redReturn $ bno
+      BIOne -> redReturn $ byes
+      _ -> return $ NoReduction $ [reduced r'] --what about metas
+      
+-- | primBiszero : BI -> BCstr       constraint "r=0" for some bvar r.
+primBiszero' :: TCM PrimitiveImpl
+primBiszero' = do
+  requireBridges "in primBisone'"
+  typ <- (primBridgeIntervalType --> primBCstrType)
+  bno <- primBno
+  byes <- primByes
+  return $ PrimImpl typ  $ primFun __IMPOSSIBLE__ 1 $ \args@[ r ] -> do -- @(Arg rinfo rtm)
+    r' <- reduceB' r
+    viewr <- bridgeIntervalView $ unArg $ ignoreBlocking r'
+    case viewr of
+      BIZero -> redReturn $ byes
+      BIOne -> redReturn $ bno
+      _ -> return $ NoReduction $ [reduced r'] --what about metas
+
+
+    -- case viewr of
+    --   BIZero ->  redReturn $ n0tm `apply` [bM] -- YesReduction, YesSimplification
+    --   BIOne ->   redReturn $ n1tm `apply` [bM]
+    --   -- QST: no need to check that #occ of r in M <= 1 because this will be checked later?
+    --   -- in order to reduce extent_r(M ; ..) we need to check that M has no timefull r-laters
+    --   BOTerm rtm@(Var ri []) -> do
+-- return $ NoReduction $ map notReduced [lA, lB, bA, bB, n0, n1, nn] ++ [reduced r' , notReduced bM]
 
 
   -- return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 5 $ \gelArgs@[l, bA0, bA1,
