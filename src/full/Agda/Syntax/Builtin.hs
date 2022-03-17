@@ -25,7 +25,7 @@ builtinNat, builtinSuc, builtinZero, builtinNatPlus, builtinNatMinus,
   builtinFaceForall,
   builtinId, builtinReflId, builtinConId, builtinIdElim,
   builtinBridgeInterval, builtinBIZero, builtinBIOne, builtinBridgeP,
-  builtinExtent, builtinGel, builtin_gel, builtin_ungel,
+  builtinExtent, builtinGel, builtin_gel, builtin_ungel, builtinCstrUniv,
   builtinSizeUniv, builtinSize, builtinSizeLt,
   builtinSizeSuc, builtinSizeInf, builtinSizeMax,
   builtinInf, builtinSharp, builtinFlat,
@@ -155,6 +155,7 @@ builtinExtent                            = "primExtent"
 builtinGel                               = "primGel"
 builtin_gel                              = "prim^gel"
 builtin_ungel                            = "prim^ungel"
+builtinCstrUniv                          = "CSTRUNIV"
 builtinSizeUniv                          = "SIZEUNIV"
 builtinSize                              = "SIZE"
 builtinSizeLt                            = "SIZELT"
@@ -323,7 +324,8 @@ builtinsNoDef =
   , builtinIOne
   , builtinBridgeInterval
   , builtinBIZero
-  , builtinBIOne
+  , builtinBIOne --TODO-antva not sure about those..
+  , builtinCstrUniv
   , builtinSet
   , builtinProp
   , builtinSetOmega

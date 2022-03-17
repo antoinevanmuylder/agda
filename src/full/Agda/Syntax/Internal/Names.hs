@@ -196,6 +196,7 @@ instance NamesIn Sort where
     SizeUniv    -> mempty
     LockUniv    -> mempty
     IntervalUniv -> mempty
+    CstrUniv     -> mempty
     PiSort a b c  -> namesAndMetasIn' sg (a, b, c)
     FunSort a b -> namesAndMetasIn' sg (a, b)
     UnivSort a  -> namesAndMetasIn' sg a

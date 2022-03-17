@@ -833,6 +833,7 @@ instance (Coercible a Term, Subst a) => Subst (Sort' a) where
     SizeUniv   -> SizeUniv
     LockUniv   -> LockUniv
     IntervalUniv -> IntervalUniv
+    CstrUniv -> CstrUniv
     PiSort a s1 s2 -> coerce $ piSort (coerce $ sub a) (coerce $ sub s1) (coerce $ sub s2)
     FunSort s1 s2 -> coerce $ funSort (coerce $ sub s1) (coerce $ sub s2)
     UnivSort s -> coerce $ univSort $ coerce $ sub s
@@ -1522,6 +1523,7 @@ isSmallSort Prop{}     = Just (True,IsFibrant)
 isSmallSort SizeUniv   = Just (True,IsFibrant)
 isSmallSort LockUniv   = Just (True,IsFibrant)
 isSmallSort IntervalUniv = Just (True,IsStrict)
+isSmallSort CstrUniv = Just (True,IsStrict)
 isSmallSort (Inf f _)  = Just (False,f)
 isSmallSort SSet{}     = Just (True,IsStrict)
 isSmallSort MetaS{}    = Nothing
@@ -1547,6 +1549,9 @@ funSort' a b = case (a, b) of
   (LockUniv      , b            ) -> Just b
   -- No functions into lock types
   (a             , LockUniv     ) -> Nothing
+  (CstrUniv      , b            ) -> Just b
+  -- No functions into constraint types
+  (a             , CstrUniv     ) -> Nothing
   -- @IntervalUniv@ behaves like @SSet@, but functions into @Type@ land in @Type
   (IntervalUniv  , IntervalUniv ) -> Just $ SSet $ ClosedLevel 0
   (IntervalUniv  , SSet b       ) -> Just $ SSet $ b

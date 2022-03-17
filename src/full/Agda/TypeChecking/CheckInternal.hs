@@ -430,6 +430,7 @@ checkSort action s =
     SizeUniv -> return SizeUniv
     LockUniv -> return LockUniv
     IntervalUniv -> return IntervalUniv
+    CstrUniv     -> return CstrUniv
     PiSort dom s1 s2 -> do
       let a = unDom dom
       s1' <- checkSort action s1

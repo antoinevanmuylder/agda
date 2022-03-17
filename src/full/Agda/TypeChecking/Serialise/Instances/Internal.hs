@@ -153,8 +153,9 @@ instance EmbPrj I.Sort where
   icod_ (SSet  a  ) = icodeN 8 SSet a
   icod_ LockUniv    = icodeN 9 LockUniv
   icod_ IntervalUniv = icodeN 10 IntervalUniv
-  icod_ (MetaS a b)  = icodeN 11 MetaS a b
-  icod_ (DummyS s)   = icodeN 12 DummyS s
+  icod_ CstrUniv     = icodeN 11 CstrUniv
+  icod_ (MetaS a b)  = icodeN 12 MetaS a b
+  icod_ (DummyS s)   = icodeN 13 DummyS s
 
   value = vcase valu where
     valu [0, a]    = valuN Type  a
@@ -168,8 +169,9 @@ instance EmbPrj I.Sort where
     valu [8, a]    = valuN SSet a
     valu [9]       = valuN LockUniv
     valu [10]      = valuN IntervalUniv
-    valu [11, a, b] = valuN MetaS a b
-    valu [12, s]   = valuN DummyS s
+    valu [11]      = valuN CstrUniv
+    valu [12, a, b] = valuN MetaS a b
+    valu [13, s]   = valuN DummyS s
     valu _         = malformed
 
 instance EmbPrj DisplayForm where

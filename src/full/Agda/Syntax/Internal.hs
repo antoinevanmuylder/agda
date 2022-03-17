@@ -304,6 +304,7 @@ data Sort' t
   | SizeUniv    -- ^ @SizeUniv@, a sort inhabited by type @Size@.
   | LockUniv    -- ^ @LockUniv@, a sort for locks.
   | IntervalUniv -- ^ @IntervalUniv@, a sort inhabited by the cubical interval.
+  | CstrUniv     -- ^ @CstrUniv@, a sort inhabited by the type of bridge constraints.
   | PiSort (Dom' t t) (Sort' t) (Abs (Sort' t)) -- ^ Sort of the pi type.
   | FunSort (Sort' t) (Sort' t) -- ^ Sort of a (non-dependent) function type.
   | UnivSort (Sort' t) -- ^ Sort of another sort.
@@ -1195,6 +1196,7 @@ instance TermSize Sort where
     SizeUniv  -> 1
     LockUniv  -> 1
     IntervalUniv -> 1
+    CstrUniv -> 1
     PiSort a s1 s2 -> 1 + tsize a + tsize s1 + tsize s2
     FunSort s1 s2 -> 1 + tsize s1 + tsize s2
     UnivSort s -> 1 + tsize s
@@ -1255,6 +1257,7 @@ instance KillRange Sort where
     SizeUniv   -> SizeUniv
     LockUniv   -> LockUniv
     IntervalUniv -> IntervalUniv
+    CstrUniv -> CstrUniv
     Type a     -> killRange1 Type a
     Prop a     -> killRange1 Prop a
     SSet a     -> killRange1 SSet a
@@ -1415,6 +1418,7 @@ instance Pretty Sort where
       SizeUniv -> "SizeUniv"
       LockUniv -> "LockUniv"
       IntervalUniv -> "IntervalUniv"
+      CstrUniv -> "CstrUniv"
       PiSort a s1 s2 -> mparens (p > 9) $
         "piSort" <+> pDom (domInfo a) (text (absName s2) <+> ":" <+> pretty (unDom a))
                       <+> parens (sep [ text ("λ " ++ absName s2 ++ " ->")
@@ -1489,6 +1493,7 @@ instance NFData Sort where
     SizeUniv -> ()
     LockUniv -> ()
     IntervalUniv -> ()
+    CstrUniv -> ()
     PiSort a b c -> rnf (a, b, unAbs c)
     FunSort a b -> rnf (a, b)
     UnivSort a -> rnf a

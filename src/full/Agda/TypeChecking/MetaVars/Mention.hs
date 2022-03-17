@@ -56,6 +56,7 @@ instance MentionsMeta Sort where
     SizeUniv   -> False
     LockUniv   -> False
     IntervalUniv -> False
+    CstrUniv     -> False
     PiSort a s1 s2 -> mentionsMetas xs (a, s1, s2)
     FunSort s1 s2 -> mentionsMetas xs (s1, s2)
     UnivSort s -> mentionsMetas xs s

@@ -682,6 +682,7 @@ instance ExtractCalls Sort where
       SizeUniv   -> return empty
       LockUniv   -> return empty
       IntervalUniv -> return empty
+      CstrUniv     -> return empty
       Type t     -> terUnguarded $ extract t  -- no guarded levels
       Prop t     -> terUnguarded $ extract t
       SSet t     -> terUnguarded $ extract t

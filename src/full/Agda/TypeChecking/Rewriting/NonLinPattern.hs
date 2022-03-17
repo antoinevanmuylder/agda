@@ -97,6 +97,7 @@ instance PatternFrom () Sort NLPSort where
       SizeUniv -> return PSizeUniv
       LockUniv -> return PLockUniv
       IntervalUniv -> return PIntervalUniv
+      CstrUniv     -> __IMPOSSIBLE__  --TODO-antva. must augment NLPSort with CstrUniv?
       PiSort _ _ _ -> __IMPOSSIBLE__
       FunSort _ _ -> __IMPOSSIBLE__
       UnivSort _ -> __IMPOSSIBLE__

@@ -235,6 +235,7 @@ coreBuiltins =
                                                    ( el' l (bA <@> primBIZero) ) -->
                                                    ( el' l (bA <@> primBIOne) ) -->
                                                    (sort . tmSort <$> l) ))
+  , (builtinCstrUniv                          |-> BuiltinSort "primCstrUniv")
     
   , (builtinAgdaSort                         |-> BuiltinData tset
                                                    [ builtinAgdaSortSet, builtinAgdaSortLit
@@ -1041,11 +1042,13 @@ bindBuiltinNoDef b q = inTopContext $ do
                 "primSetOmega" -> Inf IsFibrant 0
                 "primStrictSetOmega" -> Inf IsStrict 0
                 "primIntervalUniv" -> IntervalUniv
+                "primCstrUniv" -> CstrUniv
                 _              -> __IMPOSSIBLE__
           def = PrimitiveSort sortname s
       -- Check for the cubical flag if the sort requries it
       case sortname of
         "primIntervalUniv" -> requireCubical CErased ""
+        "primCstrUniv" -> requireCubical CErased ""
         _ -> return ()
       addConstant' q defaultArgInfo q (sort $ univSort s) def
       bindBuiltinName b $ Def q []

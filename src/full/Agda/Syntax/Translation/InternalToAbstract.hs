@@ -1386,6 +1386,9 @@ instance Reify Sort where
         I.IntervalUniv -> do
           intervalU <- fromMaybe __IMPOSSIBLE__ <$> getName' builtinIntervalUniv
           return $ A.Def intervalU
+        I.CstrUniv -> do
+          cstrU <- fromMaybe __IMPOSSIBLE__ <$> getName' builtinCstrUniv
+          return $ A.Def cstrU
         I.PiSort a s1 s2 -> do
           pis <- freshName_ ("piSort" :: String) -- TODO: hack
           (e1,e2) <- reify (s1, I.Lam defaultArgInfo $ fmap Sort s2)

@@ -392,6 +392,7 @@ instance Reduce Sort where
         SizeUniv   -> return SizeUniv
         LockUniv   -> return LockUniv
         IntervalUniv -> return IntervalUniv
+        CstrUniv     -> return CstrUniv
         MetaS x es -> return s
         DefS d es  -> return s -- postulated sorts do not reduce
         DummyS{}   -> return s
@@ -1007,6 +1008,7 @@ instance Simplify Sort where
         SizeUniv   -> return s
         LockUniv   -> return s
         IntervalUniv -> return s
+        CstrUniv     -> return s
         MetaS x es -> MetaS x <$> simplify' es
         DefS d es  -> DefS d <$> simplify' es
         DummyS{}   -> return s
@@ -1158,6 +1160,7 @@ instance Normalise Sort where
         SizeUniv   -> return SizeUniv
         LockUniv   -> return LockUniv
         IntervalUniv -> return IntervalUniv
+        CstrUniv     -> return CstrUniv
         MetaS x es -> return s
         DefS d es  -> return s
         DummyS{}   -> return s
@@ -1367,6 +1370,7 @@ instance InstantiateFull Sort where
             SizeUniv   -> return s
             LockUniv   -> return s
             IntervalUniv -> return s
+            CstrUniv     -> return s
             MetaS x es -> MetaS x <$> instantiateFull' es
             DefS d es  -> DefS d <$> instantiateFull' es
             DummyS{}   -> return s

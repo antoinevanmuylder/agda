@@ -322,6 +322,7 @@ instance UsableRelevance Sort where
     SizeUniv -> return True
     LockUniv -> return True
     IntervalUniv -> return True
+    CstrUniv -> return True --TODO-antva
     PiSort a s1 s2 -> usableRel rel (a,s1,s2)
     FunSort s1 s2 -> usableRel rel (s1,s2)
     UnivSort s -> usableRel rel s
@@ -515,6 +516,7 @@ isFibrant a = abortIfBlocked (getSort a) <&> \case
   SizeUniv{} -> False
   LockUniv{} -> False
   IntervalUniv{} -> False
+  CstrUniv{}     -> False
   PiSort{}   -> False
   FunSort{}  -> False
   UnivSort{} -> False
@@ -534,6 +536,7 @@ isCoFibrantSort a = abortIfBlocked (getSort a) <&> \case
   SizeUniv{} -> False
   LockUniv{} -> True
   IntervalUniv{} -> True
+  CstrUniv{}     -> False --TODO-antva
   PiSort{}   -> False
   FunSort{}  -> False
   UnivSort{} -> False

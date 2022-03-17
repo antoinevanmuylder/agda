@@ -836,6 +836,7 @@ instance AllHoles Sort where
     SizeUniv     -> empty
     LockUniv     -> empty
     IntervalUniv -> empty
+    CstrUniv     -> empty
     PiSort{}     -> __IMPOSSIBLE__
     FunSort{}    -> __IMPOSSIBLE__
     UnivSort{}   -> __IMPOSSIBLE__
@@ -913,6 +914,7 @@ instance MetasToVars Sort where
     SizeUniv   -> pure SizeUniv
     LockUniv   -> pure LockUniv
     IntervalUniv -> pure IntervalUniv
+    CstrUniv     -> pure CstrUniv
     PiSort s t u -> PiSort   <$> metasToVars s <*> metasToVars t <*> metasToVars u
     FunSort s t -> FunSort <$> metasToVars s <*> metasToVars t
     UnivSort s -> UnivSort <$> metasToVars s
