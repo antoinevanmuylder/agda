@@ -179,6 +179,7 @@ primInteger, primIntegerPos, primIntegerNegSuc,
     primFaceForall,
     primBridgeInterval, primBIZero, primBIOne, primBridgeP,
     primExtent, primGel, prim_gel, prim_ungel, primCstrUniv, primBCstr,
+    primBno, primByes, primBiszero, primBisone, primBConj,
     primNatPlus, primNatMinus, primNatTimes, primNatDivSucAux, primNatModSucAux,
     primNatEquality, primNatLess,
     -- Machine words
@@ -292,6 +293,11 @@ prim_gel                              = getPrimitiveTerm builtin_gel
 prim_ungel                            = getPrimitiveTerm builtin_ungel
 primCstrUniv                          = getBuiltin builtinCstrUniv
 primBCstr                             = getBuiltin builtinBCstr
+primBno                               = getPrimitiveTerm builtinBno
+primByes                              = getPrimitiveTerm builtinByes
+primBiszero                           = getPrimitiveTerm builtinBiszero
+primBisone                            = getPrimitiveTerm builtinBisone
+primBConj                             = getPrimitiveTerm builtinBconj
 primNat                               = getBuiltin builtinNat
 primSuc                               = getBuiltin builtinSuc
 primZero                              = getBuiltin builtinZero

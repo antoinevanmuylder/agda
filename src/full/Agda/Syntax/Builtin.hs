@@ -26,6 +26,7 @@ builtinNat, builtinSuc, builtinZero, builtinNatPlus, builtinNatMinus,
   builtinId, builtinReflId, builtinConId, builtinIdElim,
   builtinBridgeInterval, builtinBIZero, builtinBIOne, builtinBridgeP,
   builtinExtent, builtinGel, builtin_gel, builtin_ungel, builtinCstrUniv, builtinBCstr,
+  builtinByes, builtinBno, builtinBisone, builtinBiszero, builtinBconj,
   builtinSizeUniv, builtinSize, builtinSizeLt,
   builtinSizeSuc, builtinSizeInf, builtinSizeMax,
   builtinInf, builtinSharp, builtinFlat,
@@ -157,6 +158,11 @@ builtin_gel                              = "prim^gel"
 builtin_ungel                            = "prim^ungel"
 builtinCstrUniv                          = "CSTRUNIV"
 builtinBCstr                             = "BCSTR"
+builtinByes                              = "primByes"
+builtinBno                               = "primBno"
+builtinBisone                            = "primBisone"
+builtinBiszero                           = "primBiszero"
+builtinBconj                             = "primBconj"
 builtinSizeUniv                          = "SIZEUNIV"
 builtinSize                              = "SIZE"
 builtinSizeLt                            = "SIZELT"
@@ -323,10 +329,15 @@ builtinsNoDef =
   , builtinSub
   , builtinIZero
   , builtinIOne
-  , builtinBridgeInterval
+  , builtinBridgeInterval --TODO-antva not sure about those..
   , builtinBIZero
-  , builtinBIOne --TODO-antva not sure about those..
+  , builtinBIOne 
   , builtinCstrUniv
+  , builtinByes
+  , builtinBno
+  , builtinBisone
+  , builtinBiszero
+  , builtinBconj  -- .. until here (included)
   , builtinSet
   , builtinProp
   , builtinSetOmega
