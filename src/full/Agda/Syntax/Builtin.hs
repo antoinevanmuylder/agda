@@ -27,6 +27,7 @@ builtinNat, builtinSuc, builtinZero, builtinNatPlus, builtinNatMinus,
   builtinBridgeInterval, builtinBIZero, builtinBIOne, builtinBridgeP,
   builtinExtent, builtinGel, builtin_gel, builtin_ungel, builtinCstrUniv, builtinBCstr,
   builtinByes, builtinBno, builtinBisone, builtinBiszero, builtinBconj,
+  builtinBHolds, builtinBitHolds,
   builtinSizeUniv, builtinSize, builtinSizeLt,
   builtinSizeSuc, builtinSizeInf, builtinSizeMax,
   builtinInf, builtinSharp, builtinFlat,
@@ -163,6 +164,8 @@ builtinBno                               = "primBno"
 builtinBisone                            = "primBisone"
 builtinBiszero                           = "primBiszero"
 builtinBconj                             = "primBconj"
+builtinBHolds                            = "BHOLDS"
+builtinBitHolds                          = "BITHOLDS"
 builtinSizeUniv                          = "SIZEUNIV"
 builtinSize                              = "SIZE"
 builtinSizeLt                            = "SIZELT"
@@ -337,7 +340,8 @@ builtinsNoDef =
   , builtinBno
   , builtinBisone
   , builtinBiszero
-  , builtinBconj  -- .. until here (included)
+  , builtinBconj
+  , builtinBHolds -- .. until here (included)
   , builtinSet
   , builtinProp
   , builtinSetOmega

@@ -237,6 +237,8 @@ coreBuiltins =
                                                    (sort . tmSort <$> l) ))
   , (builtinCstrUniv                          |-> BuiltinSort "primCstrUniv")
   , (builtinBCstr                             |-> BuiltinPostulate Relevant (requireBridges "" >> (return $ sort CstrUniv)))
+  , (builtinBHolds                            |-> BuiltinPostulate Relevant (requireBridges "" >> (tbcstr --> return (ssort $ ClosedLevel 0))))
+  , (builtinBitHolds                          |-> BuiltinPostulate Relevant (requireBridges "" >> (elSSet $ primBHolds <@> primByes)))
 
   , (builtinAgdaSort                         |-> BuiltinData tset
                                                    [ builtinAgdaSortSet, builtinAgdaSortLit
@@ -473,6 +475,7 @@ coreBuiltins =
         tTCM l a   = elV l (primAgdaTCM <#> varM l <@> a)
         tTCM_ a    = el (primAgdaTCM <#> primLevelZero <@> a)
         tinterval  = El IntervalUniv <$> primInterval
+        tbcstr     = El CstrUniv <$> primBCstr
 
         verifyPlus plus =
             verify ["n","m"] $ \(@@) zero suc (==) (===) choice -> do
