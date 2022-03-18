@@ -368,6 +368,7 @@ compareTerm' cmp a m n =
        mUnglueU <- getPrimitiveTerm' builtin_unglueU
        mSubIn   <- getPrimitiveTerm' builtinSubIn
        mGel <- getPrimitiveName' builtinGel
+       mBHolds <- getBuiltinName' builtinBHolds
        case ty of
          Def q es | Just q == mIsOne -> return ()
          Def q es | Just q == mGlue, Just args@(l:_:a:phi:_) <- allApplyElims es -> do
@@ -378,6 +379,7 @@ compareTerm' cmp a m n =
               compareTermOnFace cmp (unArg phi) a' m n
               compareTerm cmp aty (mkUnglue m) (mkUnglue n)
          Def q es | Just q == mGel, Just args <- allApplyElims es -> compareGelTm cmp a' args m n
+         Def q es | Just q == mBHolds -> return ()
          Def q es | Just q == mHComp, Just (sl:s:args@[phi,u,u0]) <- allApplyElims es
                   , Sort (Type lvl) <- unArg s
                   , Just unglueU <- mUnglueU, Just subIn <- mSubIn

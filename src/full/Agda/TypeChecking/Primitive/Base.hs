@@ -88,6 +88,18 @@ pPi' n phi b = toFinitePi <$> nPi' n (elSSet $ cl isOne <@> phi) b
 
    isOne = fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinIsOne
 
+-- | similar to pPi', but for bdg constraints this time.
+--   psi should be of type BCstr.
+bpPi' :: (MonadAddContext m, HasBuiltins m, MonadDebug m)
+     => String -> NamesT m Term -> (NamesT m Term -> NamesT m Type) -> NamesT m Type
+bpPi' n psi b = toFinitePi <$> nPi' n (elSSet $ cl bholds <@> psi) b
+ where
+   toFinitePi :: Type -> Type
+   toFinitePi (El s (Pi d b)) = El s $ Pi (setRelevance Irrelevant $ d { domFinite = True }) b
+   toFinitePi _               = __IMPOSSIBLE__
+
+   bholds = fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinBHolds
+
 el' :: Applicative m => m Term -> m Term -> m Type
 el' l a = El <$> (tmSort <$> l) <*> a
 
