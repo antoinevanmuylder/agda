@@ -463,3 +463,22 @@ primBconj' = do
       (Bno , _) -> redReturn $ unArg $ ignoreBlocking $ psi2'
       (_ , Bno) -> redReturn $ unArg $ ignoreBlocking $ psi1'
       _ -> return $ NoReduction $ map reduced [ psi1' , psi2'] -- /!\ metas
+
+
+primBPartial' :: TCM PrimitiveImpl
+primBPartial' = do
+  requireBridges ""
+  t <- runNamesT [] $
+       hPi' "l" (el $ cl primLevel) (\ l ->
+        nPi' "ψ" primBCstrType $ \ _ ->
+        nPi' "A" (sort . tmSort <$> l) $ \ bA ->
+        (sort . tmSSort <$> l))
+  tbholds <- primBHolds
+  return $ PrimImpl t $ primFun __IMPOSSIBLE__ 3 $ \ ts -> do
+    case ts of
+      [l,psi,a] -> do
+          (El s (Pi d b)) <- runNamesT [] $ do
+                             [l,a,psi] <- mapM (open . unArg) [l,a,psi]
+                             elSSet (pure tbholds <@> psi) --> el' l a
+          redReturn $ Pi (setRelevance Irrelevant $ d { domFinite = True }) b
+      _ -> __IMPOSSIBLE__

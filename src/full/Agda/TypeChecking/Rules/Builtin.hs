@@ -239,6 +239,7 @@ coreBuiltins =
   , (builtinBCstr                             |-> BuiltinPostulate Relevant (requireBridges "" >> (return $ sort CstrUniv)))
   , (builtinBHolds                            |-> BuiltinPostulate Relevant (requireBridges "" >> (tbcstr --> return (ssort $ ClosedLevel 0))))
   , (builtinBitHolds                          |-> BuiltinPostulate Relevant (requireBridges "" >> (elSSet $ primBHolds <@> primByes)))
+  , (builtinBPartial                          |-> BuiltinPrim "primBPartial" (const $ return ()))
 
   , (builtinAgdaSort                         |-> BuiltinData tset
                                                    [ builtinAgdaSortSet, builtinAgdaSortLit

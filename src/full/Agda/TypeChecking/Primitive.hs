@@ -985,6 +985,7 @@ primitiveFunctions = localTCStateSavingWarnings <$> Map.fromListWith __IMPOSSIBL
   , builtinBisone         |-> primBisone'
   , builtinBiszero        |-> primBiszero'
   , builtinBconj          |-> primBconj'
+  , "primBPartial"        |-> primBPartial'
   ]
   where
     (|->) = (,)
