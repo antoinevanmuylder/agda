@@ -385,9 +385,9 @@ primBisone' :: TCM PrimitiveImpl
 primBisone' = do
   requireBridges "in primBisone'"
   typ <- (primBridgeIntervalType --> primBCstrType)
-  bno <- primBno
-  byes <- primByes
   return $ PrimImpl typ  $ primFun __IMPOSSIBLE__ 1 $ \args@[ r ] -> do
+    bno <- getTerm builtinBisone builtinBno
+    byes <- getTerm builtinBisone builtinByes
     r' <- reduceB' r
     viewr <- bridgeIntervalView $ unArg $ ignoreBlocking r'
     case viewr of
@@ -400,58 +400,15 @@ primBiszero' :: TCM PrimitiveImpl
 primBiszero' = do
   requireBridges "in primBisone'"
   typ <- (primBridgeIntervalType --> primBCstrType)
-  bno <- primBno
-  byes <- primByes
   return $ PrimImpl typ  $ primFun __IMPOSSIBLE__ 1 $ \args@[ r ] -> do
+    bno <- getTerm builtinBisone builtinBno
+    byes <- getTerm builtinBisone builtinByes
     r' <- reduceB' r
     viewr <- bridgeIntervalView $ unArg $ ignoreBlocking r'
     case viewr of
       BIZero -> redReturn $ byes
       BIOne -> redReturn $ bno
       _ -> return $ NoReduction $ [reduced r'] --what about metas
-
-
-
--- data BridgeIntervalView
---       = BIZero
---       | BIOne
---       | BOTerm Term
---       deriving Show
-
--- bridgeIntervalView' :: HasBuiltins m => m (Term -> BridgeIntervalView)
--- bridgeIntervalView' = do
---   biz <- getBuiltinName' builtinBIZero
---   bio <- getBuiltinName' builtinBIOne
---   return $ \ t ->
---     case t of
---       Con q _ [] | Just (conName q) == biz -> BIZero
---                  | Just (conName q) == bio -> BIOne
---       _ -> BOTerm t
-
--- intervalView' :: HasBuiltins m => m (Term -> IntervalView)
--- intervalView' = do
---   iz <- getBuiltinName' builtinIZero
---   io <- getBuiltinName' builtinIOne
---   imax <- getPrimitiveName' "primIMax"
---   imin <- getPrimitiveName' "primIMin"
---   ineg <- getPrimitiveName' "primINeg"
---   return $ \ t ->
---     case t of
---       Def q es ->
---         case es of
---           [Apply x,Apply y] | Just q == imin -> IMin x y
---           [Apply x,Apply y] | Just q == imax -> IMax x y
---           [Apply x]         | Just q == ineg -> INeg x
---           _                 -> OTerm t
---       Con q _ [] | Just (conName q) == iz -> IZero
---                  | Just (conName q) == io -> IOne
---       _ -> OTerm t
-
--- bridgeIntervalView :: HasBuiltins m => Term -> m BridgeIntervalView
--- bridgeIntervalView t = do
---   f <- bridgeIntervalView'
---   return (f t)
-
 
 data BCstrView
   = Bno
@@ -490,11 +447,11 @@ primBconj' :: TCM PrimitiveImpl
 primBconj' = do
   requireBridges "in primBconj'"
   typ <- (primBCstrType --> primBCstrType --> primBCstrType)
-  bno <- primBno
-  byes <- primByes
-  bisone <- primBisone
-  biszero <- primBiszero
   return $ PrimImpl typ  $ primFun __IMPOSSIBLE__ 2 $ \args@[ psi1 , psi2 ] -> do
+    bno <- getTerm builtinBconj builtinBno
+    byes <- getTerm builtinBconj builtinByes
+    bisone <- getTerm builtinBconj builtinBisone
+    biszero <- getTerm builtinBconj builtinBiszero
     psi1' <- reduceB' psi1
     psi2' <- reduceB' psi2
     viewPsi1 <- bcstrView $ unArg $ ignoreBlocking psi1'
@@ -506,30 +463,3 @@ primBconj' = do
       (Bno , _) -> redReturn $ unArg $ ignoreBlocking $ psi2'
       (_ , Bno) -> redReturn $ unArg $ ignoreBlocking $ psi1'
       _ -> return $ NoReduction $ map reduced [ psi1' , psi2'] -- /!\ metas
-
--- data BCstrView
---   = Bno
---   | Byes
---   | Bisone (Arg Term)
---   | Biszero (Arg Term)
---   | Bconj (Arg Term) (Arg Term)
---   | OtherBCstr Term
-
-
-      -- case viewr of
-    --   BIZero ->  redReturn $ n0tm `apply` [bM] -- YesReduction, YesSimplification
-    --   BIOne ->   redReturn $ n1tm `apply` [bM]
-    --   -- QST: no need to check that #occ of r in M <= 1 because this will be checked later?
-    --   -- in order to reduce extent_r(M ; ..) we need to check that M has no timefull r-laters
-    --   BOTerm rtm@(Var ri []) -> do
--- return $ NoReduction $ map notReduced [lA, lB, bA, bB, n0, n1, nn] ++ [reduced r' , notReduced bM]
-
-
-  -- return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 5 $ \gelArgs@[l, bA0, bA1,
-  --                                                              bR, absQ]-> do
-
--- primINeg' :: TCM PrimitiveImpl
--- primINeg' = do
---   requireCubical CErased ""
---   t <- primIntervalType --> primIntervalType
-
