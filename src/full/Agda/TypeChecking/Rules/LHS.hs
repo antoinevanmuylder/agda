@@ -1037,6 +1037,7 @@ checkLHS mf = updateModality checkLHS_ where
 
       let cpSub = raiseS $ size newContext - lhsCxtSize
 
+      -- Γ replaces Δ1∙dom. σ seems to use the info itIsOne : dom in ᵃΔ₂.
       (gamma,sigma) <- liftTCM $ updateContext cpSub (const newContext) $ do
         ts <- forM ts $ \ (t,u) -> do
                 reportSDoc "tc.lhs.split.partial" 10 $ "currentCxt =" <+> (prettyTCM =<< getContext)
@@ -1050,7 +1051,7 @@ checkLHS mf = updateModality checkLHS_ where
                   BIOne  -> primBisone <@> pure t
                   _     -> typeError $ GenericError $ "Only 0 or 1 allowed on the rhs of bridge face"
         psi <- case ts of
-                  [] -> do
+                  [] -> do --TODO-antva: do we have this case?
                     a <- reduce (unEl $ unDom dom)
                     -- builtinIsOne is defined, since this is a precondition for having Partial
                     bholds <- fromMaybe __IMPOSSIBLE__ <$>  -- newline because of CPP
@@ -1064,18 +1065,65 @@ checkLHS mf = updateModality checkLHS_ where
         reportSDoc "tc.lhs.split.partial" 30 $ text "psi           =" <+> prettyTCM psi
         psi <- reduce psi
         reportSDoc "tc.lhs.split.partial" 30 $ text "psi (reduced) =" <+> prettyTCM psi
-        -- at this point psi is either byes/bno, or an irreducible _=bi0 / _=bi1 constraints.
+        -- at this point psi is either byes/bno, or an irreducible _=bi0 / _=bi1 constraint.
         -- disjunctions have already been split??
-        -- refined <- forallFaceMaps phi (\ bs m t -> typeError $ GenericError $ "face blocked on meta")
-        --                    (\ sigma -> (,sigma) <$> getContextTelescope)
-        -- case refined of
-        --   [(gamma,sigma)] -> return (gamma,sigma)
-        --   []              -> typeError $ GenericError $ "The face constraint is unsatisfiable."
-        --   _               -> typeError $ GenericError $ "Cannot have disjunctions in a face constraint."
-        typeError $ NotImplemented "bvar constraints"
+        psiView <- bcstrView psi
+        case (psiView) of
+          Bno -> typeError $ GenericError $ "The bdg face constraint is unsatisfiable."
+          Byes -> return (delta1 , idS)
+          Biszero (Arg _ (Var xi [])) -> do
+            tmp <- forallBridgeFaceMaps xi (\ sigma -> (,sigma) <$> getContextTelescope)
+            case tmp of
+              [(gamma , sigma) , _ ] -> return $ (gamma , sigma)
+              _ -> __IMPOSSIBLE__
+          Bisone (Arg _ (Var xi [])) -> do
+            tmp <- forallBridgeFaceMaps xi (\ sigma -> (,sigma) <$> getContextTelescope)
+            case tmp of
+              [_ , (gamma , sigma) ] -> return $ (gamma , sigma)
+              _ -> __IMPOSSIBLE__
+          _  -> typeError $ GenericError $ "Cannot have disjunctions/metas in a bdg face constraint."
 
-      splitPartial delta1 dom adelta2 ts
+      -- splitPartial delta1 dom adelta2 ts
 
+      bitholds <- liftTCM primBitHolds
+      -- substitute the literal in p1 and dpi
+      -- reportSDoc "tc.lhs.faces" 60 $ text $ show sigma
+
+      let oix = size adelta2 -- de brujin index of BHolds
+          o_n = fromMaybe __IMPOSSIBLE__ $
+            findIndex (\ x -> case namedThing (unArg x) of
+                                   VarP _ x -> dbPatVarIndex x == oix
+                                   _        -> False) ip
+          delta2' = absApp adelta2 bitholds
+          delta2 = applySubst sigma delta2'
+          mkConP (Con c _ [])
+             = ConP c (noConPatternInfo { conPType = Just (Arg defaultArgInfo tbinterval)
+                                              , conPFallThrough = True })
+                          []
+          mkConP (Var i []) = VarP defaultPatternInfo (DBPatVar "x" i)
+          mkConP _          = __IMPOSSIBLE__
+          rho0 = fmap mkConP sigma
+
+          rho    = liftS (size delta2) $ consS (DotP defaultPatternInfo bitholds) rho0
+
+          delta'   = abstract gamma delta2
+          eqs'     = applyPatSubst rho $ problem ^. problemEqs
+          ip'      = applySubst rho ip
+          target'  = applyPatSubst rho target
+
+      reportSDoc "tc.lhs.split.partial" 40 $ vcat
+        [ "gamma is" <+> prettyTCM gamma
+        , "sigma is" <+> prettyTCM sigma
+        , "delta2' is" <+> prettyTCM delta2'
+        , "delta2 is" <+>  prettyTCM delta2
+        , "delta'" <+> prettyTCM delta'
+        , "target'" <+> prettyTCM target'
+        ]
+
+      -- Compute the new state
+      let problem' = set problemEqs eqs' problem
+      -- reportSDoc "tc.lhs.split.partial" 60 $ text (show problem')
+      liftTCM $ updateLHSState (LHSState delta' ip' problem' target' (psplit ++ [Just o_n]))
 
 
     -- Split a Partial.
@@ -1206,6 +1254,7 @@ checkLHS mf = updateModality checkLHS_ where
            [(gamma,sigma)] -> return (gamma,sigma)
            []              -> typeError $ GenericError $ "The face constraint is unsatisfiable."
            _               -> typeError $ GenericError $ "Cannot have disjunctions in a face constraint."
+
       itisone <- liftTCM primItIsOne
       -- substitute the literal in p1 and dpi
       reportSDoc "tc.lhs.faces" 60 $ text $ show sigma
@@ -1231,6 +1280,15 @@ checkLHS mf = updateModality checkLHS_ where
           eqs'     = applyPatSubst rho $ problem ^. problemEqs
           ip'      = applySubst rho ip
           target'  = applyPatSubst rho target
+
+      reportSDoc "tc.lhs.split.partial" 40 $ vcat
+        [ "gamma is" <+> prettyTCM gamma
+        , "sigma is" <+> prettyTCM sigma
+        , "delta2' is" <+> prettyTCM delta2'
+        , "delta2 is" <+>  prettyTCM delta2
+        , "delta'" <+> prettyTCM delta'
+        , "target'" <+> prettyTCM target'
+        ]
 
       -- Compute the new state
       let problem' = set problemEqs eqs' problem
