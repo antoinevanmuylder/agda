@@ -868,8 +868,8 @@ checkLHS mf = updateModality checkLHS_ where
         -- the modalities in the clause telescope also need updating.
 
  checkLHS_ st@(LHSState tel ip problem target psplit) = do
-  reportSDoc "lhs" 10 $ "tel is" <+> prettyTCM tel
-  reportSDoc "lhs" 10 $ "ip is" <+> pretty ip
+  reportSDoc "tc.lhs.top" 30 $ "tel is" <+> prettyTCM tel
+  reportSDoc "tc.lhs.top" 30 $ "ip is" <+> pretty ip
   if isSolvedProblem problem then
     liftTCM $ (problem ^. problemCont) st
   else do
@@ -927,7 +927,7 @@ checkLHS mf = updateModality checkLHS_ where
             (A.LitP _ l)      -> splitLit delta1 dom adelta2 l
             p@A.RecP{}        -> splitCon delta1 dom adelta2 p Nothing
             p@(A.ConP _ c ps) -> splitCon delta1 dom adelta2 p $ Just c
-            p@(A.EqualP _ ts) -> splitPartial delta1 dom adelta2 ts
+            p@(A.EqualP _ ts) -> splitCorBPartial delta1 dom adelta2 ts -- (cubical) Partial or (bridges) BPartial
             A.AsP _ _ p       -> splitOnPat p
             A.AnnP _ _ p      -> splitOnPat p
 
@@ -982,6 +982,100 @@ checkLHS mf = updateModality checkLHS_ where
           -- drop the projection pattern (already splitted)
           problem' = over problemRestPats tail problem
       liftTCM $ updateLHSState (LHSState tel ip' problem' target' psplit)
+
+
+    -- | delegates splitting for cubical partial (Partial) or bridge partial (BPartial)
+    splitCorBPartial :: Telescope     -- The types of arguments before the one we split on
+                     -> Dom Type      -- The type of the argument we split on
+                     -> Abs Telescope -- The types of arguments after the one we split on
+                     -> [(A.Expr, A.Expr)] -- [(φ₁ = b1),..,(φn = bn)]
+                     -> ExceptT TCErr tcm (LHSState a)
+    splitCorBPartial delta1 dom adelta2 ts = do
+      -- --bridges option active?
+      bflag <- (optBridges <$> getsTC getPragmaOptions)
+      case bflag of
+        False -> splitPartial delta1 dom adelta2 ts
+        True -> do
+          a <- reduce (unEl $ unDom dom)
+          -- builtinIsOne, builtinBHolds are available. --bridges requires --cubical.
+          isone <- fromMaybe __IMPOSSIBLE__ <$>  -- newline because of CPP
+            getBuiltinName' builtinIsOne
+          isbholds <- fromMaybe __IMPOSSIBLE__ <$>
+            getBuiltinName' builtinBHolds
+          case a of
+            Def q _ | q == isone -> splitPartial delta1 dom adelta2 ts
+            Def q _ | q == isbholds -> splitBPartial delta1 dom adelta2 ts
+            _ -> typeError . GenericError $ "not IsOne/BHolds"
+            -- _           -> typeError . GenericDocError =<< do
+            --   prettyTCM a <+> " is not IsOne/BHolds"
+
+    -- splitBPartial' = splitPartial
+
+    -- | inspired from splitPartial
+    splitBPartial :: Telescope     -- The types of arguments before the one we split on
+                     -> Dom Type      -- The type of the argument we split on
+                     -> Abs Telescope -- The types of arguments after the one we split on
+                     -> [(A.Expr, A.Expr)] -- [(φ₁ = b1),..,(φn = bn)]
+                     -> ExceptT TCErr tcm (LHSState a)
+    splitBPartial delta1 dom adelta2 ts = do
+
+      unless (domFinite dom) $ liftTCM $ addContext delta1 $
+        softTypeError . GenericDocError =<<
+        hsep [ "Not a finite domain:" , prettyTCM $ unDom dom ]
+
+      tbinterval <- liftTCM $ primBridgeIntervalType
+
+      names <- liftTCM $ addContext tel $ do
+        LeftoverPatterns{patternVariables = vars} <- getLeftoverPatterns $ problem ^. problemEqs
+        return $ take (size delta1) $ fst $ getUserVariableNames tel vars
+
+      lhsCxtSize <- ask -- size of the context before checkLHS call.
+      reportSDoc "tc.lhs.split.partial" 10 $ "lhsCxtSize =" <+> prettyTCM lhsCxtSize
+
+      newContext <- liftTCM $ computeLHSContext names delta1
+      reportSDoc "tc.lhs.split.partial" 10 $ "newContext =" <+> prettyTCM newContext
+
+      let cpSub = raiseS $ size newContext - lhsCxtSize
+
+      (gamma,sigma) <- liftTCM $ updateContext cpSub (const newContext) $ do
+        ts <- forM ts $ \ (t,u) -> do
+                reportSDoc "tc.lhs.split.partial" 10 $ "currentCxt =" <+> (prettyTCM =<< getContext)
+                reportSDoc "tc.lhs.split.partial" 10 $ text "t, u (Expr) =" <+> prettyTCM (t,u)
+                t <- checkExpr t tbinterval
+                u <- checkExpr u tbinterval
+                reportSDoc "tc.lhs.split.partial" 10 $ text "t, u        =" <+> pretty (t, u)
+                u <- bridgeIntervalView =<< reduce u
+                case u of
+                  BIZero -> primBiszero <@> pure t
+                  BIOne  -> primBisone <@> pure t
+                  _     -> typeError $ GenericError $ "Only 0 or 1 allowed on the rhs of bridge face"
+        psi <- case ts of
+                  [] -> do
+                    a <- reduce (unEl $ unDom dom)
+                    -- builtinIsOne is defined, since this is a precondition for having Partial
+                    bholds <- fromMaybe __IMPOSSIBLE__ <$>  -- newline because of CPP
+                      getBuiltinName' builtinBHolds
+                    case a of
+                      Def q [Apply psi] | q == bholds -> return (unArg psi)
+                      _           -> typeError . GenericDocError =<< do
+                        prettyTCM a <+> " is not IsOne."
+                  [t] -> pure t
+                  _ -> typeError . GenericError $ "only bridge hyperfaces are allowed" --TODO-antva: true?
+        reportSDoc "tc.lhs.split.partial" 30 $ text "psi           =" <+> prettyTCM psi
+        psi <- reduce psi
+        reportSDoc "tc.lhs.split.partial" 30 $ text "psi (reduced) =" <+> prettyTCM psi
+        -- at this point psi is either byes/bno, or an irreducible _=bi0 / _=bi1 constraints.
+        -- disjunctions have already been split??
+        -- refined <- forallFaceMaps phi (\ bs m t -> typeError $ GenericError $ "face blocked on meta")
+        --                    (\ sigma -> (,sigma) <$> getContextTelescope)
+        -- case refined of
+        --   [(gamma,sigma)] -> return (gamma,sigma)
+        --   []              -> typeError $ GenericError $ "The face constraint is unsatisfiable."
+        --   _               -> typeError $ GenericError $ "Cannot have disjunctions in a face constraint."
+        typeError $ NotImplemented "bvar constraints"
+
+      splitPartial delta1 dom adelta2 ts
+
 
 
     -- Split a Partial.
