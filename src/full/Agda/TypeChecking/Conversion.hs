@@ -2033,17 +2033,18 @@ forallBridgeFaceMaps xi k = do
            ]
   bi0 <- primBIZero
   bi1 <- primBIOne
-  thing0 <- goK k xi bi0
-  thing1 <- goK k xi bi1
+  thing0 <- bridgeGoK k xi bi0
+  thing1 <- bridgeGoK k xi bi1
   return [thing0, thing1]
-  where
-    goK :: MonadConversion m => (Substitution -> m a) -> Int -> Term -> m a
-    goK k xi biEps = do --biEps is either bi0 or bi1
-      cxt <- getContext
-      (cxt', sigma) <- substContextN cxt [(xi, biEps)]
-      resolved <- forM [(xi, biEps)] (\ (i,t) -> (,) <$> lookupBV i <*> return (applySubst sigma t))
-      updateContext sigma (const cxt') $ addBindings resolved $ do
-        k sigma
+
+
+bridgeGoK :: MonadConversion m => (Substitution -> m a) -> Int -> Term -> m a
+bridgeGoK k xi biEps = do --biEps is either bi0 or bi1
+  cxt <- getContext
+  (cxt', sigma) <- substContextN cxt [(xi, biEps)]
+  resolved <- forM [(xi, biEps)] (\ (i,t) -> (,) <$> lookupBV i <*> return (applySubst sigma t))
+  updateContext sigma (const cxt') $ addBindings resolved $ do
+    k sigma
 
 -- | 3 helper functions for path/bridge face methods above
 addBindings :: MonadConversion m => [(Dom (Name, Type), Term)] -> m a -> m a

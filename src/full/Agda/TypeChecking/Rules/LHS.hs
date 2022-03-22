@@ -1009,8 +1009,6 @@ checkLHS mf = updateModality checkLHS_ where
             -- _           -> typeError . GenericDocError =<< do
             --   prettyTCM a <+> " is not IsOne/BHolds"
 
-    -- splitBPartial' = splitPartial
-
     -- | inspired from splitPartial
     splitBPartial :: Telescope     -- The types of arguments before the one we split on
                      -> Dom Type      -- The type of the argument we split on
@@ -1037,7 +1035,7 @@ checkLHS mf = updateModality checkLHS_ where
 
       let cpSub = raiseS $ size newContext - lhsCxtSize
 
-      -- Γ replaces Δ1∙dom. σ seems to use the info itIsOne : dom in ᵃΔ₂.
+      -- Γ replaces Δ1∙dom. σ uses the info (BitHolds:dom) in ᵃΔ₂ where dom = BHolds ψ.
       (gamma,sigma) <- liftTCM $ updateContext cpSub (const newContext) $ do
         ts <- forM ts $ \ (t,u) -> do
                 reportSDoc "tc.lhs.split.partial" 10 $ "currentCxt =" <+> (prettyTCM =<< getContext)
@@ -1072,18 +1070,12 @@ checkLHS mf = updateModality checkLHS_ where
           Bno -> typeError $ GenericError $ "The bdg face constraint is unsatisfiable."
           Byes -> return (delta1 , idS)
           Biszero (Arg _ (Var xi [])) -> do
-            tmp <- forallBridgeFaceMaps xi (\ sigma -> (,sigma) <$> getContextTelescope)
-            case tmp of
-              [(gamma , sigma) , _ ] -> return $ (gamma , sigma)
-              _ -> __IMPOSSIBLE__
+            bi0 <- primBIZero
+            bridgeGoK (\ sigma -> (,sigma) <$> getContextTelescope) xi bi0
           Bisone (Arg _ (Var xi [])) -> do
-            tmp <- forallBridgeFaceMaps xi (\ sigma -> (,sigma) <$> getContextTelescope)
-            case tmp of
-              [_ , (gamma , sigma) ] -> return $ (gamma , sigma)
-              _ -> __IMPOSSIBLE__
+            bi1 <- primBIOne
+            bridgeGoK (\ sigma -> (,sigma) <$> getContextTelescope) xi bi1
           _  -> typeError $ GenericError $ "Cannot have disjunctions/metas in a bdg face constraint."
-
-      -- splitPartial delta1 dom adelta2 ts
 
       bitholds <- liftTCM primBitHolds
       -- substitute the literal in p1 and dpi

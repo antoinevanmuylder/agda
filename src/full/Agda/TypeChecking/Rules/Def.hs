@@ -272,7 +272,7 @@ checkFunDefS t ai delayed extlam with i name withSub cs = do
           forM (zip cs [0..]) $ \ (c, clauseNo) -> do
             atClause name clauseNo t withSub c $ do
               (c,b) <- applyModalityToContextFunBody ai $ do
-                checkClause t withSub c
+                checkClause t withSub c              
               -- Andreas, 2013-11-23 do not solve size constraints here yet
               -- in case we are checking the body of an extended lambda.
               -- 2014-04-24: The size solver requires each clause to be
@@ -328,6 +328,7 @@ checkFunDefS t ai delayed extlam with i name withSub cs = do
         (cs,sys) <- if not isSystem then return (cs, empty) else do
                  fullType <- flip abstract t <$> getContextTelescope
                  sys <- inTopContext $ checkSystemCoverage name (IntSet.toList isOneIxs) fullType cs
+                 reportSDoc "tc.def.fun" 40 $ "after system coverage check"
                  tel <- getContextTelescope
                  let c = Clause
                        { clauseFullRange = noRange
