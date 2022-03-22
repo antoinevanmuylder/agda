@@ -5,7 +5,7 @@ module Agda.TypeChecking.Rules.LHS.Problem
        , ProblemEq(..) , Problem(..) , problemEqs
        , problemRestPats, problemCont, problemInPats
        , AsBinding(..) , DotPattern(..) , AbsurdPattern(..), AnnotationPattern(..)
-       , LHSState(..) , lhsTel , lhsOutPat , lhsProblem , lhsTarget
+       , PsplitDatum(..) , LHSState(..) , lhsTel , lhsOutPat , lhsProblem , lhsTarget
        , LeftoverPatterns(..), getLeftoverPatterns, getUserVariableNames
        ) where
 
@@ -218,6 +218,10 @@ data DotPattern = Dot A.Expr Term (Dom Type)
 data AbsurdPattern = Absurd Range Type
 data AnnotationPattern = Ann A.Expr Type
 
+data PsplitDatum
+  = CPsplit Int
+  | BPsplit Int (Maybe Bool)
+
 -- | State worked on during the main loop of checking a lhs.
 --   [Ulf Norell's PhD, page. 35]
 data LHSState a = LHSState
@@ -234,7 +238,7 @@ data LHSState a = LHSState
     --   Can be 'Irrelevant' to indicate that we came by
     --   an irrelevant projection and, hence, the rhs must
     --   be type-checked in irrelevant mode.
-  , _lhsPartialSplit :: ![Maybe Int]
+  , _lhsPartialSplit :: ![Maybe PsplitDatum]
     -- ^ have we splitted with a PartialFocus?
   }
 

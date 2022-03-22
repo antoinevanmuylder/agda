@@ -29,6 +29,8 @@ import Data.Semigroup ( Semigroup )
 import qualified Data.Semigroup as Semigroup
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.IntMap (IntMap)
+import qualified Data.IntMap as IntMap
 
 import Agda.Interaction.Highlighting.Generate
   ( storeDisambiguatedConstructor, storeDisambiguatedProjection, disambiguateRecordFields)
@@ -613,6 +615,20 @@ recheckStrippedWithPattern (ProblemEq p v a) = checkInternal v CmpLeq (unDom a)
     , "(perhaps you can replace it by `_`?)"
     ]
 
+data PartialSplit
+  = Csplit
+  | Bsplit (Maybe Bool)
+
+-- forgetIndPsplit :: PSplitDatum -> PartialSplit
+-- forgetIndPsplit (CPsplit _) = Csplit
+-- forgetIndPsplit (BPsplit _ whichCstr) = Bsplit whichCstr
+
+buildIntMap :: [Maybe PsplitDatum] -> IntMap PartialSplit
+buildIntMap [] = IntMap.empty
+buildIntMap (Nothing : rest) = buildIntMap rest
+buildIntMap (Just (CPsplit x) : rest) = IntMap.insert x Csplit $ buildIntMap rest
+buildIntMap (Just (BPsplit x mb) : rest) = IntMap.insert x (Bsplit mb) $ buildIntMap rest
+
 -- | Result of checking the LHS of a clause.
 data LHSResult = LHSResult
   { lhsParameters   :: Nat
@@ -637,8 +653,8 @@ data LHSResult = LHSResult
     -- ^ As-bindings from the left-hand side. Return instead of bound since we
     -- want them in where's and right-hand sides, but not in with-clauses
     -- (Issue 2303).
-  , lhsPartialSplit :: IntSet
-    -- ^ have we done a partial split?
+  , lhsPartialSplit :: IntMap PartialSplit -- IntSet
+    -- ^ have we done partial splits? cubical or bridges?
   }
 
 instance InstantiateFull LHSResult where
@@ -768,7 +784,7 @@ checkLeftHandSide call f ps a withSub' strippedPats =
 
         let hasAbsurd = not . null $ absurds
 
-        let lhsResult = LHSResult (length cxt) delta qs hasAbsurd b patSub asb (IntSet.fromList $ catMaybes psplit)
+        let lhsResult = LHSResult (length cxt) delta qs hasAbsurd b patSub asb $ buildIntMap psplit -- (IntSet.fromList $ catMaybes psplit)
 
         -- Debug output
         reportSDoc "tc.lhs.top" 10 $
@@ -1036,7 +1052,7 @@ checkLHS mf = updateModality checkLHS_ where
       let cpSub = raiseS $ size newContext - lhsCxtSize
 
       -- Γ replaces Δ1∙dom. σ uses the info (BitHolds:dom) in ᵃΔ₂ where dom = BHolds ψ.
-      (gamma,sigma) <- liftTCM $ updateContext cpSub (const newContext) $ do
+      (gamma,sigma,whichCstr) <- liftTCM $ updateContext cpSub (const newContext) $ do
         ts <- forM ts $ \ (t,u) -> do
                 reportSDoc "tc.lhs.split.partial" 10 $ "currentCxt =" <+> (prettyTCM =<< getContext)
                 reportSDoc "tc.lhs.split.partial" 10 $ text "t, u (Expr) =" <+> prettyTCM (t,u)
@@ -1068,13 +1084,15 @@ checkLHS mf = updateModality checkLHS_ where
         psiView <- bcstrView psi
         case (psiView) of
           Bno -> typeError $ GenericError $ "The bdg face constraint is unsatisfiable."
-          Byes -> return (delta1 , idS)
+          Byes -> return (delta1 , idS, Nothing)
           Biszero (Arg _ (Var xi [])) -> do
             bi0 <- primBIZero
-            bridgeGoK (\ sigma -> (,sigma) <$> getContextTelescope) xi bi0
+            (g,s) <- bridgeGoK (\ sigma -> (,sigma) <$> getContextTelescope) xi bi0
+            return (g,s,Just False)
           Bisone (Arg _ (Var xi [])) -> do
             bi1 <- primBIOne
-            bridgeGoK (\ sigma -> (,sigma) <$> getContextTelescope) xi bi1
+            (g,s) <- bridgeGoK (\ sigma -> (,sigma) <$> getContextTelescope) xi bi1
+            return (g,s,Just True)
           _  -> typeError $ GenericError $ "Cannot have disjunctions/metas in a bdg face constraint."
 
       bitholds <- liftTCM primBitHolds
@@ -1115,7 +1133,7 @@ checkLHS mf = updateModality checkLHS_ where
       -- Compute the new state
       let problem' = set problemEqs eqs' problem
       -- reportSDoc "tc.lhs.split.partial" 60 $ text (show problem')
-      liftTCM $ updateLHSState (LHSState delta' ip' problem' target' (psplit ++ [Just o_n]))
+      liftTCM $ updateLHSState (LHSState delta' ip' problem' target' (psplit ++ [Just $ BPsplit o_n whichCstr]))
 
 
     -- Split a Partial.
@@ -1285,7 +1303,7 @@ checkLHS mf = updateModality checkLHS_ where
       -- Compute the new state
       let problem' = set problemEqs eqs' problem
       reportSDoc "tc.lhs.split.partial" 60 $ text (show problem')
-      liftTCM $ updateLHSState (LHSState delta' ip' problem' target' (psplit ++ [Just o_n]))
+      liftTCM $ updateLHSState (LHSState delta' ip' problem' target' (psplit ++ [Just $ CPsplit o_n]))
 
 
     splitLit :: Telescope      -- The types of arguments before the one we split on
