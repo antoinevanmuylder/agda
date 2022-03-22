@@ -2,6 +2,8 @@
 
 module Agda.TypeChecking.Rules.LHS
   ( checkLeftHandSide
+  , PartialSplit(..)
+  , carveCubicalSplits
   , LHSResult(..)
   , bindAsPatterns
   , IsFlexiblePattern(..)
@@ -618,16 +620,22 @@ recheckStrippedWithPattern (ProblemEq p v a) = checkInternal v CmpLeq (unDom a)
 data PartialSplit
   = Csplit
   | Bsplit (Maybe Bool)
-
--- forgetIndPsplit :: PSplitDatum -> PartialSplit
--- forgetIndPsplit (CPsplit _) = Csplit
--- forgetIndPsplit (BPsplit _ whichCstr) = Bsplit whichCstr
+  deriving (Eq, Show)
 
 buildIntMap :: [Maybe PsplitDatum] -> IntMap PartialSplit
 buildIntMap [] = IntMap.empty
 buildIntMap (Nothing : rest) = buildIntMap rest
 buildIntMap (Just (CPsplit x) : rest) = IntMap.insert x Csplit $ buildIntMap rest
 buildIntMap (Just (BPsplit x mb) : rest) = IntMap.insert x (Bsplit mb) $ buildIntMap rest
+
+isBsplit :: PartialSplit -> Bool
+isBsplit Csplit = False
+isBsplit (Bsplit _) = True
+
+-- | retains cubical splits indexes or bridge splits indexes (depends on flag)
+carveCubicalSplits :: (IntMap PartialSplit) -> Bool -> IntSet
+carveCubicalSplits dic True = IntMap.keysSet $ IntMap.filter (== Csplit) dic
+carveCubicalSplits dic False = IntMap.keysSet $ IntMap.filter (isBsplit) dic
 
 -- | Result of checking the LHS of a clause.
 data LHSResult = LHSResult

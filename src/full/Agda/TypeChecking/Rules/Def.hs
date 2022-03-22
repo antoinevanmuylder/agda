@@ -9,8 +9,10 @@ import Control.Monad.Except ( MonadError(..) )
 
 import Data.Bifunctor
 import Data.Function
-import Data.IntSet (IntSet)
+import Data.IntSet (IntSet) --TODO-antva: remove
 import qualified Data.IntSet as IntSet
+import Data.IntMap (IntMap)
+import qualified Data.IntMap as IntMap
 import qualified Data.List as List
 import Data.Maybe
 import Data.Semigroup (Semigroup((<>)))
@@ -55,7 +57,7 @@ import Agda.TypeChecking.Primitive hiding (Nat)
 import Agda.TypeChecking.Sort
 
 import Agda.TypeChecking.Rules.Term
-import Agda.TypeChecking.Rules.LHS                 ( checkLeftHandSide, LHSResult(..), bindAsPatterns )
+import Agda.TypeChecking.Rules.LHS                 ( checkLeftHandSide, PartialSplit(..), carveCubicalSplits, LHSResult(..), bindAsPatterns )
 import {-# SOURCE #-} Agda.TypeChecking.Rules.Decl ( checkDecls )
 
 import Agda.Utils.Functor
@@ -284,7 +286,9 @@ checkFunDefS t ai delayed extlam with i name withSub cs = do
               inTopContext $ addClauses name [c]
               return (c,b)
 
-        (cs, CPC isOneIxs) <- return $ (second mconcat . unzip) cs
+        (cs, CPC splitMap) <- return $ (second mconcat . unzip) cs
+        let isOneIxs = carveCubicalSplits splitMap True
+        let bholdsIxs = carveCubicalSplits splitMap False
 
         let isSystem = not . null $ isOneIxs
 
@@ -382,8 +386,9 @@ checkFunDefS t ai delayed extlam with i name withSub cs = do
         reportSLn  "tc.cc.type" 80 $ show fullType
 
         -- Coverage check and compile the clauses
+        let cond = isSystem || (not . null $ bholdsIxs)
         (mst, _recordExpressionBecameCopatternLHS, cc) <- Bench.billTo [Bench.Coverage] $
-          unsafeInTopContext $ compileClauses (if isSystem then Nothing else (Just (name, fullType)))
+          unsafeInTopContext $ compileClauses (if cond then Nothing else (Just (name, fullType)))
                                         cs
         -- Andreas, 2019-10-21 (see also issue #4142):
         -- We ignore whether the clause compilation turned some
@@ -643,15 +648,15 @@ checkSystemCoverage _ _ t cs = __IMPOSSIBLE__
 -- * Info that is needed after all clauses have been processed.
 
 data ClausesPostChecks = CPC
-    { cpcPartialSplits :: IntSet
-      -- ^ Which argument indexes have a partial split.
+    { cpcPartialSplits :: IntMap PartialSplit
+      -- ^ Which argument indexes have a partial split, and what kind?
     }
 
 instance Semigroup ClausesPostChecks where
-  CPC xs <> CPC xs' = CPC (IntSet.union xs xs')
+  CPC xs <> CPC xs' = CPC (IntMap.union xs xs')
 
 instance Monoid ClausesPostChecks where
-  mempty  = CPC empty
+  mempty  = CPC IntMap.empty
   mappend = (<>)
 
 -- | The LHS part of checkClause.
