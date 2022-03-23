@@ -286,14 +286,15 @@ checkFunDefS t ai delayed extlam with i name withSub cs = do
               inTopContext $ addClauses name [c]
               return (c,b)
 
+        -- splitMap contains   db indexes ↦ cubical pslit or (bdg split , what kind of bdg split)
         (cs, CPC splitMap) <- return $ (second mconcat . unzip) cs
-        let isOneIxs = carveCubicalSplits splitMap True
-        let bholdsIxs = carveCubicalSplits splitMap False
+        -- let isOneIxs = carveCubicalSplits splitMap True
+        -- let bholdsIxs = carveCubicalSplits splitMap False
 
-        let isSystem = not . null $ isOneIxs
+        let isSystem = not . null $ splitMap
 
         canBeSystem <- do
-          -- allow VarP and ConP i0/i1 fallThrough = yes, DotP
+          -- allow VarP and ConP (b)i0/(b)i1 fallThrough = yes, DotP
           let pss = map namedClausePats cs
               allowed = \case
                 VarP{} -> True
@@ -327,11 +328,12 @@ checkFunDefS t ai delayed extlam with i name withSub cs = do
         -- in the coverage checker.
         applyCohesionToContext ai $ applyQuantityToContext ai $ do
 
+
         -- Systems have their own coverage and "coherence" check, we
         -- also add an absurd clause for the cases not needed.
         (cs,sys) <- if not isSystem then return (cs, empty) else do
                  fullType <- flip abstract t <$> getContextTelescope
-                 sys <- inTopContext $ checkSystemCoverage name (IntSet.toList isOneIxs) fullType cs
+                 sys <- inTopContext $ checkSystemCoverage name splitMap fullType cs
                  reportSDoc "tc.def.fun" 40 $ "after system coverage check"
                  tel <- getContextTelescope
                  let c = Clause
@@ -386,9 +388,8 @@ checkFunDefS t ai delayed extlam with i name withSub cs = do
         reportSLn  "tc.cc.type" 80 $ show fullType
 
         -- Coverage check and compile the clauses
-        let cond = isSystem || (not . null $ bholdsIxs)
         (mst, _recordExpressionBecameCopatternLHS, cc) <- Bench.billTo [Bench.Coverage] $
-          unsafeInTopContext $ compileClauses (if cond then Nothing else (Just (name, fullType)))
+          unsafeInTopContext $ compileClauses (if isSystem then Nothing else (Just (name, fullType)))
                                         cs
         -- Andreas, 2019-10-21 (see also issue #4142):
         -- We ignore whether the clause compilation turned some
@@ -539,9 +540,10 @@ data WithFunctionProblem
     }
 
 checkSystemCoverage
-  :: QName
-  -> [Int]
-  -> Type
+  :: QName -- ^ name of the function defining the system
+  -> IntMap PartialSplit
+  -- ^ db indices ↦ is it a cubical or bridge partial split + which bdg cstr split
+  -> Type  -- ^ full type
   -> [Clause]
   -> TCM System
 checkSystemCoverage f [n] t cs = do
