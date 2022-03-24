@@ -542,12 +542,31 @@ data WithFunctionProblem
 checkSystemCoverage
   :: QName -- ^ name of the function defining the system
   -> IntMap PartialSplit
-  -- ^ db indices ↦ is it a cubical or bridge partial split + which bdg cstr split
+  -- ^ ctx left to right pos ↦ is it a cubical or bridge partial split + which bdg cstr split
   -> Type  -- ^ full type
   -> [Clause]
   -> TCM System
-checkSystemCoverage f [n] t cs = do
-  reportSDoc "tc.sys.cover" 10 $ text (show (n , length cs)) <+> prettyTCM t
+checkSystemCoverage f splits t cs = do
+  (n, splitKind) <- case (IntMap.assocs splits) of
+    [] -> typeError $ GenericError "checkSystemCoverage: |splits| = 0."
+    [ asplit ] -> return asplit
+    _ -> typeError $ GenericError "checkSystemCoverage: |splits| > 1."
+  case splitKind of
+    Csplit -> checkCubSystemCoverage f n t cs
+    Bsplit split -> checkBdgSystemCoverage f (n, split) t cs
+
+checkCubSystemCoverage
+  :: QName
+  -> Int
+  -> Type
+  -> [Clause]
+  -> TCM System
+checkCubSystemCoverage f n t cs = do
+  reportSDoc "tc.sys.cover" 10 $ vcat
+    [ "n (ctx # of split)           = " <+> (text $ show n)
+    , "# of clauses                 = " <+> (text $ show $ length cs)
+    , "t (full type)               is " <+> prettyTCM t
+    ]
   TelV gamma t <- telViewUpTo n t
   addContext gamma $ do
   TelV (ExtendTel a _) _ <- telViewUpTo 1 t
@@ -595,14 +614,22 @@ checkSystemCoverage f [n] t cs = do
         psi = orI $ phis
         pcs = zip phis cs
 
-      reportSDoc "tc.sys.cover" 20 $ fsep $ map prettyTCM pats
+      reportSDoc "tc.sys.cover" 30 $ vcat
+        [ "pats     =" <+> (fsep $ map prettyTCM pats)
+        , "alphas   =" <+> prettyTCM alphas
+        , "psi      =" <+> prettyTCM psi
+        , "pcs      =" <+> prettyTCM pcs
+        ]
+
       interval <- primIntervalType
-      reportSDoc "tc.sys.cover" 10 $ "equalTerm " <+> prettyTCM (unArg phi) <+> prettyTCM psi
+      reportSDoc "tc.sys.cover" 10 $ "equalTerm " <+> prettyTCM (unArg phi) <+> ", " <+> prettyTCM psi
       equalTerm interval (unArg phi) psi
 
+      -- "coherence" check: rhs of clauses must agree where overlap.
       forM_ (initWithDefault __IMPOSSIBLE__ $
              initWithDefault __IMPOSSIBLE__ $ List.tails pcs) $ \ ((phi1,cl1):pcs') -> do
         forM_ pcs' $ \ (phi2,cl2) -> do
+          reportSDoc "tc.sys.cover" 30 $ "phi1 is " <+> (prettyTCM phi1) <+> " and phi2 is " <+> (prettyTCM phi2)
           phi12 <- reduce (imin `apply` [argN phi1, argN phi2])
           forallFaceMaps phi12 (\ _ _ -> __IMPOSSIBLE__) $ \ sigma -> do
             let args = sigma `applySubst` teleArgs gamma
@@ -644,7 +671,137 @@ checkSystemCoverage f [n] t cs = do
       reportSDoc "tc.sys.cover.sys" 40 $ fsep $ (text . show) gamma : map (text . show) sys
       return (System gamma sys) -- gamma uses names from the type, not the patterns, could we do better?
     _ -> __IMPOSSIBLE__
-checkSystemCoverage _ _ t cs = __IMPOSSIBLE__
+
+checkBdgSystemCoverage
+  :: QName
+  -> (Int, (Maybe Bool)) --kind of bdg partial split
+  -> Type
+  -> [Clause]
+  -> TCM System
+checkBdgSystemCoverage f (n, splitKind) t cs = do
+  -- typeError $ GenericError "no coverage check for bdg constraints"
+  reportSDoc "tc.sys.cover" 10 $ vcat
+    [ "n (ctx # of split)           = " <+> (text $ show n)
+    , "# of clauses                 = " <+> (text $ show $ length cs)
+    , "t (full type)               is " <+> prettyTCM t
+    ]
+  TelV gamma t <- telViewUpTo n t
+  addContext gamma $ do
+  TelV (ExtendTel a _) _ <- telViewUpTo 1 t
+  a <- reduce $ unEl $ unDom a
+
+  case a of
+    Def q [Apply bcstr] -> do --bcstr is bdg cstr stated in type.
+      [biz,bio] <- mapM getBuiltinName' [builtinBIZero, builtinBIOne]
+      -- ineg <- primINeg
+      -- imin <- primIMin
+      bno <- primBno
+      biszero <- primBiszero
+      bisone <- primBisone
+      bconj <- primBConj
+      bi0 <- primBIZero
+      bi1 <- primBIOne
+      let
+        isDir (ConP q _ []) | Just (conName q) == biz = Just False
+        isDir (ConP q _ []) | Just (conName q) == bio = Just True
+        isDir _ = Nothing
+
+        collectDirs :: [Int] -> [DeBruijnPattern] -> [(Int,Bool)]
+        collectDirs [] [] = []
+        collectDirs (i : is) (p : ps) | Just d <- isDir p = (i,d) : collectDirs is ps
+                                      | otherwise         = collectDirs is ps
+        collectDirs _ _ = __IMPOSSIBLE__
+
+        dir :: (Int,Bool) -> Term
+        dir (i,False) = biszero `apply` [argN $ var i]
+        dir (i,True)  = bisone  `apply` [argN $ var i]
+
+        -- andI :: [Term] -> Term
+        -- andI [] = i1
+        -- andI [t] = t
+        -- andI (t:ts) = (\ x -> imin `apply` [argN t, argN x]) $ andI ts
+        
+        borI :: [Term] -> Term
+        borI [] = bno
+        borI [t] = t
+        borI (t:ts) = bconj `apply` [argN t, argN (borI ts)]
+
+        unpack :: [Term] -> Term
+        unpack [] = __IMPOSSIBLE__
+        unpack [t] = t
+        unpack _ = __IMPOSSIBLE__
+
+      let
+        pats = map (take n . map (namedThing . unArg) . namedClausePats) cs
+        alphas :: [[(Int,Bool)]] -- the face maps corresponding to each clause
+        alphas = map (collectDirs (downFrom n)) pats
+        psis :: [Term] -- the φ terms for each clause (i.e. the alphas as terms)
+        psis = map (unpack . map dir) alphas
+        psi = borI $ psis
+        pcs = zip psis cs
+
+      reportSDoc "tc.sys.cover" 30 $ vcat
+        [ "pats     =" <+> (fsep $ map prettyTCM pats)
+        , "alphas   =" <+> prettyTCM alphas
+        , "psi      =" <+> prettyTCM psi
+        , "pcs      =" <+> prettyTCM pcs
+        ]
+
+      tbcstr <- primBCstrType
+      reportSDoc "tc.sys.cover" 10 $
+        "equalTerm " <+> prettyTCM (unArg bcstr) <+> ", " <+> prettyTCM psi
+      equalTerm tbcstr (unArg bcstr) psi
+
+      -- typeError $ NotImplemented "coverage check for bvar constraints"
+
+      -- TODO-antva: we need a coherence check here.
+      
+      -- forM_ (initWithDefault __IMPOSSIBLE__ $
+      --        initWithDefault __IMPOSSIBLE__ $ List.tails pcs) $ \ ((phi1,cl1):pcs') -> do
+      --   forM_ pcs' $ \ (phi2,cl2) -> do
+      --     phi12 <- reduce (imin `apply` [argN phi1, argN phi2])
+      --     forallFaceMaps phi12 (\ _ _ -> __IMPOSSIBLE__) $ \ sigma -> do
+      --       let args = sigma `applySubst` teleArgs gamma
+      --           t' = sigma `applySubst` t
+      --           fromReduced (YesReduction _ x) = x
+      --           fromReduced (NoReduction x) = ignoreBlocking x
+      --           body cl = do
+      --             let extra = length (drop n $ namedClausePats cl)
+      --             TelV delta _ <- telViewUpTo extra t'
+      --             fmap (abstract delta) $ addContext delta $ do
+      --               fmap fromReduced $ runReduceM $
+      --                 appDef' (Def f []) [cl] [] (map notReduced $ raise (size delta) args ++ teleArgs delta)
+      --       v1 <- body cl1
+      --       v2 <- body cl2
+      --       equalTerm t' v1 v2
+
+      sys <- forM (zip alphas cs) $ \ (alpha,cl) -> do
+
+            let
+                -- Δ = Γ_α , Δ'α
+                delta = clauseTel cl
+                -- Δ ⊢ b
+                Just b = clauseBody cl
+                -- Δ ⊢ ps : Γ , o : [φ] , Δ'
+                -- we assume that there's no pattern matching other
+                -- than from the system
+                ps = namedClausePats cl
+                extra = length (drop (size gamma + 1) ps)
+                -- size Δ'α = size Δ' = extra
+                -- Γ , α ⊢ u
+                takeLast n xs = drop (length xs - n) xs
+                weak [] = idS
+                weak (i:is) = weak is `composeS` liftS i (raiseS 1)
+                tel = telFromList (takeLast extra (telToList delta))
+                u = abstract tel (liftS extra (weak $ List.sort $ map fst alpha) `applySubst` b)
+            return (map (first var) alpha,u)
+
+      reportSDoc "tc.sys.cover.sys" 20 $ "gamma,sys     =" <+> (fsep $ prettyTCM gamma : map prettyTCM sys)
+      -- reportSDoc "tc.sys.cover.sys" 40 $ fsep $ (text . show) gamma : map (text . show) sys
+      return (System gamma sys)
+      
+    _ -> __IMPOSSIBLE__
+
 
 
 -- * Info that is needed after all clauses have been processed.
