@@ -438,7 +438,7 @@ bcstrView t = do
   f <- bcstrView'
   return (f t)      
 
--- | conjunction of bridge var constraints! primBconj : BCstr -> BCstr -> BCstr
+-- | conjunction of bridge var constraints. primBconj : BCstr -> BCstr -> BCstr
 primBconj' :: TCM PrimitiveImpl
 primBconj' = do
   requireBridges "in primBconj'"

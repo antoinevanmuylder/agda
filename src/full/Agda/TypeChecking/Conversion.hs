@@ -14,6 +14,8 @@ import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.IntSet as IntSet
+-- import Data.IntMap (IntMap)
+import qualified Data.IntMap as IntMap
 
 import Agda.Syntax.Common
 import Agda.Syntax.Internal
@@ -335,9 +337,11 @@ compareTerm' cmp a m n =
     equalFun :: (MonadConversion m) => Sort -> Term -> Term -> Term -> m ()
     equalFun s a@(Pi dom b) m n | domFinite dom = do
        mp <- fmap getPrimName <$> getBuiltin' builtinIsOne
+       -- mbholds <- fmap getPrimName <$> getBuiltin' builtinBHolds
        case unEl $ unDom dom of
           Def q [Apply phi]
               | Just q == mp -> compareTermOnFace cmp (unArg phi) (El s (Pi (dom {domFinite = False}) b)) m n
+              --  | Just q == mbholds -> compareTermOnBdgFace cmp (unArg phi) (El s (Pi (dom {domFinite = False}) b)) m n
           _                  -> equalFun s (Pi (dom{domFinite = False}) b) m n
     equalFun _ (Pi dom@Dom{domInfo = info} b) m n | not $ domFinite dom = do
         let name = suggests [ Suggestion b , Suggestion m , Suggestion n ]
@@ -369,6 +373,7 @@ compareTerm' cmp a m n =
        mSubIn   <- getPrimitiveTerm' builtinSubIn
        mGel <- getPrimitiveName' builtinGel
        mBHolds <- getBuiltinName' builtinBHolds
+       mBCstr <- getBuiltinName' builtinBCstr
        case ty of
          Def q es | Just q == mIsOne -> return ()
          Def q es | Just q == mGlue, Just args@(l:_:a:phi:_) <- allApplyElims es -> do
@@ -380,6 +385,7 @@ compareTerm' cmp a m n =
               compareTerm cmp aty (mkUnglue m) (mkUnglue n)
          Def q es | Just q == mGel, Just args <- allApplyElims es -> compareGelTm cmp a' args m n
          Def q es | Just q == mBHolds -> return ()
+         Def q [] | Just q == mBCstr -> compareBCstrTm cmp m n --TODO-antva: what about leq cmp?
          Def q es | Just q == mHComp, Just (sl:s:args@[phi,u,u0]) <- allApplyElims es
                   , Sort (Type lvl) <- unArg s
                   , Just unglueU <- mUnglueU, Just subIn <- mSubIn
@@ -449,6 +455,66 @@ compareGelTm cmp a' args@[l, bA0@(Arg _ bA0tm), bA1@(Arg _ bA1tm),
       Lam ldArgInfo $ Abs "r" $ applySubst sigma body
     ldArgInfo = setLock IsLock defaultArgInfo
 compareGelTm _ _ _ _ _ = __IMPOSSIBLE__
+
+data CanBCstr
+  = CanBno
+  | CanMap (IntMap.IntMap (Set.Set Bool))
+  | CanByes
+  deriving (Eq, Show)
+
+-- | precond: psi has been reduced. "as canonical bcstr"
+asCanBCstr :: (MonadConversion m) => Term -> m CanBCstr
+asCanBCstr psi = do
+  psiView <- bcstrView psi
+  case psiView of
+    Bno -> return CanBno
+    Byes -> return CanByes
+    Bisone (Arg _ (Var i [])) -> return $ CanMap $ IntMap.singleton i (Set.singleton True)
+    Biszero (Arg _ (Var i [])) -> return $ CanMap $ IntMap.singleton i (Set.singleton False)
+    Bconj (Arg _ psi1) (Arg _ psi2) -> do
+      psi1' <- asCanBCstr psi1 ; psi2' <- asCanBCstr psi2
+      case (psi1' , psi2') of
+        (CanBno, _) -> typeError $ GenericDocError "asCanBCstr expects a reduced arg"
+        (_ , CanBno) -> typeError $ GenericDocError "asCanBCstr expects a reduced arg"
+        (CanByes, _) -> typeError $ GenericDocError "asCanBCstr expects a reduced arg"
+        (_ , CanByes) -> typeError $ GenericDocError "asCanBCstr expects a reduced arg"
+        (CanMap psi1map , CanMap psi2map) -> do
+          return $ CanMap $ IntMap.unionWith (Set.union) psi1map psi2map
+    _ -> typeError $ GenericDocError "asCanBCstr expects a reduced arg/no metas"
+
+
+-- | inspired from compareInterval
+compareBCstrTm :: MonadConversion m => Comparison -> Term -> Term -> m ()
+compareBCstrTm cmp lpsi rpsi = do
+  reportSDoc "tc.conv.bcstr" 15 $
+    sep [ "{ compareBCstrTm" <+> prettyTCM lpsi <+> "=" <+> prettyTCM rpsi ]
+  lpsi' <- reduceB lpsi
+  rpsi' <- reduceB rpsi
+  let lpsi = ignoreBlocking lpsi'
+      rpsi = ignoreBlocking rpsi'
+  bcstr <- primBCstrType; 
+  if (isBlocked lpsi' || isBlocked rpsi')
+    then compareAtom CmpEq (AsTermsOf bcstr) lpsi rpsi
+    else do
+      canLpsi <- asCanBCstr lpsi
+      canRpsi <- asCanBCstr rpsi
+      case (canLpsi == canRpsi) of
+        False -> typeError $ UnequalTerms cmp lpsi rpsi (AsTermsOf bcstr)
+        True -> do
+          reportSDoc "tc.conv.interval" 15 $ "Ok! }"
+          return ()
+      -- x <- leqInterval it iu
+      -- y <- leqInterval iu it
+      -- let final = isCanonical it && isCanonical iu
+      -- if x && y then reportSDoc "tc.conv.interval" 15 $ "Ok! }" else
+      --   if final then typeError $ UnequalTerms cmp t u (AsTermsOf i)
+      --            else do
+      --              reportSDoc "tc.conv.interval" 15 $ "Giving up! }"
+      --              patternViolation (unblockOnAnyMetaIn (t, u))
+  where
+    isBlocked Blocked{}    = True
+    isBlocked NotBlocked{} = False
+  
 
 compareAtomDir :: MonadConversion m => CompareDirection -> CompareAs -> Term -> Term -> m ()
 compareAtomDir dir a = dirToCmp (`compareAtom` a) dir
@@ -2175,6 +2241,12 @@ compareTermOnFace' k cmp phi ty u v = do
              phi
     addConstraint blocker (ValueCmpOnFace cmp phi ty u v)
 
+compareTermOnBdgFace :: MonadConversion m => Comparison -> Term -> Type -> Term -> Term -> m ()
+compareTermOnBdgFace = compareTermOnBdgFace' compareTerm
+
+compareTermOnBdgFace' :: MonadConversion m => (Comparison -> Type -> Term -> Term -> m ()) -> Comparison -> Term -> Type -> Term -> Term -> m ()
+compareTermOnBdgFace' k cmp psi ty u v = do  -- u,v : BPartial ψ ty[] ≈ (BHolds ψ) → ty _
+  return ()
 
 -- | equalTermOnBridgeFace (x) (x.ty) (x.u) (x.v) generates endpoints constraints
 --   u[x \bi0] = v[x \bi0] at ty[ x \bi0] ; u[x \bi1] = v[x \bi1] ty[ x \bi1]

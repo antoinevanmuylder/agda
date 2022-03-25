@@ -696,6 +696,7 @@ checkBdgSystemCoverage f (n, splitKind) t cs = do
       -- ineg <- primINeg
       -- imin <- primIMin
       bno <- primBno
+      byes <- primByes
       biszero <- primBiszero
       bisone <- primBisone
       bconj <- primBConj
@@ -727,7 +728,7 @@ checkBdgSystemCoverage f (n, splitKind) t cs = do
         borI (t:ts) = bconj `apply` [argN t, argN (borI ts)]
 
         unpack :: [Term] -> Term
-        unpack [] = __IMPOSSIBLE__
+        unpack [] = byes
         unpack [t] = t
         unpack _ = __IMPOSSIBLE__
 
