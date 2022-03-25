@@ -287,11 +287,11 @@ checkFunDefS t ai delayed extlam with i name withSub cs = do
               return (c,b)
 
         -- splitMap contains   db indexes ↦ cubical pslit or (bdg split , what kind of bdg split)
-        (cs, CPC splitMap) <- return $ (second mconcat . unzip) cs
+        (cs, CPC psplit) <- return $ (second mconcat . unzip) cs
         -- let isOneIxs = carveCubicalSplits splitMap True
         -- let bholdsIxs = carveCubicalSplits splitMap False
 
-        let isSystem = not . null $ splitMap
+        let isSystem = not . null $ psplit
 
         canBeSystem <- do
           -- allow VarP and ConP (b)i0/(b)i1 fallThrough = yes, DotP
@@ -333,7 +333,7 @@ checkFunDefS t ai delayed extlam with i name withSub cs = do
         -- also add an absurd clause for the cases not needed.
         (cs,sys) <- if not isSystem then return (cs, empty) else do
                  fullType <- flip abstract t <$> getContextTelescope
-                 sys <- inTopContext $ checkSystemCoverage name splitMap fullType cs
+                 sys <- inTopContext $ checkSystemCoverage name psplit fullType cs
                  reportSDoc "tc.def.fun" 40 $ "after system coverage check"
                  tel <- getContextTelescope
                  let c = Clause
@@ -553,7 +553,7 @@ checkSystemCoverage f splits t cs = do
     _ -> typeError $ GenericError "checkSystemCoverage: |splits| > 1."
   case splitKind of
     Csplit -> checkCubSystemCoverage f n t cs
-    Bsplit split -> checkBdgSystemCoverage f (n, split) t cs
+    Bsplit -> checkBdgSystemCoverage f n t cs
 
 checkCubSystemCoverage
   :: QName
@@ -674,11 +674,11 @@ checkCubSystemCoverage f n t cs = do
 
 checkBdgSystemCoverage
   :: QName
-  -> (Int, (Maybe Bool)) --kind of bdg partial split
+  -> Int --bdg partial split
   -> Type
   -> [Clause]
   -> TCM System
-checkBdgSystemCoverage f (n, splitKind) t cs = do
+checkBdgSystemCoverage f n t cs = do
   -- typeError $ GenericError "no coverage check for bdg constraints"
   reportSDoc "tc.sys.cover" 10 $ vcat
     [ "n (ctx # of split)           = " <+> (text $ show n)

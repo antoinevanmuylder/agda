@@ -221,6 +221,8 @@ data AnnotationPattern = Ann A.Expr Type
 data PsplitDatum
   = CPsplit Int
   | BPsplit Int (Maybe Bool)
+  -- ^ TODO-antva: latter info is never used for individual clauses
+  --   coverage check recomputes it for each clause anyway.
 
 -- | State worked on during the main loop of checking a lhs.
 --   [Ulf Norell's PhD, page. 35]

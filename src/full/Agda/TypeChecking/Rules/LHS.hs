@@ -619,18 +619,18 @@ recheckStrippedWithPattern (ProblemEq p v a) = checkInternal v CmpLeq (unDom a)
 
 data PartialSplit
   = Csplit
-  | Bsplit (Maybe Bool)
+  | Bsplit -- (Maybe Bool) info not needed.
   deriving (Eq, Show)
 
 buildIntMap :: [Maybe PsplitDatum] -> IntMap PartialSplit
 buildIntMap [] = IntMap.empty
 buildIntMap (Nothing : rest) = buildIntMap rest
 buildIntMap (Just (CPsplit x) : rest) = IntMap.insert x Csplit $ buildIntMap rest
-buildIntMap (Just (BPsplit x mb) : rest) = IntMap.insert x (Bsplit mb) $ buildIntMap rest
+buildIntMap (Just (BPsplit x mb) : rest) = IntMap.insert x (Bsplit) $ buildIntMap rest
 
 isBsplit :: PartialSplit -> Bool
 isBsplit Csplit = False
-isBsplit (Bsplit _) = True
+isBsplit (Bsplit) = True
 
 -- | retains cubical splits indexes or bridge splits indexes (depends on flag)
 carveCubicalSplits :: (IntMap PartialSplit) -> Bool -> IntSet
