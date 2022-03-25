@@ -21,6 +21,8 @@ import qualified Data.Map as Map
 import qualified Data.List as List
 import Data.Set (Set)
 import qualified Data.Set as Set
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as IntSet
 import Data.Foldable hiding (null)
 
 import Agda.Interaction.Options ( optBridges )
@@ -117,22 +119,16 @@ extentType = do
     newBline bB aa a0 a1 = glam lkDefaultArgInfo "i" (\i -> bB <@> i <@> (aa <@@> (a0, a1, i) )) -- i is a bridge elim hence the double "at".
     lkDefaultArgInfo = setLock IsLock defaultArgInfo
 
-isTimeless' :: PureTCM m => Type -> m Bool
-isTimeless' typ@(El stype ttyp) = do
-  timeless <- mapM getName' timelessThings
-  case ttyp of
-    Def q _ | Just q `elem` timeless -> return True
-    _                                -> return False
-
 
 -- | @semiFreshForFvars fvs lk@ checks whether the following condition holds:
---   forall j in fvs, lk <=_time j -> timeless(j) where <=_time is left to right context order
+--   forall j in fvs, lk <=_time j -> timeless(j,lk) where <=_time is left to right context order
+--   need lk as arg of timeless for the case j has type BCstr
 semiFreshForFvars :: PureTCM m => VarSet -> Int -> m Bool
 semiFreshForFvars fvs lki = do
   let lkLaters = filter (<= lki) (VSet.toList fvs) -- lk-laters, including lk itself and timeless vars
   timefullLkLaters <- flip filterM lkLaters $ \ j -> do
     tyj <- typeOfBV j --problem: can yield dummy type when it should not
-    resj <- isTimeless' tyj
+    resj <- isTimeless' tyj lki
     return $ not resj
   reportSLn "tc.prim" 60 $ "semiFreshForFvars, timefullLkLaters: " ++ P.prettyShow timefullLkLaters
   return $ null timefullLkLaters

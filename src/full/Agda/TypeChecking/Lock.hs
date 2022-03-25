@@ -1,6 +1,7 @@
 {-# LANGUAGE NondecreasingIndentation #-}
 module Agda.TypeChecking.Lock
   ( isTimeless
+  , isTimeless'
   , timelessThings
   , checkLockedVars
   , checkEarlierThan
@@ -89,7 +90,7 @@ checkLockedVars t ty lk lk_ty = catchConstraint (CheckLockedVars t ty lk lk_ty) 
   else do
 
   checked <- fmap catMaybes . forM toCheck $ \ (j,dom) -> do
-    ifM (isTimeless (snd . unDom $ dom))
+    ifM (isTimeless (snd . unDom $ dom) i)
         (return $ Just j)
         (return $ Nothing)
 
@@ -140,12 +141,29 @@ getLockVar lk = do
 timelessThings :: [String]
 timelessThings = [builtinInterval, builtinIsOne, builtinBridgeInterval]
 
-isTimeless :: Type -> TCM Bool
-isTimeless t = do
+-- | use Primitives.Bridges.isTimeless' to handle bridge constraints as well.
+isTimeless :: Type -> Int ->  TCM Bool
+isTimeless t lki = do
   t <- abortIfBlocked t
+  isTimeless' t lki
+  -- timeless <- mapM getName' timelessThings
+  -- case unEl t of
+  --   Def q _ | Just q `elem` timeless -> return True
+  --   _                                -> return False
+
+-- | isTimeless' typ lki is true if
+--   (tyj ∈ timelessThings)   OR   tyj is a bcstr not mentionning lk.
+isTimeless' :: PureTCM m => Type -> Int -> m Bool
+isTimeless' typ lki = do -- @(El stype ttyp)
+  -- t <- abortIfBlocked typ
   timeless <- mapM getName' timelessThings
-  case unEl t of
+  bholds <- getName' builtinBHolds
+  case (unEl typ) of
     Def q _ | Just q `elem` timeless -> return True
+    Def q [Apply (Arg _ psi)] | Just q == bholds -> do
+      psi' <- reduce psi
+      let fvPsi = allVars $ freeVarsIgnore IgnoreAll $ psi'
+      return $ not $ ISet.member lki fvPsi
     _                                -> return False
 
 notAllowedVarsError :: Term -> [Int] -> TCM b
@@ -161,5 +179,5 @@ checkEarlierThan lk fvs = do
     let problems = filter (<= i) $ VSet.toList fvs
     forM_ problems $ \ j -> do
       ty <- typeOfBV j
-      unlessM (isTimeless ty) $
+      unlessM (isTimeless ty i) $
         notAllowedVarsError lk [j]
