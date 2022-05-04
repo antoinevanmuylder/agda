@@ -286,7 +286,7 @@ checkFunDefS t ai delayed extlam with i name withSub cs = do
               inTopContext $ addClauses name [c]
               return (c,b)
 
-        -- splitMap contains   db indexes ↦ cubical pslit or (bdg split , what kind of bdg split)
+        -- splitMap contains   db indexes ↦ cubical split or or bdg split
         (cs, CPC psplit) <- return $ (second mconcat . unzip) cs
         -- let isOneIxs = carveCubicalSplits splitMap True
         -- let bholdsIxs = carveCubicalSplits splitMap False
@@ -334,7 +334,7 @@ checkFunDefS t ai delayed extlam with i name withSub cs = do
         (cs,sys) <- if not isSystem then return (cs, empty) else do
                  fullType <- flip abstract t <$> getContextTelescope
                  sys <- inTopContext $ checkSystemCoverage name psplit fullType cs
-                 reportSDoc "tc.def.fun" 40 $ "after system coverage check"
+                 reportSDoc "tc.def.fun" 40 $ "after system coverage/coherence check"
                  tel <- getContextTelescope
                  let c = Clause
                        { clauseFullRange = noRange
@@ -542,7 +542,7 @@ data WithFunctionProblem
 checkSystemCoverage
   :: QName -- ^ name of the function defining the system
   -> IntMap PartialSplit
-  -- ^ ctx left to right pos ↦ is it a cubical or bridge partial split + which bdg cstr split
+  -- ^ ctx left to right pos ↦ is it a cubical or bridge partial split
   -> Type  -- ^ full type
   -> [Clause]
   -> TCM System
@@ -674,7 +674,7 @@ checkCubSystemCoverage f n t cs = do
 
 checkBdgSystemCoverage
   :: QName
-  -> Int --bdg partial split
+  -> Int --bdg partial split (or length of ctx??)
   -> Type
   -> [Clause]
   -> TCM System

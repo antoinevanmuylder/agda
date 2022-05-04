@@ -138,10 +138,12 @@ getLockVar lk = do
      islock <- getLock . domInfo <$> lookupBV i
      return $ islock == IsLock
 
+-- | Types of variables that are anyway timeless
+--   The cubical interval, cubical constraints, the bridge interval.
 timelessThings :: [String]
 timelessThings = [builtinInterval, builtinIsOne, builtinBridgeInterval]
 
--- | use Primitives.Bridges.isTimeless' to handle bridge constraints as well.
+
 isTimeless :: Type -> Int ->  TCM Bool
 isTimeless t lki = do
   t <- abortIfBlocked t
@@ -152,7 +154,7 @@ isTimeless t lki = do
   --   _                                -> return False
 
 -- | isTimeless' typ lki is true if
---   (tyj ∈ timelessThings)   OR   tyj is a bcstr not mentionning lk.
+--   (typ ∈ timelessThings)   OR   typ is a bcstr not mentionning lki.
 isTimeless' :: PureTCM m => Type -> Int -> m Bool
 isTimeless' typ lki = do -- @(El stype ttyp)
   -- t <- abortIfBlocked typ
