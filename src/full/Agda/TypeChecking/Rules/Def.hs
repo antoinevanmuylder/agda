@@ -699,6 +699,8 @@ checkBdgSystemCoverage f n t cs = do
       byes <- primByes
       biszero <- primBiszero
       bisone <- primBisone
+      mBiszero <- getPrimitiveName' builtinBiszero
+      mBisone <- getPrimitiveName' builtinBisone
       bconj <- primBConj
       bi0 <- primBIZero
       bi1 <- primBIOne
@@ -732,20 +734,30 @@ checkBdgSystemCoverage f n t cs = do
         unpack [t] = t
         unpack _ = __IMPOSSIBLE__
 
+        unpack' :: [[(Int, Bool)]] -> [(Int, Bool)]
+        unpack' [] = []
+        unpack' ([] : rest) = __IMPOSSIBLE__
+        unpack' ([ib] : rest) = ib : (unpack' rest)
+        unpack' (_ : rest) = __IMPOSSIBLE__
+
       let
         pats = map (take n . map (namedThing . unArg) . namedClausePats) cs
         alphas :: [[(Int,Bool)]] -- the face maps corresponding to each clause
         alphas = map (collectDirs (downFrom n)) pats
+        alphas' = unpack' alphas
         psis :: [Term] -- the φ terms for each clause (i.e. the alphas as terms)
         psis = map (unpack . map dir) alphas
         psi = borI $ psis
         pcs = zip psis cs
+        pcs3 = zip3 psis cs alphas'
 
       reportSDoc "tc.sys.cover" 30 $ vcat
         [ "pats     =" <+> (fsep $ map prettyTCM pats)
         , "alphas   =" <+> prettyTCM alphas
+        , "alphas'  =" <+> prettyTCM alphas'
         , "psi      =" <+> prettyTCM psi
         , "pcs      =" <+> prettyTCM pcs
+        , "pcs3     =" <+> prettyTCM pcs3
         ]
 
       tbcstr <- primBCstrType
@@ -753,6 +765,47 @@ checkBdgSystemCoverage f n t cs = do
         "equalTerm " <+> prettyTCM (unArg bcstr) <+> ", " <+> prettyTCM psi
       equalTerm tbcstr (unArg bcstr) psi
 
+      -- coherence check. rhs must agree where they overlap.
+      reportSDoc "tc.sys.cover" 20 $ "coherence check for " <+> prettyTCM f <+> "..."
+      forM_ (initWithDefault __IMPOSSIBLE__ $
+              initWithDefault __IMPOSSIBLE__ $ List.tails pcs3) $ \ ((psi1,cl1,(i1,b1)):pcs3') -> do
+        forM_ pcs3' $ \ (psi2,cl2,(i2,b2)) -> do
+          -- The only kinds of hyperplanes that do not intersect are (x = bi0), (x = bi1)
+          goOn <- case (psi1 , psi2) of
+            (Def psi1head [Apply psi1var], Def psi2head [Apply psi2var]) | Just psi1head == mBiszero , Just psi2head == mBiszero -> do
+              return True --includes coherence check for repeated clauses.
+            (Def psi1head [Apply psi1var], Def psi2head [Apply psi2var]) | Just psi1head == mBiszero , Just psi2head == mBisone -> do
+              return (psi1var /= psi2var) --false iff the hyperplanes dont intersect.
+            (Def psi1head [Apply psi1var], Def psi2head [Apply psi2var]) | Just psi1head == mBisone , Just psi2head == mBiszero -> do
+              return (psi1var /= psi2var) --false iff the hyperplanes dont intersect.
+            (Def psi1head [Apply psi1var], Def psi2head [Apply psi2var]) | Just psi1head == mBisone , Just psi2head == mBisone -> do
+              return True  --includes coherence check for repeated clauses.
+            (_, _) -> typeError $ GenericError $ "coherence check reached impossible point."
+          reportSDoc "tc.sys.cover" 30 $ "psi1 is " <+> (prettyTCM psi1) <+> " and psi2 is " <+> (prettyTCM psi2) <+> "and goOn is " <+> (prettyTCM goOn)
+          case goOn of
+            False -> return ()
+            True -> do -- we must check that ⊢ cl1Rhs[psi2val / psi2var] = cl2Rhs[psi1val / psi1var]
+              -- note: at this point we are in a total telescope, but clauses are displayed using  their own clauseTel
+              -- so there might be a mismatch in variables.
+              () <- reportSDoc "tc.sys.cover" 10 $ "understanding clauses" <+> (nest 2 . vcat)
+               [ "clauseTel1:        " <+> (prettyTCM $ clauseTel cl1)
+               -- , "namedClausedPats1: " <+> (prettyTCM $ namedClausePats cl1)
+               , "clauseBody1:       " <+> (addContext (clauseTel cl1) $ prettyTCM $ clauseBody cl1)
+               , "clauseType1:       " <+> (addContext (clauseTel cl1) $ prettyTCM $ clauseType cl1)
+               
+               , "clauseTel2:        " <+> (prettyTCM $ clauseTel cl2)
+               -- , "namedClausedPats2: " <+> (prettyTCM $ namedClausePats cl2)
+               , "clauseBody2:       " <+> (addContext (clauseTel cl2) $ prettyTCM $  clauseBody cl2)
+               , "clauseType2:       " <+> (addContext (clauseTel cl2) $ prettyTCM $  clauseType cl2)
+               ]
+              -- building cl1Rhs[psi2val / psi2var] ...
+              (psi2val , psi2var) <- case psi2 of --psi2var = DB index making sense with gamma.
+                Def psi2head [Apply psi2var] | Just psi2head == mBiszero -> return (bi0, i2)
+                Def psi2head [Apply psi2var] | Just psi2head == mBisone -> return (bi1, i2)
+                _ -> __IMPOSSIBLE__
+              --problem: cl1Rhs makes sense in clauseTel cl1 and not in gamma.
+              --how is forallFaceMaps solving this problem??? cf bridgeGoK?
+              return ()
       -- typeError $ NotImplemented "coverage check for bvar constraints"
 
       -- TODO-antva: we need a coherence check here.
