@@ -766,6 +766,9 @@ checkBdgSystemCoverage f n t cs = do
       equalTerm tbcstr (unArg bcstr) psi
 
       -- coherence check. rhs must agree where they overlap.
+      
+      reportSDoc "tc.sys.cover" 30 $ "random info:"
+      bcstrrr <- primBCstr ; reportSDoc "tc.sys.cover" 30 $ nest 2 $ text $ show bcstrrr
       reportSDoc "tc.sys.cover" 20 $ "coherence check for " <+> prettyTCM f <+> "..."
       forM_ (initWithDefault __IMPOSSIBLE__ $
               initWithDefault __IMPOSSIBLE__ $ List.tails pcs3) $ \ ((psi1,cl1,(i1,b1)):pcs3') -> do
