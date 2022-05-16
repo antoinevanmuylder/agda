@@ -4,7 +4,7 @@ Release notes for Agda version 2.6.3
 Installation and infrastructure
 -------------------------------
 
-Agda supports GHC versions 8.0.2 to 9.2.1.
+Agda supports GHC versions 8.0.2 to 9.2.2.
 
 Language
 --------
@@ -30,7 +30,7 @@ Language
   ([#4786](https://github.com/agda/agda/issues/4786)).
 
   For instance, the type of the constructor `c` below is now `{@0 A :
-  Set} → D A`, and the type of the record field `R.f` is {@0 A : Set}
+  Set} → D A`, and the type of the record field `R.f` is `{@0 A : Set}
   → R A → A`:
   ```agda
   data D (A : Set) : Set where
@@ -131,6 +131,11 @@ Pragmas and options
 
 * Profiling options are now turned on with a new `--profile` flag instead of
   abusing the debug verbosity option. (See [#5781](https://github.com/agda/agda/issues/5731).)
+
+* The option `--without-K` has been renamed `--cubical-compatible` (See
+  [#5843](https://github.com/agda/agda/issues/5843).)
+
+  The old name is retained for backwards compatibility.
 
 Performance
 -----------

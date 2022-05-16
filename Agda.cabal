@@ -47,6 +47,8 @@ tested-with:        GHC == 8.0.2
 
 extra-source-files: CHANGELOG.md
                     README.md
+                    doc/user-manual/agda.svg
+                    doc/release-notes/2.6.2.2.md
                     doc/release-notes/2.6.2.1.md
                     doc/release-notes/2.6.2.md
                     doc/release-notes/2.6.1.3.md
@@ -575,6 +577,7 @@ library
                     Agda.Utils.Bag
                     Agda.Utils.Benchmark
                     Agda.Utils.BiMap
+                    Agda.Utils.BoolSet
                     Agda.Utils.CallStack
                     Agda.Utils.Char
                     Agda.Utils.Cluster
@@ -758,6 +761,18 @@ library
   -- NOTE: If adding or removing flags, also change `.ghci-9.0`
   if impl(ghc >= 9.0)
     ghc-options: -Werror=invalid-haddock
+
+  -- NOTE: If adding or removing flags, also change `.ghci-9.0.2`
+  --
+  -- ASR (2022-04-27). This warning was added in GHC 9.0.2, removed
+  -- from 9.2.1 and added back in 9.2.2.
+  if impl(ghc == 9.0.2)
+    ghc-options: -Werror=unicode-bidirectional-format-characters
+
+  -- NOTE: If adding or removing flags, also change `.ghci-9.2.2`
+  if impl(ghc >= 9.2.2)
+    ghc-options: -Werror=redundant-bang-patterns
+                 -Werror=unicode-bidirectional-format-characters
 
   ghc-prof-options: -fprof-auto
 
@@ -1089,3 +1104,15 @@ test-suite agda-tests
   if impl(ghc >= 9.0)
     ghc-options: -Werror=compat-unqualified-imports
                  -Werror=invalid-haddock
+
+  -- NOTE: If adding or removing flags, also change `.ghci-9.0.2`
+  --
+  -- ASR (2022-04-27). This warning was added in GHC 9.0.2, removed
+  -- from 9.2.1 and added back in 9.2.2.
+  if impl(ghc == 9.0.2)
+    ghc-options: -Werror=unicode-bidirectional-format-characters
+
+  -- NOTE: If adding or removing flags, also change `.ghci-9.2.2`
+  if impl(ghc >= 9.2.2)
+    ghc-options: -Werror=redundant-bang-patterns
+                 -Werror=unicode-bidirectional-format-characters

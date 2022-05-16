@@ -1110,7 +1110,12 @@ data Constraint
 --    -- ^ A delayed instantiation.  Replaces @ValueCmp@ in 'postponeTypeCheckingProblem'.
   | HasBiggerSort Sort
   | HasPTSRule (Dom Type) (Abs Sort)
+  | CheckDataSort QName Sort
+    -- ^ Check that the sort 'Sort' of data type 'QName' admits data/record types.
+    -- E.g., sorts @IUniv@, @SizeUniv@ etc. do not admit such constructions.
+    -- See 'Agda.TypeChecking.Rules.Data.checkDataSort'.
   | CheckMetaInst MetaId
+  | CheckType Type
   | UnBlock MetaId
     -- ^ Meta created for a term blocked by a postponed type checking problem or unsolved
     --   constraints. The 'MetaInstantiation' for the meta (when unsolved) is either 'BlockedConst'
@@ -1159,7 +1164,9 @@ instance Free Constraint where
       HasPTSRule a s        -> freeVars' (a , s)
       CheckLockedVars a b c d -> freeVars' ((a,b),(c,d))
       UnquoteTactic t h g   -> freeVars' (t, (h, g))
+      CheckDataSort _ s     -> freeVars' s
       CheckMetaInst m       -> mempty
+      CheckType t           -> freeVars' t
       UsableAtModality mod t -> freeVars' t
 
 instance TermLike Constraint where
@@ -1178,7 +1185,9 @@ instance TermLike Constraint where
       CheckFunDef{}          -> mempty
       HasBiggerSort s        -> foldTerm f s
       HasPTSRule a s         -> foldTerm f (a, Sort <$> s)
+      CheckDataSort _ s      -> foldTerm f s
       CheckMetaInst m        -> mempty
+      CheckType t            -> foldTerm f t
       UsableAtModality m t   -> foldTerm f t
 
   traverseTermM f c = __IMPOSSIBLE__ -- Not yet implemented
@@ -2219,6 +2228,10 @@ data Defn = Axiom -- ^ Postulate
               -- ^ 'Inductive' or 'CoInductive'?  Matters only for recursive records.
               --   'Nothing' means that the user did not specify it, which is an error
               --   for recursive records.
+            , recTerminates     :: Maybe Bool
+              -- ^ 'Just True' means that unfolding of the recursive record terminates,
+              --   'Just False' means that we have no evidence for termination,
+              --   and 'Nothing' means we have not run the termination checker yet.
             , recAbstr          :: IsAbstract
             , recComp           :: CompKit
             }
@@ -3610,13 +3623,14 @@ instance Eq TCWarning where
 
 data CallInfo = CallInfo
   { callInfoTarget :: QName
-    -- ^ Target function name.
-  , callInfoRange :: Range
-    -- ^ Range of the target function.
+    -- ^ Target function name.  (Contains its range.)
   , callInfoCall :: Closure Term
     -- ^ To be formatted representation of the call.
   } deriving (Show, Generic)
     -- no Eq, Ord instances: too expensive! (see issues 851, 852)
+
+instance HasRange CallInfo where
+  getRange = getRange . callInfoTarget
 
 -- | We only 'show' the name of the callee.
 instance Pretty CallInfo where pretty = pretty . callInfoTarget
@@ -4727,8 +4741,8 @@ instance KillRange Defn where
       AbstractDefn{} -> __IMPOSSIBLE__ -- only returned by 'getConstInfo'!
       Function cls comp ct tt covering inv mut isAbs delayed proj flags term extlam with ->
         killRange14 Function cls comp ct tt covering inv mut isAbs delayed proj flags term extlam with
-      Datatype a b c d e f g h i j   -> killRange8 Datatype a b c d e f g h i j
-      Record a b c d e f g h i j k l -> killRange12 Record a b c d e f g h i j k l
+      Datatype a b c d e f g h i j   -> killRange10 Datatype a b c d e f g h i j
+      Record a b c d e f g h i j k l m -> killRange13 Record a b c d e f g h i j k l m
       Constructor a b c d e f g h i j-> killRange10 Constructor a b c d e f g h i j
       Primitive a b c d e            -> killRange5 Primitive a b c d e
       PrimitiveSort a b              -> killRange2 PrimitiveSort a b
