@@ -397,6 +397,7 @@ outputFormId (OutputForm _ _ _ o) = out o
       FindInstanceOF _ _ _        -> __IMPOSSIBLE__
       PTSInstance i _            -> i
       PostponedCheckFunDef{}     -> __IMPOSSIBLE__
+      DataSort _ i               -> i
       CheckLock i _              -> i
       UsableAtMod _ i            -> i
 
@@ -478,10 +479,12 @@ instance Reify Constraint where
     reify (HasPTSRule a b) = do
       (a,(x,b)) <- reify (unDom a,b)
       return $ PTSInstance a b
+    reify (CheckDataSort q s) = DataSort q <$> reify s
     reify (CheckLockedVars t _ lk _) = CheckLock <$> reify t <*> reify (unArg lk)
     reify (CheckMetaInst m) = do
       t <- jMetaType . mvJudgement <$> lookupLocalMeta m
       OfType <$> reify (MetaV m []) <*> reify t
+    reify (CheckType t) = JustType <$> reify t
     reify (UsableAtModality mod t) = UsableAtMod mod <$> reify t
 
 instance (Pretty a, Pretty b) => PrettyTCM (OutputForm a b) where
@@ -535,6 +538,7 @@ instance (Pretty a, Pretty b) => Pretty (OutputConstraint a b) where
       PostponedCheckFunDef q a _err ->
         vcat [ "Check definition of" <+> pretty q <+> ":" <+> pretty a ]
              -- , nest 2 "stuck because" <?> pretty err ] -- We don't have Pretty for TCErr
+      DataSort q s         -> "Sort" <+> pretty s <+> "allows data/record definitions"
       CheckLock t lk       -> "Check lock" <+> pretty lk <+> "allows" <+> pretty t
       UsableAtMod mod t    -> "Is usable at" <+> pretty mod <+> pretty t
     where
@@ -576,6 +580,7 @@ instance (ToConcrete a, ToConcrete b) => ToConcrete (OutputConstraint a b) where
       FindInstanceOF <$> toConcrete s <*> toConcrete t
                      <*> mapM (\(q,tm,ty) -> (,,) <$> toConcrete q <*> toConcrete tm <*> toConcrete ty) cs
     toConcrete (PTSInstance a b) = PTSInstance <$> toConcrete a <*> toConcrete b
+    toConcrete (DataSort a b)  = DataSort a <$> toConcrete b
     toConcrete (CheckLock a b) = CheckLock <$> toConcrete a <*> toConcrete b
     toConcrete (PostponedCheckFunDef q a err) = PostponedCheckFunDef q <$> toConcrete a <*> pure err
     toConcrete (UsableAtMod a b) = UsableAtMod a <$> toConcrete b
@@ -649,13 +654,19 @@ getConstraintsMentioning norm m = getConstrs instantiateBlockingFull (mentionsMe
         HasBiggerSort a            -> Nothing
         HasPTSRule a b             -> Nothing
         UnquoteTactic{}            -> Nothing
+        CheckDataSort _ s          -> isMetaS s
         CheckMetaInst{}            -> Nothing
+        CheckType t                -> isMeta (unEl t)
         CheckLockedVars t _ _ _    -> isMeta t
         UsableAtModality _ t       -> isMeta t
 
     isMeta (MetaV m' es_m)
       | m == m' = Just es_m
     isMeta _  = Nothing
+
+    isMetaS (MetaS m' es_m)
+      | m == m' = Just es_m
+    isMetaS _  = Nothing
 
     getConstrs g f = liftTCM $ do
       cs <- stripConstraintPids . filter f <$> (mapM g =<< M.getAllConstraints)
@@ -943,8 +954,8 @@ metaHelperType norm ii rng s = case words s of
     -- renameVars = onNames (stringToArgName <.> renameVar . argNameToString)
     renameVars = onNames renameVar
 
-    -- onNames :: Applicative m => (ArgName -> m ArgName) -> Type -> m Type
-    onNames :: Applicative m => (String -> m String) -> Type -> m Type
+    -- onNames :: Applicative m => (ArgName -> m ArgName) -> I.Type -> m I.Type
+    onNames :: Applicative m => (String -> m String) -> I.Type -> m I.Type
     onNames f (El s v) = El s <$> onNamesTm f v
 
     -- onNamesTel :: Applicative f => (ArgName -> f ArgName) -> I.Telescope -> f I.Telescope
@@ -1014,7 +1025,7 @@ contextOfMeta ii norm = withInteractionId ii $ do
         ty <- reifyUnblocked =<< normalForm norm t
         return $ ResponseContextEntry n x (Arg ai ty) Nothing s
 
-    mkLet :: (Name, Open (Term, Dom Type)) -> TCM (Maybe ResponseContextEntry)
+    mkLet :: (Name, Open (Term, Dom I.Type)) -> TCM (Maybe ResponseContextEntry)
     mkLet (name, lb) = do
       (tm, !dom) <- getOpen lb
       if shouldHide (domInfo dom) name then return Nothing else Just <$> do
@@ -1227,7 +1238,7 @@ moduleContents
      -- ^ The range of the next argument.
   -> String
      -- ^ The module name.
-  -> TCM ([C.Name], I.Telescope, [(C.Name, Type)])
+  -> TCM ([C.Name], I.Telescope, [(C.Name, I.Type)])
      -- ^ Module names,
      --   context extension needed to print types,
      --   names paired up with corresponding types.
@@ -1250,7 +1261,7 @@ moduleContents norm rng s = traceCall ModuleContents $ do
 getRecordContents
   :: Rewrite  -- ^ Amount of normalization in types.
   -> C.Expr   -- ^ Expression presumably of record type.
-  -> TCM ([C.Name], I.Telescope, [(C.Name, Type)])
+  -> TCM ([C.Name], I.Telescope, [(C.Name, I.Type)])
               -- ^ Module names,
               --   context extension,
               --   names paired up with corresponding types.
@@ -1284,7 +1295,7 @@ getModuleContents
        -- ^ Amount of normalization in types.
   -> Maybe C.QName
        -- ^ Module name, @Nothing@ if top-level module.
-  -> TCM ([C.Name], I.Telescope, [(C.Name, Type)])
+  -> TCM ([C.Name], I.Telescope, [(C.Name, I.Type)])
        -- ^ Module names,
        --   context extension,
        --   names paired up with corresponding types.

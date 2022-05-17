@@ -26,12 +26,14 @@ import Agda.TypeChecking.Warnings
 
 import Agda.TypeChecking.Irrelevance
 import {-# SOURCE #-} Agda.TypeChecking.Rules.Application
+import {-# SOURCE #-} Agda.TypeChecking.Rules.Data ( checkDataSort )
 import {-# SOURCE #-} Agda.TypeChecking.Rules.Def
 import {-# SOURCE #-} Agda.TypeChecking.Rules.Term
 import {-# SOURCE #-} Agda.TypeChecking.Conversion
 import {-# SOURCE #-} Agda.TypeChecking.MetaVars
 import {-# SOURCE #-} Agda.TypeChecking.Empty
 import {-# SOURCE #-} Agda.TypeChecking.Lock
+import {-# SOURCE #-} Agda.TypeChecking.CheckInternal ( checkType )
 
 import Agda.Utils.CallStack ( withCurrentCallStack )
 import Agda.Utils.Functor
@@ -296,7 +298,9 @@ solveConstraint_ (CheckFunDef d i q cs _err) = withoutCache $
 solveConstraint_ (CheckLockedVars a b c d)   = checkLockedVars a b c d
 solveConstraint_ (HasBiggerSort a)      = hasBiggerSort a
 solveConstraint_ (HasPTSRule a b)       = hasPTSRule a b
+solveConstraint_ (CheckDataSort q s)    = checkDataSort q s
 solveConstraint_ (CheckMetaInst m)      = checkMetaInst m
+solveConstraint_ (CheckType t)          = checkType t
 solveConstraint_ (UsableAtModality mod t) = usableAtModality mod t
 
 checkTypeCheckingProblem :: TypeCheckingProblem -> TCM Term

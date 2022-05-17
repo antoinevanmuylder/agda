@@ -96,7 +96,7 @@ GHC_RTS_OPTS := -M4G
 endif
 #
 endif
-GHC_OPTS = "+RTS $(GHC_RTS_OPTS) -RTS"
+GHC_OPTS = "+RTS -A128M $(GHC_RTS_OPTS) -RTS"
 
 # The following options are used in several invocations of cabal
 # install/configure below. They are always the last options given to
@@ -524,7 +524,13 @@ cubical-test :
 	-rm -rf cubical/_build
 	@$(call decorate, "Cubical library test", \
 		time $(MAKE) -C cubical \
-                  AGDA_EXEC=$(AGDA_BIN) RTS_OPTIONS=$(AGDA_OPTS))
+                  AGDA_BIN=$(AGDA_BIN) RTS_OPTIONS=$(AGDA_OPTS))
+
+.PHONY : continue-cubical-test ##
+continue-cubical-test :
+	@$(call decorate, "Continuing cubical library test", \
+		time $(MAKE) -C cubical \
+                  AGDA_BIN=$(AGDA_BIN) RTS_OPTIONS=$(AGDA_OPTS))
 
 .PHONY : continue-std-lib-test ##
 continue-std-lib-test :

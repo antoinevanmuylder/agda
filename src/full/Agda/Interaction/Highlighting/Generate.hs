@@ -483,6 +483,12 @@ warningHighlighting' b w = case tcWarning w of
     EmptyPrivate{}                   -> deadcodeHighlighting w
     EmptyGeneralize{}                -> deadcodeHighlighting w
     EmptyField{}                     -> deadcodeHighlighting w
+    HiddenGeneralize{}               -> mempty
+      -- Andreas, 2022-03-25, issue #5850
+      -- We would like @deadcodeHighlighting w@ for the braces in
+      -- @variable {x} : A@, but these have no range, so we cannot highlight them.
+      -- Highlighting the variable instead might be misleading,
+      -- suggesting that it is not generalized over.
     UselessAbstract{}                -> deadcodeHighlighting w
     UselessInstance{}                -> deadcodeHighlighting w
     UselessPrivate{}                 -> deadcodeHighlighting w
@@ -531,7 +537,7 @@ terminationErrorHighlighting termErrs = functionDefs `mappend` callSites
     functionDefs = foldMap (\x -> H.singleton (rToR $ bindingSite x) m) $
                    concatMap termErrFunctions termErrs
     callSites    = foldMap (\r -> H.singleton (rToR r) m) $
-                   concatMap (map callInfoRange . termErrCalls) termErrs
+                   concatMap (map getRange . termErrCalls) termErrs
     bindingSite  = A.nameBindingSite . A.qnameName
 
 -- | Generate syntax highlighting for not-strictly-positive inductive

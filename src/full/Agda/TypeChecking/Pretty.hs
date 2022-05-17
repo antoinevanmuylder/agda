@@ -13,6 +13,8 @@ import Control.Monad.Except
 import Control.Monad.Reader (ReaderT)
 import Control.Monad.State  (StateT)
 
+import Data.IntMap (IntMap)
+import qualified Data.IntMap as IntMap
 import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -177,6 +179,9 @@ instance PrettyTCM a => PrettyTCM (Closure a) where
 
 instance {-# OVERLAPPABLE #-} PrettyTCM a => PrettyTCM [a] where
   prettyTCM = prettyList . map prettyTCM
+
+instance PrettyTCM a => PrettyTCM (IntMap a) where
+  prettyTCM = prettyTCM . IntMap.toList
 
 instance {-# OVERLAPPABLE #-} PrettyTCM a => PrettyTCM (Maybe a) where
   prettyTCM = maybe empty prettyTCM

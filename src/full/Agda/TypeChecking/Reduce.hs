@@ -273,7 +273,9 @@ instance Instantiate Constraint where
   instantiate' (CheckLockedVars a b c d) =
     CheckLockedVars <$> instantiate' a <*> instantiate' b <*> instantiate' c <*> instantiate' d
   instantiate' (UnquoteTactic t h g) = UnquoteTactic <$> instantiate' t <*> instantiate' h <*> instantiate' g
+  instantiate' (CheckDataSort q s)  = CheckDataSort q <$> instantiate' s
   instantiate' c@CheckMetaInst{}    = return c
+  instantiate' (CheckType t)        = CheckType <$> instantiate' t
   instantiate' (UsableAtModality mod t) = UsableAtModality mod <$> instantiate' t
 
 instance Instantiate CompareAs where
@@ -893,7 +895,9 @@ instance Reduce Constraint where
   reduce' (UnquoteTactic t h g) = UnquoteTactic <$> reduce' t <*> reduce' h <*> reduce' g
   reduce' (CheckLockedVars a b c d) =
     CheckLockedVars <$> reduce' a <*> reduce' b <*> reduce' c <*> reduce' d
+  reduce' (CheckDataSort q s)   = CheckDataSort q <$> reduce' s
   reduce' c@CheckMetaInst{}     = return c
+  reduce' (CheckType t)         = CheckType <$> reduce' t
   reduce' (UsableAtModality mod t) = UsableAtModality mod <$> reduce' t
 
 instance Reduce CompareAs where
@@ -1061,7 +1065,9 @@ instance Simplify Constraint where
   simplify' (UnquoteTactic t h g) = UnquoteTactic <$> simplify' t <*> simplify' h <*> simplify' g
   simplify' (CheckLockedVars a b c d) =
     CheckLockedVars <$> simplify' a <*> simplify' b <*> simplify' c <*> simplify' d
+  simplify' (CheckDataSort q s)   = CheckDataSort q <$> simplify' s
   simplify' c@CheckMetaInst{}     = return c
+  simplify' (CheckType t)         = CheckType <$> simplify' t
   simplify' (UsableAtModality mod t) = UsableAtModality mod <$> simplify' t
 
 instance Simplify CompareAs where
@@ -1244,7 +1250,9 @@ instance Normalise Constraint where
   normalise' (UnquoteTactic t h g) = UnquoteTactic <$> normalise' t <*> normalise' h <*> normalise' g
   normalise' (CheckLockedVars a b c d) =
     CheckLockedVars <$> normalise' a <*> normalise' b <*> normalise' c <*> normalise' d
+  normalise' (CheckDataSort q s)   = CheckDataSort q <$> normalise' s
   normalise' c@CheckMetaInst{}     = return c
+  normalise' (CheckType t)         = CheckType <$> normalise' t
   normalise' (UsableAtModality mod t) = UsableAtModality mod <$> normalise' t
 
 instance Normalise CompareAs where
@@ -1480,7 +1488,9 @@ instance InstantiateFull Constraint where
     UnquoteTactic t g h -> UnquoteTactic <$> instantiateFull' t <*> instantiateFull' g <*> instantiateFull' h
     CheckLockedVars a b c d ->
       CheckLockedVars <$> instantiateFull' a <*> instantiateFull' b <*> instantiateFull' c <*> instantiateFull' d
+    CheckDataSort q s   -> CheckDataSort q <$> instantiateFull' s
     c@CheckMetaInst{}   -> return c
+    CheckType t         -> CheckType <$> instantiateFull' t
     UsableAtModality mod t -> UsableAtModality mod <$> instantiateFull' t
 
 instance InstantiateFull CompareAs where

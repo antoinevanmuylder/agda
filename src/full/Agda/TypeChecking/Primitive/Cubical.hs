@@ -9,15 +9,15 @@ import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Trans ( lift )
 import Control.Exception
+
 import Data.Typeable
 import Data.String
 
+import Data.Bifunctor ( second )
 import Data.Either ( partitionEithers )
-import Data.Map (Map)
-import qualified Data.Map as Map
+import Data.IntMap (IntMap)
+import qualified Data.IntMap as IntMap
 import qualified Data.List as List
-import Data.Set (Set)
-import qualified Data.Set as Set
 import Data.Foldable hiding (null)
 
 import Agda.Interaction.Options ( optCubical )
@@ -37,6 +37,7 @@ import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Telescope
 
 import Agda.Utils.Either
+import Agda.Utils.Function
 import Agda.Utils.Functor
 import Agda.Utils.Maybe
 
@@ -46,8 +47,9 @@ import Agda.Utils.Monad
 import Agda.Utils.Null
 import Agda.Utils.Tuple
 import Agda.Utils.Size
+import Agda.Utils.BoolSet (BoolSet)
 import qualified Agda.Utils.Pretty as P
-
+import qualified Agda.Utils.BoolSet as BoolSet
 
 -- | Checks that the correct variant of Cubical Agda is activated.
 -- Note that @--erased-cubical@ \"counts as\" @--cubical@ in erased
@@ -519,6 +521,8 @@ unglueTranspGlue :: PureTCM m =>
                   -> FamilyOrNot
                        (Arg Term, Arg Term, Arg Term, Arg Term, Arg Term, Arg Term)
                   -> m Term
+-- ...    |- psi, u0
+-- ..., i |- la, lb, bA, phi, bT, e
 unglueTranspGlue psi u0 (IsFam (la, lb, bA, phi, bT, e)) = do
       let
         localUse = builtinTrans ++ " for " ++ builtinGlue
@@ -554,21 +558,31 @@ unglueTranspGlue psi u0 (IsFam (la, lb, bA, phi, bT, e)) = do
                           <@> (imax phi (ineg i))
                           <@> u0
         [psi,u0] <- mapM (open . unArg) [psi,u0]
+
+        -- glue1 t a = glue la[i1/i] lb[i1/i] bA[i1/i] phi[i1/i] bT[i1/i] e[i1/i] t a
         glue1 <- do
           g <- open $ (tglue `apply`) . map ((setHiding Hidden) . (subst 0 io)) $ [la, lb, bA, phi, bT, e]
           return $ \ t a -> g <@> t <@> a
-        unglue0 <- do
-          ug <- open $ (tunglue `apply`) . map ((setHiding Hidden) . (subst 0 iz)) $ [la, lb, bA, phi, bT, e]
-          return $ \ a -> ug <@> a
+
         [la, lb, bA, phi, bT, e] <- mapM (\ a -> open . runNames [] $ lam "i" (const (pure $ unArg a))) [la, lb, bA, phi, bT, e]
+
+        -- Andreas, 2022-03-24, fixing #5838
+        -- Following the updated note
+        --
+        --   Simon Huber, A Cubical Type Theory for Higher Inductive Types
+        --   https://simhu.github.io/misc/hcomp.pdf (February 2022)
+        --
+        -- See: https://github.com/agda/agda/issues/5755#issuecomment-1043797776
+
+        -- unglue_u0 i = unglue la[i/i] lb[i/i] bA[i/i] phi[i/i] bT[i/i] e[i/i] u0
+        let unglue_u0 i =
+              foldl (<#>) (pure tunglue) (map (<@> i) [la, lb, bA, phi, bT, e]) <@> u0
+
         view <- intervalView'
 
-        -- phi1 <- view <$> (reduce =<< (phi <@> pure io))
-        -- if not $ (isIOne phi1) then return Nothing else Just <$> do
         let
           tf i o = transpFill lb (lam "i" $ \ i -> bT <@> i <..> o) psi u0 i
           t1 o = tf (pure io) o
-          a0 = unglue0 u0
 
           -- compute "forall. phi"
           forallphi = pure tForall <@> phi
@@ -580,14 +594,14 @@ unglueTranspGlue psi u0 (IsFam (la, lb, bA, phi, bT, e)) = do
                                              <@> psi
                                              <@> forallphi
                                              <@> ilam "o" (\ a -> bA <@> i)
-                                             <@> ilam "o" (\ _ -> a0)
+                                             <@> ilam "o" (\ _ -> unglue_u0 i)
                                              <@> ilam "o" (\ o -> pure tEFun <#> (lb <@> i)
                                                                                <#> (la <@> i)
                                                                                <#> (bT <@> i <..> o)
                                                                                <#> (bA <@> i)
                                                                                <@> (e <@> i <..> o)
                                                                                <@> (tf i o)))
-                 a0
+                 (unglue_u0 (pure iz))
 
           max l l' = pure tLMax <@> l <@> l'
           sigCon x y = pure (Con (sigmaCon kit) ConOSystem []) <@> x <@> y
@@ -700,6 +714,9 @@ compGlue DoHComp psi (Just u) u0 (IsNot (la, lb, bA, phi, bT, e)) tpos = do
         case tpos of
           Head -> t1 (pure tItIsOne)
           Eliminated -> a1
+
+-- ...    |- psi, u0
+-- ..., i |- la, lb, bA, phi, bT, e
 compGlue DoTransp psi Nothing u0 (IsFam (la, lb, bA, phi, bT, e)) tpos = do
       let
         localUse = builtinTrans ++ " for " ++ builtinGlue
@@ -735,20 +752,32 @@ compGlue DoTransp psi Nothing u0 (IsFam (la, lb, bA, phi, bT, e)) tpos = do
                           <@> (imax phi (ineg i))
                           <@> u0
         [psi,u0] <- mapM (open . unArg) [psi,u0]
+
+        -- glue1 t a = glue la[i1/i] lb[i1/i] bA[i1/i] phi[i1/i] bT[i1/i] e[i1/i] t a
         glue1 <- do
           g <- open $ (tglue `apply`) . map ((setHiding Hidden) . (subst 0 io)) $ [la, lb, bA, phi, bT, e]
           return $ \ t a -> g <@> t <@> a
-        unglue0 <- do
-          ug <- open $ (tunglue `apply`) . map ((setHiding Hidden) . (subst 0 iz)) $ [la, lb, bA, phi, bT, e]
-          return $ \ a -> ug <@> a
+
         [la, lb, bA, phi, bT, e] <- mapM (\ a -> open . runNames [] $ lam "i" (const (pure $ unArg a))) [la, lb, bA, phi, bT, e]
+
+        -- Andreas, 2022-03-24, fixing #5838
+        -- Following the updated note
+        --
+        --   Simon Huber, A Cubical Type Theory for Higher Inductive Types
+        --   https://simhu.github.io/misc/hcomp.pdf (February 2022)
+        --
+        -- See: https://github.com/agda/agda/issues/5755#issuecomment-1043797776
+
+        -- unglue_u0 i = unglue la[i/i] lb[i/i] bA[i/i] phi[i/i] bT[i/i] e[i/e] u0
+        let unglue_u0 i =
+              foldl (<#>) (pure tunglue) (map (<@> i) [la, lb, bA, phi, bT, e]) <@> u0
+
         view <- intervalView'
 
         ifM (headStop tpos (phi <@> pure io)) (return Nothing) $ Just <$> do
         let
           tf i o = transpFill lb (lam "i" $ \ i -> bT <@> i <..> o) psi u0 i
           t1 o = tf (pure io) o
-          a0 = unglue0 u0
 
           -- compute "forall. phi"
           forallphi = pure tForall <@> phi
@@ -760,14 +789,14 @@ compGlue DoTransp psi Nothing u0 (IsFam (la, lb, bA, phi, bT, e)) tpos = do
                                              <@> psi
                                              <@> forallphi
                                              <@> ilam "o" (\ _ -> bA <@> i)
-                                             <@> ilam "o" (\ _ -> a0)
+                                             <@> ilam "o" (\ _ -> unglue_u0 i)
                                              <@> ilam "o" (\ o -> pure tEFun <#> (lb <@> i)
                                                                                <#> (la <@> i)
                                                                                <#> (bT <@> i <..> o)
                                                                                <#> (bA <@> i)
                                                                                <@> (e <@> i <..> o)
                                                                                <@> (tf i o)))
-                 a0
+                 (unglue_u0 (pure iz))
 
           max l l' = pure tLMax <@> l <@> l'
           sigCon x y = pure (Con (sigmaCon kit) ConOSystem []) <@> x <@> y
@@ -922,13 +951,26 @@ compHCompU DoTransp psi Nothing u0 (IsFam (la, phi, bT, bA)) tpos = do
           let bAS = pure tSubIn <#> (pure tLSuc <@> la) <#> (Sort . tmSort <$> la) <#> phi <@> bA
           g <- (open =<<) $ pure tglue <#> la <#> phi <#> bT <#> bAS
           return $ \ t a -> g <@> t <@> a
-        unglue0 <- do
-          tunglue <- cl $ getTermLocal builtin_unglueU
-          [la, phi, bT, bA] <- mapM (open . unArg . subst 0 iz) $ [la, phi, bT, bA]
-          let bAS = pure tSubIn <#> (pure tLSuc <@> la) <#> (Sort . tmSort <$> la) <#> phi <@> bA
-          ug <- (open =<<) $ pure tunglue <#> la <#> phi <#> bT <#> bAS
-          return $ \ a -> ug <@> a
+
         [la, phi, bT, bA] <- mapM (\ a -> open . runNames [] $ lam "i" (const (pure $ unArg a))) [la, phi, bT, bA]
+
+        -- Andreas, 2022-03-25, issue #5838.
+        -- Port the fix of @unglueTranspGlue@ and @compGlue DoTransp@
+        -- also to @compHCompU DoTransp@, as suggested by Tom Jack and Anders Mörtberg.
+        -- We define @unglue_u0 i@ that is first used with @i@ and then with @i0@.
+        -- The original code used it only with @i0@.
+        tunglue <- cl $ getTermLocal builtin_unglueU
+        let bAS i =
+              pure tSubIn  <#> (pure tLSuc <@> (la <@> i))
+                           <#> (Sort . tmSort <$> (la <@> i))
+                           <#> (phi <@> i)
+                           <@> (bA <@> i)
+        let unglue_u0 i =
+              pure tunglue <#> (la <@> i)
+                           <#> (phi <@> i)
+                           <#> (bT <@> i)
+                           <#> bAS i
+                           <@> u0
 
         ifM (headStop tpos (phi <@> pure io)) (return Nothing) $ Just <$> do
 
@@ -936,7 +978,6 @@ compHCompU DoTransp psi Nothing u0 (IsFam (la, phi, bT, bA)) tpos = do
           lb = la
           tf i o = transpFill lb (lam "i" $ \ i -> bT <@> i <@> pure io <..> o) psi u0 i
           t1 o = tf (pure io) o
-          a0 = unglue0 u0
 
           -- compute "forall. phi"
           forallphi = pure tForall <@> phi
@@ -948,11 +989,11 @@ compHCompU DoTransp psi Nothing u0 (IsFam (la, phi, bT, bA)) tpos = do
                                              <@> psi
                                              <@> forallphi
                                              <@> ilam "o" (\ _ -> bA <@> i)
-                                             <@> ilam "o" (\ _ -> a0)
+                                             <@> ilam "o" (\ _ -> unglue_u0 i)
                                              <@> ilam "o" (\ o -> transp (la <@> i)
                                                                            (\ j -> bT <@> i <@> ineg j <..> o)
                                                                            (tf i o)))
-                 a0
+                 (unglue_u0 (pure iz))
 
           w i o = lam "x" $
                   transp (la <@> i)
@@ -1308,7 +1349,7 @@ primTransHComp cmd ts nelims = do
               boolToI b = if b then unview IOne else unview IZero
             as <- decomposeInterval phi
             andM . for as $ \ (bs,ts) -> do
-                 let u' = listS (Map.toAscList $ Map.map boolToI bs) `applySubst` u
+                 let u' = listS (IntMap.toAscList $ IntMap.map boolToI bs) `applySubst` u
                  t <- reduce2Lam u'
                  return $! p $ ignoreBlocking t
     reduce2Lam t = do
@@ -1328,7 +1369,7 @@ primTransHComp cmd ts nelims = do
             as <- decomposeInterval phi
             (flags,t_alphas) <- fmap unzip . forM as $ \ (bs,ts) -> do
                  let u' = listS bs' `applySubst` u
-                     bs' = (Map.toAscList $ Map.map boolToI bs)
+                     bs' = IntMap.toAscList $ IntMap.map boolToI bs
                      -- Γ₁, i : I, Γ₂, j : I, Γ₃  ⊢ weaken : Γ₁, Γ₂, Γ₃   for bs' = [(j,_),(i,_)]
                      -- ordering of "j,i,.." matters.
                  let weaken = foldr (\ j s -> s `composeS` raiseFromS j 1) idS (map fst bs')
@@ -1392,7 +1433,7 @@ primTransHComp cmd ts nelims = do
               let
                 phis :: [Term]
                 phis = for bools $ \ m ->
-                            foldr (iMin . (\(i,b) -> if b then var i else iNeg (var i))) iO (Map.toList m)
+                            foldr (iMin . (\(i,b) -> applyUnless b iNeg $ var i)) iO (IntMap.toList m)
               runNamesT [] $ do
                 u <- open u
                 [l,c] <- mapM (open . unArg) [l,ignoreBlocking sc]
@@ -1733,9 +1774,9 @@ primFaceForall' = do
       fr <- getTerm builtinFaceForall builtinFaceForall
       let v = view t
           us =
-            [ map Left (Map.toList bsm) ++ map Right ts
+            [ map Left (IntMap.toList bsm) ++ map Right ts
               | (bsm, ts) <- us',
-                0 `Map.notMember` bsm
+                0 `IntMap.notMember` bsm
             ]
           fm (i, b) = if b then var (i - 1) else unview (INeg (argN (var $ i - 1)))
           ffr t = fr `apply` [argN $ Lam defaultArgInfo $ Abs "i" t]
@@ -1751,19 +1792,19 @@ primFaceForall' = do
                 us
       --   traceSLn "cube.forall" 20 (unlines [show v, show us', show us, show r]) $
       return $ case us' of
-        [(m, [_])] | Map.null m -> Nothing
+        [(m, [_])] | null m -> Nothing
         v -> r
 
-decomposeInterval :: HasBuiltins m => Term -> m [(Map Int Bool,[Term])]
+decomposeInterval :: HasBuiltins m => Term -> m [(IntMap Bool, [Term])]
 decomposeInterval t = do
-  xs <- decomposeInterval' t
-  let isConsistent xs = all (\ xs -> Set.size xs == 1) . Map.elems $ xs  -- optimize by not doing generate + filter
-  return [ (Map.map (head . Set.toList) bsm,ts)
-            | (bsm,ts) <- xs
-            , isConsistent bsm
-            ]
+  decomposeInterval' t <&> \ xs ->
+    [ (bm, ts)
+    | (bsm :: IntMap BoolSet, ts) <- xs
+    , bm <- maybeToList $ traverse BoolSet.toSingleton bsm
+        -- discard inconsistent mappings
+    ]
 
-decomposeInterval' :: HasBuiltins m => Term -> m [(Map Int (Set Bool),[Term])]
+decomposeInterval' :: HasBuiltins m => Term -> m [(IntMap BoolSet, [Term])]
 decomposeInterval' t = do
      view   <- intervalView'
      unview <- intervalUnview'
@@ -1781,7 +1822,7 @@ decomposeInterval' t = do
      return [ (bsm,ts)
             | xs <- f v
             , let (bs,ts) = partitionEithers xs
-            , let bsm     = (Map.fromListWith Set.union . map (id -*- Set.singleton)) bs
+            , let bsm     = IntMap.fromListWith BoolSet.union $ map (second BoolSet.singleton) bs
             ]
 
 
@@ -1854,8 +1895,10 @@ transpSysTel' flag delta us phi args = do
     gTransp (Just l) t u phi a
      | flag = do
       t' <- t
-      us' <- sequence $ map snd u
-      case (0 `freeIn` (raise 1 t' `lazyAbsApp` var 0),0 `freeIn` map (`lazyAbsApp` var 0) (map (raise 1) us')) of
+      us' <- mapM snd u
+      case ( 0 `freeIn` (raise 1 t' `lazyAbsApp` var 0)
+           , 0 `freeIn` map (\ u -> raise 1 u `lazyAbsApp` var 0) us'
+           ) of
         (False,False) -> a
         (False,True)  -> doGTransp l t u phi a -- TODO? optimize to "hcomp (l <@> io) (bapp t io) ((phi,NoAbs a):u) a" ?
         (True,_) -> doGTransp l t u phi a
@@ -2086,14 +2129,14 @@ transpPathPTel' theTel x y phi p = do
  qs <- (open =<<) $ fmap (fmap (\ (Abs n (Arg i t)) -> Arg i (Lam defaultArgInfo $ Abs n t)) . sequenceA)
                   $ bind "j" $ \ j -> do
    theTel <- absApp <$> theTel <*> j
-   faces <- sequence $ [neg j, j]
+   faces <- sequence [neg j, j]
    us <- forM [x,y] $ \ z -> do
            bind "i" $ \ i -> forM z (<@> i)
    let sys = zip faces us
    -- [(neg j, bind "i" $ \ i -> flip map x (<@> i))
    -- ,(j , bind "i" $ \ i -> flip map y (<@> i))]
    phi <- phi
-   p0 <- sequence $ flip map p (<@> j)
+   p0 <- mapM (<@> j) p
    let toArgs = zipWith (\ a t -> t <$ a) (teleArgNames (unAbs $ theTel))
    eq <- lift . runExceptT $ transpSysTel' False theTel sys phi (toArgs p0)
    either (lift . lift . throw . CannotTransp) pure eq
@@ -2119,7 +2162,7 @@ transpPathTel' theTel x y phi p = do
    -- [(neg j, bind "i" $ \ i -> flip map x (<@> i))
    -- ,(j , bind "i" $ \ i -> flip map y (<@> i))]
    phi <- phi
-   p0 <- sequence $ flip map p (<@> j)
+   p0 <- mapM (<@> j) p
    let toArgs = zipWith (\ a t -> t <$ a) (teleArgNames (unAbs theTel))
    eq <- lift . runExceptT $ transpSysTel' False theTel sys phi (toArgs p0)
    either (lift . lift . throw . CannotTransp) pure eq
@@ -2182,7 +2225,9 @@ expTelescope int tel = unflattenTel names ys
 
 -- | Γ, Δ^I, i : I |- expS |Δ| : Γ, Δ
 expS :: Nat -> Substitution
-expS stel = prependS __IMPOSSIBLE__ (map Just [ var n `apply` [Arg defaultArgInfo $ var 0] | n <- [1..stel] ]) (raiseS (stel + 1))
+expS stel = prependS __IMPOSSIBLE__
+  [ Just (var n `apply` [Arg defaultArgInfo $ var 0]) | n <- [1..stel] ]
+  (raiseS (stel + 1))
 
 
 -- * Special cases of Type
@@ -2300,4 +2345,3 @@ debugClause s c = do
     ps = namedClausePats c
     rhsTy = clauseType c
     rhs = clauseBody c
-

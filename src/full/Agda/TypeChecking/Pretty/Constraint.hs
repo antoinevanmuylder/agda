@@ -146,11 +146,15 @@ instance PrettyTCM Constraint where
         UnquoteTactic v _ _ -> do
           e <- reify v
           prettyTCM (A.App A.defaultAppInfo_ (A.Unquote A.exprNoRange) (defaultNamedArg e))
+        CheckDataSort q s -> do
+          hsep [ "Sort", prettyTCM s, "of", prettyTCM q, "admits data/record definitions." ]
         CheckMetaInst x -> do
           m <- lookupLocalMeta x
           case mvJudgement m of
             HasType{ jMetaType = t } -> prettyTCM x <+> ":" <+> prettyTCM t
             IsSort{} -> prettyTCM x <+> "is a sort"
+        CheckType t ->
+          prettyTCM t <+> "is a well-formed type"
         CheckLockedVars t ty lk lk_ty -> do
           "Lock" <+> prettyTCM lk <+> "|-" <+> prettyTCMCtx TopCtx t <+> ":" <+> prettyTCM ty
         UsableAtModality mod t -> "Is usable at" <+> prettyTCM mod <+> ":" <+> prettyTCM t
