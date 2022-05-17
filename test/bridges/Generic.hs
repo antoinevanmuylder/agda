@@ -2,7 +2,7 @@ module Generic where
 
 import qualified Data.Map as Map
 import qualified Data.HashMap.Strict as HMap
-import Data.Text hiding (filter)
+import Data.Text hiding (filter, head)
 
 import Control.Monad.IO.Class       ( MonadIO(..) )
 import Control.Monad.Except
@@ -61,13 +61,21 @@ endOfMain :: TCM ()
 endOfMain = do
   printInTCM $ P.text "\nend of main"
 
+-- | the functions defined and imported by checked agda files. 
+showTheImports :: TCM ()
+showTheImports = do
+  tcs <- getTCState
+  let qnames = HMap.keys (tcs ^. stImports ^. sigDefinitions)
+  printInTCM $ P.pretty qnames
 
--- | there are nice lenses to inspect TCState, near Monad.Base.stTokens
+
+-- | there are nice lenses to inspect TCState, near Monad.Base.stTokens. (first: getTCState)
+-- | and lenses to inspect TCEnv, near eContext. (first: askTC)
 main :: IO ()
 main = runTCMPrettyErrors $ do
-  beInNiceTCState "/home/antva/Documents/repos/agda-fork/test/bridges/All.agda"
+  beInNiceTCState "./All.agda"
 
-  showTheImports'
+  printDefn "toDec"
   
   endOfMain
 
@@ -94,16 +102,80 @@ tryShowBasicTerm = do
   smTm <- primBPartial <@> primByes
   printInTCM =<< prettyTCM smTm
 
--- | the functions defined and imported by checked agda files. 
-showTheImports :: TCM ()
-showTheImports = do
-  tcs <- getTCState
-  let qnames = HMap.keys (tcs ^. stImports ^. sigDefinitions)
-  printInTCM $ P.pretty qnames
+
 
 showTheImports' :: TCM ()
 showTheImports' = do
   tcs <- getTCState
   let qnames = HMap.keys (tcs ^. stImports ^. sigDefinitions)
-  printInTCM $ P.text $ show $
-    filter (\q -> (pack "toDec") `isInfixOf` (pack $ P.render $ P.pretty q)) qnames
+      keyQ :: QName
+      keyQ = head $ filter (\q -> (pack "toDec") `isInfixOf` (pack $ P.render $ P.pretty q)) qnames
+  printInTCM $ P.text $ show keyQ
+
+
+showTheConcreteNames :: TCM ()
+showTheConcreteNames = do
+  tcs <- getTCState
+  let themap = tcs ^. stConcreteNames -- Map Name C.Name
+  printInTCM $ P.text $ show $  themap
+
+-- | we specify part of the unqualified agda name. It yields a qname of an import containing the former.
+getQNameFromHuman :: String -> TCM QName
+getQNameFromHuman hname = do
+  tcs <- getTCState
+  let qnames = HMap.keys (tcs ^. stImports ^. sigDefinitions)
+  return $ head $ filter (\q -> (pack hname) `isInfixOf` (pack $ P.render $ P.pretty q)) qnames
+
+getDefFromQName :: QName -> TCM Definition
+getDefFromQName qnam = do
+  tcs <- getTCState
+  let qsToDefs = tcs ^. stImports ^. sigDefinitions
+  case HMap.lookup qnam qsToDefs of
+    Just def -> return def
+    _        -> typeError $ GenericError "no defs for that Qname!!"
+
+getDefFromHuman :: String -> TCM Definition
+getDefFromHuman hname = getDefFromQName =<< getQNameFromHuman hname
+
+getDefnFromHuman :: String -> TCM Defn
+getDefnFromHuman hname = do
+  hnameDef <- getDefFromQName =<< getQNameFromHuman hname
+  return $ theDef hnameDef
+  
+
+experimentWithToDec :: TCM ()
+experimentWithToDec = do
+  toDecQ <- getQNameFromHuman "toDec"
+  toDecDef <- getDefFromQName toDecQ
+  printInTCM =<< prettyTCM (defName toDecDef)
+  printInTCM =<< prettyTCM (defType toDecDef)
+  printInTCM $ P.pretty $ theDef toDecDef
+
+-- | from human name, we pretty print the bound-in-imports Defn
+printDefn :: String -> TCM ()
+printDefn hname = do
+  hnameDef <- getDefFromQName =<< getQNameFromHuman hname
+  printInTCM $ P.pretty $ defName hnameDef
+  printInTCM $ P.text ""
+  printInTCM $ P.pretty $ defType hnameDef
+  printInTCM $ P.text ""
+  printInTCM $ P.pretty $ theDef hnameDef
+
+printTheEnvCtx :: TCM ()
+printTheEnvCtx = do
+  tce <- askTC
+  let ctx = tce ^. eContext
+  printInTCM $ P.pretty ctx
+
+
+{-
+best short at "declaring in .agda, working in .hs"
+
+I can already be in a nice TCState with @beInNiceTCState@ above.
+I can obtain a realistic QName (this include the file and position of the name ie "range") with @getGNameFromHuman@
+
+But where are stored @Syntax.Internal.Term@'s once they have been typechecked??
+I feel like they are in fact not stored anywhere and I have to retypecheck them. But then I need an @Syntax.Abstract.Expr@
+and I don't know if I can obtain that based on the QName??
+Also, @stImports@ ultimately gives @Definitions@. Can I obtain @Expr@'s from Definitions?
+-}
