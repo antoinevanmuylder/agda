@@ -1,7 +1,8 @@
 module Generic where
 
-import Data.Map as Map
+import qualified Data.Map as Map
 import qualified Data.HashMap.Strict as HMap
+import Data.Text hiding (filter)
 
 import Control.Monad.IO.Class       ( MonadIO(..) )
 import Control.Monad.Except
@@ -66,7 +67,7 @@ main :: IO ()
 main = runTCMPrettyErrors $ do
   beInNiceTCState "/home/antva/Documents/repos/agda-fork/test/bridges/All.agda"
 
-  showTheImports
+  showTheImports'
   
   endOfMain
 
@@ -98,4 +99,11 @@ showTheImports :: TCM ()
 showTheImports = do
   tcs <- getTCState
   let qnames = HMap.keys (tcs ^. stImports ^. sigDefinitions)
-  printInTCM $ P.pretty qnames 
+  printInTCM $ P.pretty qnames
+
+showTheImports' :: TCM ()
+showTheImports' = do
+  tcs <- getTCState
+  let qnames = HMap.keys (tcs ^. stImports ^. sigDefinitions)
+  printInTCM $ P.text $ show $
+    filter (\q -> (pack "toDec") `isInfixOf` (pack $ P.render $ P.pretty q)) qnames
