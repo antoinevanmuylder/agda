@@ -460,7 +460,7 @@ compareGelTm _ _ _ _ _ = __IMPOSSIBLE__
 
 data CanBCstr
   = CanBno
-  | CanMap (IntMap.IntMap (Set.Set Bool))
+  | CanMap (IntMap (BoolSet))
   | CanByes
   deriving (Eq, Show)
 
@@ -471,8 +471,8 @@ asCanBCstr psi = do
   case psiView of
     Bno -> return CanBno
     Byes -> return CanByes
-    Bisone (Arg _ (Var i [])) -> return $ CanMap $ IntMap.singleton i (Set.singleton True)
-    Biszero (Arg _ (Var i [])) -> return $ CanMap $ IntMap.singleton i (Set.singleton False)
+    Bisone (Arg _ (Var i [])) -> return $ CanMap $ IntMap.singleton i (BoolSet.singleton True)
+    Biszero (Arg _ (Var i [])) -> return $ CanMap $ IntMap.singleton i (BoolSet.singleton False)
     Bconj (Arg _ psi1) (Arg _ psi2) -> do
       psi1' <- asCanBCstr psi1 ; psi2' <- asCanBCstr psi2
       case (psi1' , psi2') of
@@ -481,7 +481,7 @@ asCanBCstr psi = do
         (CanByes, _) -> typeError $ GenericDocError "asCanBCstr expects a reduced arg"
         (_ , CanByes) -> typeError $ GenericDocError "asCanBCstr expects a reduced arg"
         (CanMap psi1map , CanMap psi2map) -> do
-          return $ CanMap $ IntMap.unionWith (Set.union) psi1map psi2map
+          return $ CanMap $ IntMap.unionWith (BoolSet.union) psi1map psi2map
     _ -> typeError $ GenericDocError "asCanBCstr expects a reduced arg/no metas"
 
 

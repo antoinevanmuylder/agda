@@ -231,6 +231,7 @@ checkDataSort name s = setCurrentRange name $ do
       SizeUniv     -> no
       LockUniv     -> no
       IntervalUniv -> no
+      CstrUniv     -> no
       -- Unsolved sorts.
       PiSort _ _ _ -> dunno
       FunSort _ _  -> dunno
