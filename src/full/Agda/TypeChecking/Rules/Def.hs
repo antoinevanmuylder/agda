@@ -794,7 +794,8 @@ checkBdgSystemCoverage f n t cs = do
               -- note: at this point we are in a total telescope, but clauses are displayed using  their own clauseTel
               -- so there might be a mismatch in variables.
               () <- reportSDoc "tc.sys.cover" 10 $ "understanding clauses" <+> (nest 2 . vcat)
-               [ "clauseTel1:        " <+> (prettyTCM $ clauseTel cl1)
+               [ "gamma              " <+> (prettyTCM gamma)
+               , "clauseTel1:        " <+> (prettyTCM $ clauseTel cl1)
                -- , "namedClausedPats1: " <+> (prettyTCM $ namedClausePats cl1)
                , "clauseBody1:       " <+> (addContext (clauseTel cl1) $ prettyTCM $ clauseBody cl1)
                , "clauseType1:       " <+> (addContext (clauseTel cl1) $ prettyTCM $ clauseType cl1)
@@ -804,17 +805,30 @@ checkBdgSystemCoverage f n t cs = do
                , "clauseBody2:       " <+> (addContext (clauseTel cl2) $ prettyTCM $  clauseBody cl2)
                , "clauseType2:       " <+> (addContext (clauseTel cl2) $ prettyTCM $  clauseType cl2)
                ]
-              -- building cl1Rhs[psi2val / psi2var] ...
+
+              (psi1val , psi1var) <- case psi1 of --psi1var = DB index making sense with gamma.
+                Def psi1head [Apply psi1var] | Just psi1head == mBiszero -> return (bi0, i1)
+                Def psi1head [Apply psi1var] | Just psi1head == mBisone -> return (bi1, i1)
+                _ -> __IMPOSSIBLE__
+              
               (psi2val , psi2var) <- case psi2 of --psi2var = DB index making sense with gamma.
                 Def psi2head [Apply psi2var] | Just psi2head == mBiszero -> return (bi0, i2)
                 Def psi2head [Apply psi2var] | Just psi2head == mBisone -> return (bi1, i2)
                 _ -> __IMPOSSIBLE__
-              --problem: cl1Rhs makes sense in clauseTel cl1 and not in gamma.
-              --how is forallFaceMaps solving this problem??? cf bridgeGoK?
-              return ()
-      -- typeError $ NotImplemented "coverage check for bvar constraints"
+                
+              -- how to get psi2var wrt clauseTel cl1??
+              -- proposal..
+              -- Γ  total telescope, Δ₁ = clauseTel cl1 ie Γ with ψ₁ enfoced, and Δ₂ = clauseTel cl2 ie Γ with ψ₂ enforced.
+              -- we rebuild Γ → Δᵢ, pullback the respective rhs along this, make the relevant substs and compare.
+              
+              -- building cl1Rhs[psi2val / psi2var] ...
+              -- Γ → Δ₁ is rebuilt in bridgeGoK
+              (\xi biEps (k :: Substitution -> TCM ()) -> bridgeGoK k xi biEps) psi1var psi1val $ \sigma -> do
+                maybeDelta1 <- getContext
+                reportSDoc "tc.sys.cover" 30 $ "maybeDelta1     " <+> prettyTCM maybeDelta1 --TODO-antva displayed types are nonsense
+                -- sigma `applySubst`
 
-      -- TODO-antva: we need a coherence check here.
+              return ()
       
       -- forM_ (initWithDefault __IMPOSSIBLE__ $
       --        initWithDefault __IMPOSSIBLE__ $ List.tails pcs) $ \ ((phi1,cl1):pcs') -> do

@@ -2106,10 +2106,12 @@ forallBridgeFaceMaps xi k = do
   return [thing0, thing1]
 
 
+-- | builds σ : ctx -> ctx' where ctx' is obtained from ctx by setting db var xi := biEps.
+--   then run continuation k with σ.
 bridgeGoK :: MonadConversion m => (Substitution -> m a) -> Int -> Term -> m a
 bridgeGoK k xi biEps = do --biEps is either bi0 or bi1
   cxt <- getContext
-  (cxt', sigma) <- substContextN cxt [(xi, biEps)]
+  (cxt', sigma) <- substContextN cxt [(xi, biEps)] -- sigma : ctx -> ctx'
   resolved <- forM [(xi, biEps)] (\ (i,t) -> (,) <$> lookupBV i <*> return (applySubst sigma t))
   updateContext sigma (const cxt') $ addBindings resolved $ do
     k sigma
