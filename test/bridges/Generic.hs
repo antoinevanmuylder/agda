@@ -75,9 +75,12 @@ main :: IO ()
 main = runTCMPrettyErrors $ do
   beInNiceTCState "./All.agda"
 
-  printDefn "toDec"
+  understandLocallyTC'
   
   endOfMain
+
+
+
 
 
 
@@ -167,6 +170,34 @@ printTheEnvCtx = do
   let ctx = tce ^. eContext
   printInTCM $ P.pretty ctx
 
+-- | it is stated that TCEnv is read only. Is that really true?
+--   yes. locallyTC gives a new TCM, instead of mutating somehting.
+understandLocallyTC :: TCM ()
+understandLocallyTC = do
+  toDecQ <- getQNameFromHuman "toDec"
+  let
+    nam = head $ qnameToList0 toDecQ
+    somedom = defaultDom (nam , __DUMMY_TYPE__)
+  bconj' <- locallyTC eContext (\ctx -> somedom : ctx ) primBConj
+  printInTCM =<< prettyTCM bconj' --the showed term remains the same. what if we ask for db variable 0?
+
+understandLocallyTC' :: TCM ()
+understandLocallyTC' = do
+  toDecQ <- getQNameFromHuman "toDec"
+  let
+    nam = head $ qnameToList0 toDecQ
+    somedom = defaultDom (nam , __DUMMY_TYPE__)
+    vartm = Var 0 []
+  vartm' <- locallyTC eContext (somedom :) $ return vartm
+  printInTCM =<< prettyTCM vartm'
+  --note: @underAbstractionAbs@ updates the ctx but also consider terms up to a certain substitution
+  -- check out @TC.Monad.Context@, @TC.Substitute.Class@
+
+-- -- | Modify the lens-indicated part of the @TCEnv@ in a subcomputation.
+-- locallyTC :: MonadTCEnv m => Lens' a TCEnv -> (a -> a) -> m b -> m b
+-- locallyTC l = localTC . over l
+
+  
 
 {-
 best short at "declaring in .agda, working in .hs"
