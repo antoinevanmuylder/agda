@@ -770,22 +770,22 @@ checkBdgSystemCoverage f n t cs = do
 
       -- coherence check. rhs must agree where they overlap.
       
-      reportSDoc "tc.sys.cover" 30 $ "random info:"
-      bcstrrr <- primBCstr ; reportSDoc "tc.sys.cover" 30 $ nest 2 $ text $ show bcstrrr
+      -- reportSDoc "tc.sys.cover" 30 $ "random info:"
+      -- bcstrrr <- primBCstr ; reportSDoc "tc.sys.cover" 30 $ nest 2 $ text $ show bcstrrr
       reportSDoc "tc.sys.cover" 20 $ "coherence check for " <+> prettyTCM f <+> "..."
       forM_ (initWithDefault __IMPOSSIBLE__ $
               initWithDefault __IMPOSSIBLE__ $ List.tails pcs3) $ \ ((psi1,cl1,(i1,b1)):pcs3') -> do
         forM_ pcs3' $ \ (psi2,cl2,(i2,b2)) -> do
-          -- The only kinds of hyperplanes that do not intersect are (x = bi0), (x = bi1)
+          -- The only kinds of hyperplanes that do not intersect are (x = bi0), (x = bi1) TODO-antva simplify the code below
           goOn <- case (psi1 , psi2) of
             (Def psi1head [Apply psi1var], Def psi2head [Apply psi2var]) | Just psi1head == mBiszero , Just psi2head == mBiszero -> do
-              return True --includes coherence check for repeated clauses.
+              when (psi1var == psi2var) (typeError $ GenericError "Duplicated clause in BPartial pattern matching") ; return True
             (Def psi1head [Apply psi1var], Def psi2head [Apply psi2var]) | Just psi1head == mBiszero , Just psi2head == mBisone -> do
               return (psi1var /= psi2var) --false iff the hyperplanes dont intersect.
             (Def psi1head [Apply psi1var], Def psi2head [Apply psi2var]) | Just psi1head == mBisone , Just psi2head == mBiszero -> do
               return (psi1var /= psi2var) --false iff the hyperplanes dont intersect.
             (Def psi1head [Apply psi1var], Def psi2head [Apply psi2var]) | Just psi1head == mBisone , Just psi2head == mBisone -> do
-              return True  --includes coherence check for repeated clauses.
+              when (psi1var == psi2var) (typeError $ GenericError "Duplicated clause in BPartial pattern matching") ; return True
             (_, _) -> typeError $ GenericError $ "coherence check reached impossible point."
           reportSDoc "tc.sys.cover" 30 $ "psi1 is " <+> (prettyTCM psi1) <+> " and psi2 is " <+> (prettyTCM psi2) <+> "and goOn is " <+> (prettyTCM goOn)
           case goOn of
@@ -815,7 +815,7 @@ checkBdgSystemCoverage f n t cs = do
                 Def psi2head [Apply psi2var] | Just psi2head == mBiszero -> return (bi0, i2)
                 Def psi2head [Apply psi2var] | Just psi2head == mBisone -> return (bi1, i2)
                 _ -> __IMPOSSIBLE__
-                
+
               -- how to get psi2var wrt clauseTel cl1??
               -- proposal..
               -- Γ  total telescope, Δ₁ = clauseTel cl1 ie Γ with ψ₁ enfoced, and Δ₂ = clauseTel cl2 ie Γ with ψ₂ enforced.
@@ -823,12 +823,65 @@ checkBdgSystemCoverage f n t cs = do
               
               -- building cl1Rhs[psi2val / psi2var] ...
               -- Γ → Δ₁ is rebuilt in bridgeGoK
-              (\xi biEps (k :: Substitution -> TCM ()) -> bridgeGoK k xi biEps) psi1var psi1val $ \sigma -> do
-                maybeDelta1 <- getContext
-                reportSDoc "tc.sys.cover" 30 $ "maybeDelta1     " <+> prettyTCM maybeDelta1 --TODO-antva displayed types are nonsense
-                -- sigma `applySubst`
+              -- contextEnforceBCstrs [ (psi1var,psi1val) , (psi2var,psi2val) ] $ \sigma -> do
+              -- -- cl1InGamma <- (\xi biEps (k :: Substitution -> TCM Term) -> bridgeGoK k xi biEps) psi1var psi1val $ \sigma -> do
+              --   maybeDelta1 <- getContext
+              --   --TODO-antva displayed types below are nonsense
+              --   reportSDoc "tc.sys.cover" 30 $ "maybeDelta12    " <+> prettyTCM maybeDelta1 
+              --   let args = sigma `applySubst` teleArgs gamma
+              --       t' = sigma `applySubst` t
+              --       fromReduced (YesReduction _ x) = x
+              --       fromReduced (NoReduction x) = ignoreBlocking x
+              --       body cl = do
+              --         let extra = length (drop n $ namedClausePats cl)
+              --         TelV delta _ <- telViewUpTo extra t'
+              --         fmap (abstract delta) $ addContext delta $ do
+              --           fmap fromReduced $ runReduceM $
+              --             appDef' (Def f []) [cl] [] (map notReduced $ raise (size delta) args ++ teleArgs delta)
+              --   reportSDoc "tc.sys.cover" 30 $ "applying Γ → Δ₁ ..." <+> (nest 2 . vcat)
+              --     [ "args        = " <+> prettyTCM args
+              --     , "t           = " <+> prettyTCM t
+              --     , "t'          = " <+> prettyTCM t'
+              --     , "bodycl1     = " <+> (prettyTCM =<< body cl1)
+              --     , "bodycl2     = " <+> (prettyTCM =<< body cl2) ]
+                         
+              thectxGamma <- getContext
+              let (wk1 :: Substitution) = raiseFromS i1 1 --wk1 : gamma -> delta1. "forget psivar1" (ie sm kind of wkning)
+                  (wk2 :: Substitution) = raiseFromS i2 1 --wk2 : gamma -> delta2.
+                  cl1bodyInGamma = wk1 `applySubst` clauseBody cl1
+                  cl2bodyInGamma = wk2 `applySubst` clauseBody cl2
+              -- we build sigma12 : Γ{where ψ1,ψ2 hold} → Δ₁ → Γ
+              (delta1, sigma1) <- substContext psi1var psi1val thectxGamma --sigma1 : delta1 -> gamma
+              let (Var psi2varInDelta1 _) = sigma1 `applySubst` (Var psi2var []) --problems when psi1var = psi2var ...
+              (delta12, presigma12) <- substContext psi2varInDelta1 psi2val delta1
+              let sigma12 = presigma12 `applySubst` sigma1
+              -- we pull cl1bodyInGamma, cl2bodyInGamma back in ctx delta12 and compare them!
+              let finalCl1rhs = sigma12 `applySubst` cl1bodyInGamma
+                  finalCl2rhs = sigma12 `applySubst` cl2bodyInGamma
+
+              -- (delta12, enforcePsi12) <- substContextN thectxGamma [(psi1var,psi1val) , (psi2var,psi2val)]
+              reportSDoc "tc.sys.cover" 30 $  "coherent RHS's? ... " <+> (nest 2 . vcat)
+                [ "thectxGamma   = " <+> prettyTCM thectxGamma
+                , "wk1           = " <+> prettyTCM wk1
+                , "cl1bodyInG    = " <+> prettyTCM cl1bodyInGamma
+                , "wk2           = " <+> prettyTCM wk2
+                , "cl2bodyInG    = " <+> prettyTCM cl2bodyInGamma
+                , "delta1        = " <+> prettyTCM delta1
+                , "sigma1        = " <+> prettyTCM sigma1
+                , "delta12       = " <+> prettyTCM delta12
+                , "presigma12    = " <+> prettyTCM presigma12
+                , "sigma12       = " <+> prettyTCM sigma12
+                , "finalCl1rhs   = " <+> (addContext (reverse delta12) $ prettyTCM finalCl1rhs)
+                , "finalCl2rhs   = " <+> (addContext (reverse delta12) $ prettyTCM finalCl2rhs) ]
+                -- , "enforcePsi12  = " <+> prettyTCM enforcePsi12 ]
+              
 
               return ()
+
+
+-- -- | @Γ, Ξ, Δ ⊢ raiseFromS |Δ| |Ξ| : Γ, Δ@
+-- raiseFromS :: Nat -> Nat -> Substitution' a
+-- raiseFromS n k = liftS n $ raiseS k              
       
       -- forM_ (initWithDefault __IMPOSSIBLE__ $
       --        initWithDefault __IMPOSSIBLE__ $ List.tails pcs) $ \ ((phi1,cl1):pcs') -> do
@@ -848,6 +901,7 @@ checkBdgSystemCoverage f n t cs = do
       --       v1 <- body cl1
       --       v2 <- body cl2
       --       equalTerm t' v1 v2
+
 
       sys <- forM (zip alphas cs) $ \ (alpha,cl) -> do
 

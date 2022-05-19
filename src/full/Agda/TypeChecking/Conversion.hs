@@ -2106,7 +2106,7 @@ forallBridgeFaceMaps xi k = do
   return [thing0, thing1]
 
 
--- | builds σ : ctx -> ctx' where ctx' is obtained from ctx by setting db var xi := biEps.
+-- | ≈builds σ : ctx -> ctx' where ctx' is obtained from ctx by setting db var xi := biEps.
 --   then run continuation k with σ.
 bridgeGoK :: MonadConversion m => (Substitution -> m a) -> Int -> Term -> m a
 bridgeGoK k xi biEps = do --biEps is either bi0 or bi1
@@ -2116,6 +2116,29 @@ bridgeGoK k xi biEps = do --biEps is either bi0 or bi1
   updateContext sigma (const cxt') $ addBindings resolved $ do
     k sigma
 
+-- -- | a version of bridgeGoK where several constraints (instead of 1) are enforced,
+-- --   and where arguments are swapped.
+-- contextEnforceBCstrs :: MonadConversion m => [(Int,Term)] ->  (Substitution -> m a) -> m a
+-- contextEnforceBCstrs bcstrs k = do
+--   ctx <- getContext
+--   (ctx', sigma) <- substContextN ctx bcstrs
+--   resolved <- forM bcstrs (\ (i,t) -> (,) <$> lookupBV i <*> return (applySubst sigma t))
+--   updateContext sigma (const ctx') $ addBindings resolved $ do
+--     cl <- buildClosure ()
+--     tel <- getContextTelescope
+--     m <- currentModule
+--     sub <- getModuleParameterSub m
+--     reportS "tc.conv.bdgfaces" 50
+--       [ replicate 10 '-'
+--       , show (envCurrentModule $ clEnv cl)
+--       , show (envLetBindings $ clEnv cl)
+--       , show tel -- (toTelescope $ envContext $ clEnv cl)
+--       , show sigma
+--       , show m
+--       , show sub
+--       ]
+--     k sigma
+
 -- | 3 helper functions for path/bridge face methods above
 addBindings :: MonadConversion m => [(Dom (Name, Type), Term)] -> m a -> m a
 addBindings [] m = m
@@ -2124,8 +2147,22 @@ addBindings ((Dom{domInfo = info,unDom = (nm,ty)},t):bs) m = addLetBinding info 
 substContextN :: MonadConversion m => Context -> [(Int,Term)] -> m (Context , Substitution)
 substContextN c [] = return (c, idS)
 substContextN c ((i,t):xs) = do
+  reportSDoc "tc.conv.substctx" 50 $ "substContextN called with... " <+> (nest 2 . vcat)
+    [ "c         =  " <+> prettyTCM c
+    , "cstr list =  " <+> prettyTCM ((i,t):xs) ]
+
   (c', sigma) <- substContext i t c
+  
+  reportSDoc "tc.conv.substctx" 50 $ "sCtxN, c' & sigma... " <+> (nest 2 . vcat)
+    [ "c'      =  " <+> prettyTCM c'
+    , "sigma   =  " <+> prettyTCM sigma ]
+    
   (c'', sigma')  <- substContextN c' (map (subtract 1 -*- applySubst sigma) xs)
+  
+  reportSDoc "tc.conv.substctx" 50 $ "sCtxN, c'' & sigma'... " <+> (nest 2 . vcat)
+    [ "c''      =  " <+> prettyTCM c''
+    , "sigma'   =  " <+> prettyTCM sigma' ]
+    
   return (c'', applySubst sigma' sigma)
 
 
@@ -2135,16 +2172,16 @@ substContext :: MonadConversion m => Int -> Term -> Context -> m (Context , Subs
 substContext i t [] = __IMPOSSIBLE__
 substContext i t (x:xs) | i == 0 = return $ (xs , singletonS 0 t)
 substContext i t (x:xs) | i > 0 = do
-                              reportSDoc "conv.forall" 20 $
-                                fsep ["substContext"
-                                    , text (show (i-1))
-                                    , prettyTCM t
-                                    , prettyTCM xs
-                                    ]
+                              reportSDoc "tc.conv.substctx" 20 $ "substContext >0 calls itself with args " <+> (nest 2 . vcat)
+                                [ text (show (i-1))
+                                , prettyTCM t
+                                , prettyTCM xs ]
                               (c,sigma) <- substContext (i-1) t xs
                               let e = applySubst sigma x
                               return (e:c, liftS 1 sigma)
-substContext i t (x:xs) = __IMPOSSIBLE__
+substContext i t (x:xs) = do
+  reportSDoc "tc.conv.substctx" 50 $ "substContext impossible call...:" <+> prettyTCM (i, t, (x:xs))
+  return __IMPOSSIBLE__
 
 
 compareInterval :: MonadConversion m => Comparison -> Type -> Term -> Term -> m ()
