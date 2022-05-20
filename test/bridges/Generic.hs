@@ -70,7 +70,8 @@ showTheImports = do
 
 
 -- | there are nice lenses to inspect TCState, near Monad.Base.stTokens. (first: getTCState)
--- | and lenses to inspect TCEnv, near eContext. (first: askTC)
+--   and lenses to inspect TCEnv, near eContext. (first: askTC)
+--   seems that @Internal.Term@s resulting from tc can be inspected via stPostScopeState
 main :: IO ()
 main = runTCMPrettyErrors $ do
   beInNiceTCState "./All.agda"

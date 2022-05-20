@@ -339,11 +339,11 @@ compareTerm' cmp a m n =
     equalFun :: (MonadConversion m) => Sort -> Term -> Term -> Term -> m ()
     equalFun s a@(Pi dom b) m n | domFinite dom = do
        mp <- fmap getPrimName <$> getBuiltin' builtinIsOne
-       -- mbholds <- fmap getPrimName <$> getBuiltin' builtinBHolds
+       mbholds <- fmap getPrimName <$> getBuiltin' builtinBHolds
        case unEl $ unDom dom of
           Def q [Apply phi]
               | Just q == mp -> compareTermOnFace cmp (unArg phi) (El s (Pi (dom {domFinite = False}) b)) m n
-              --  | Just q == mbholds -> compareTermOnBdgFace cmp (unArg phi) (El s (Pi (dom {domFinite = False}) b)) m n
+              | Just q == mbholds -> compareTermOnBdgFace cmp (unArg phi) (El s (Pi (dom {domFinite = False}) b)) m n
           _                  -> equalFun s (Pi (dom{domFinite = False}) b) m n
     equalFun _ (Pi dom@Dom{domInfo = info} b) m n | not $ domFinite dom = do
         let name = suggests [ Suggestion b , Suggestion m , Suggestion n ]
@@ -2280,12 +2280,32 @@ compareTermOnFace' k cmp phi ty u v = do
              phi
     addConstraint blocker (ValueCmpOnFace cmp phi ty u v)
 
+-- | check that m and n agree when the bridge constraint psi holds.
 compareTermOnBdgFace :: MonadConversion m => Comparison -> Term -> Type -> Term -> Term -> m ()
-compareTermOnBdgFace = compareTermOnBdgFace' compareTerm
+compareTermOnBdgFace cmp psi (El s (Pi psiholdsDom b)) m n = do
+  psi <- reduce psi 
+  mbno <- getPrimitiveName' builtinBno ; mbyes <- getPrimitiveName' builtinByes
+  mbisone <- getPrimitiveName' builtinBisone ; mbiszero <- getPrimitiveName' builtinBiszero
+  mbconj <- getPrimitiveName' builtinBconj
+
+  canPsi <- asCanBCstr psi
+  case canPsi of
+    CanBno -> return () --when psi holds (impossible), m and n are equal.
+    CanByes -> do
+      reportSDoc "tc.conv.comparebdgface" 30 $ "some info... " <+> (nest 2 . vcat)
+        [ "the ctx = " <+> (prettyTCM =<< getContext)
+        , "and b   = " <+> prettyTCM (unAbs b) ]
+      -- equalTerm (unAbs b) (
+    _ -> return ()
+  
+  return ()
+compareTermOnBdgFace cmp psi _ m n = __IMPOSSIBLE__
+  
 
 compareTermOnBdgFace' :: MonadConversion m => (Comparison -> Type -> Term -> Term -> m ()) -> Comparison -> Term -> Type -> Term -> Term -> m ()
 compareTermOnBdgFace' k cmp psi ty u v = do  -- u,v : BPartial ψ ty[] ≈ (BHolds ψ) → ty _
   return ()
+  
 
 -- | equalTermOnBridgeFace (x) (x.ty) (x.u) (x.v) generates endpoints constraints
 --   u[x \bi0] = v[x \bi0] at ty[ x \bi0] ; u[x \bi1] = v[x \bi1] ty[ x \bi1]
