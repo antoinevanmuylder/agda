@@ -682,7 +682,6 @@ checkBdgSystemCoverage
   -> [Clause]
   -> TCM System
 checkBdgSystemCoverage f n t cs = do
-  -- typeError $ GenericError "no coverage check for bdg constraints"
   reportSDoc "tc.sys.cover" 10 $ vcat
     [ "n (ctx # of split)           = " <+> (text $ show n)
     , "# of clauses                 = " <+> (text $ show $ length cs)
@@ -696,8 +695,6 @@ checkBdgSystemCoverage f n t cs = do
   case a of
     Def q [Apply bcstr] -> do --bcstr is bdg cstr stated in type.
       [biz,bio] <- mapM getBuiltinName' [builtinBIZero, builtinBIOne]
-      -- ineg <- primINeg
-      -- imin <- primIMin
       bno <- primBno
       byes <- primByes
       biszero <- primBiszero
@@ -721,11 +718,6 @@ checkBdgSystemCoverage f n t cs = do
         dir :: (Int,Bool) -> Term
         dir (i,False) = biszero `apply` [argN $ var i]
         dir (i,True)  = bisone  `apply` [argN $ var i]
-
-        -- andI :: [Term] -> Term
-        -- andI [] = i1
-        -- andI [t] = t
-        -- andI (t:ts) = (\ x -> imin `apply` [argN t, argN x]) $ andI ts
         
         borI :: [Term] -> Term
         borI [] = bno
@@ -750,7 +742,7 @@ checkBdgSystemCoverage f n t cs = do
         alphas' = unpack' alphas
         psis :: [Term] -- the φ terms for each clause (i.e. the alphas as terms)
         psis = map (unpack . map dir) alphas
-        psi = borI $ psis
+        psi = borI $ psis --constraint reconstructed from clauses. to compare with bcstr (stated in type)
         pcs = zip psis cs
         pcs3 = zip3 psis cs alphas'
 
@@ -763,145 +755,87 @@ checkBdgSystemCoverage f n t cs = do
         , "pcs3     =" <+> prettyTCM pcs3
         ]
 
+      -- coverage check. the reconstructed bridge cstr psi matches the stated bridge constraint bcstr.
       tbcstr <- primBCstrType
       reportSDoc "tc.sys.cover" 10 $
         "equalTerm " <+> prettyTCM (unArg bcstr) <+> ", " <+> prettyTCM psi
       equalTerm tbcstr (unArg bcstr) psi
 
       -- coherence check. rhs must agree where they overlap.
-      
-      -- reportSDoc "tc.sys.cover" 30 $ "random info:"
-      -- bcstrrr <- primBCstr ; reportSDoc "tc.sys.cover" 30 $ nest 2 $ text $ show bcstrrr
       reportSDoc "tc.sys.cover" 20 $ "coherence check for " <+> prettyTCM f <+> "..."
       forM_ (initWithDefault __IMPOSSIBLE__ $
               initWithDefault __IMPOSSIBLE__ $ List.tails pcs3) $ \ ((psi1,cl1,(i1,b1)):pcs3') -> do
         forM_ pcs3' $ \ (psi2,cl2,(i2,b2)) -> do
-          -- The only kinds of hyperplanes that do not intersect are (x = bi0), (x = bi1) TODO-antva simplify the code below
-          goOn <- case (psi1 , psi2) of
-            (Def psi1head [Apply psi1var], Def psi2head [Apply psi2var]) | Just psi1head == mBiszero , Just psi2head == mBiszero -> do
-              when (psi1var == psi2var) (typeError $ GenericError "Duplicated clause in BPartial pattern matching") ; return True
-            (Def psi1head [Apply psi1var], Def psi2head [Apply psi2var]) | Just psi1head == mBiszero , Just psi2head == mBisone -> do
-              return (psi1var /= psi2var) --false iff the hyperplanes dont intersect.
-            (Def psi1head [Apply psi1var], Def psi2head [Apply psi2var]) | Just psi1head == mBisone , Just psi2head == mBiszero -> do
-              return (psi1var /= psi2var) --false iff the hyperplanes dont intersect.
-            (Def psi1head [Apply psi1var], Def psi2head [Apply psi2var]) | Just psi1head == mBisone , Just psi2head == mBisone -> do
-              when (psi1var == psi2var) (typeError $ GenericError "Duplicated clause in BPartial pattern matching") ; return True
-            (_, _) -> typeError $ GenericError $ "coherence check reached impossible point."
-          reportSDoc "tc.sys.cover" 30 $ "psi1 is " <+> (prettyTCM psi1) <+> " and psi2 is " <+> (prettyTCM psi2) <+> "and goOn is " <+> (prettyTCM goOn)
-          case goOn of
-            False -> return ()
-            True -> do -- we must check that ⊢ cl1Rhs[psi2val / psi2var] = cl2Rhs[psi1val / psi1var]
-              -- note: at this point we are in a total telescope, but clauses are displayed using  their own clauseTel
-              -- so there might be a mismatch in variables.
-              () <- reportSDoc "tc.sys.cover" 10 $ "understanding clauses" <+> (nest 2 . vcat)
-               [ "gamma              " <+> (prettyTCM gamma)
-               , "clauseTel1:        " <+> (prettyTCM $ clauseTel cl1)
-               -- , "namedClausedPats1: " <+> (prettyTCM $ namedClausePats cl1)
-               , "clauseBody1:       " <+> (addContext (clauseTel cl1) $ prettyTCM $ clauseBody cl1)
-               , "clauseType1:       " <+> (addContext (clauseTel cl1) $ prettyTCM $ clauseType cl1)
-               
-               , "clauseTel2:        " <+> (prettyTCM $ clauseTel cl2)
-               -- , "namedClausedPats2: " <+> (prettyTCM $ namedClausePats cl2)
-               , "clauseBody2:       " <+> (addContext (clauseTel cl2) $ prettyTCM $  clauseBody cl2)
-               , "clauseType2:       " <+> (addContext (clauseTel cl2) $ prettyTCM $  clauseType cl2)
-               ]
+          
+          let boolToBI :: Bool -> Term
+              boolToBI False = bi0
+              boolToBI True = bi1
 
-              (psi1val , psi1var) <- case psi1 of --psi1var = DB index making sense with gamma.
-                Def psi1head [Apply psi1var] | Just psi1head == mBiszero -> return (bi0, i1)
-                Def psi1head [Apply psi1var] | Just psi1head == mBisone -> return (bi1, i1)
-                _ -> __IMPOSSIBLE__
-              
-              (psi2val , psi2var) <- case psi2 of --psi2var = DB index making sense with gamma.
-                Def psi2head [Apply psi2var] | Just psi2head == mBiszero -> return (bi0, i2)
-                Def psi2head [Apply psi2var] | Just psi2head == mBisone -> return (bi1, i2)
-                _ -> __IMPOSSIBLE__
+              (psi1var, psi1val) = (i1, boolToBI b1)
+              (psi2var, psi2val) = (i2, boolToBI b2)
 
-              -- how to get psi2var wrt clauseTel cl1??
-              -- proposal..
-              -- Γ  total telescope, Δ₁ = clauseTel cl1 ie Γ with ψ₁ enfoced, and Δ₂ = clauseTel cl2 ie Γ with ψ₂ enforced.
-              -- we rebuild Γ → Δᵢ, pullback the respective rhs along this, make the relevant substs and compare.
-              
-              -- building cl1Rhs[psi2val / psi2var] ...
-              -- Γ → Δ₁ is rebuilt in bridgeGoK
-              -- contextEnforceBCstrs [ (psi1var,psi1val) , (psi2var,psi2val) ] $ \sigma -> do
-              -- -- cl1InGamma <- (\xi biEps (k :: Substitution -> TCM Term) -> bridgeGoK k xi biEps) psi1var psi1val $ \sigma -> do
-              --   maybeDelta1 <- getContext
-              --   --TODO-antva displayed types below are nonsense
-              --   reportSDoc "tc.sys.cover" 30 $ "maybeDelta12    " <+> prettyTCM maybeDelta1 
-              --   let args = sigma `applySubst` teleArgs gamma
-              --       t' = sigma `applySubst` t
-              --       fromReduced (YesReduction _ x) = x
-              --       fromReduced (NoReduction x) = ignoreBlocking x
-              --       body cl = do
-              --         let extra = length (drop n $ namedClausePats cl)
-              --         TelV delta _ <- telViewUpTo extra t'
-              --         fmap (abstract delta) $ addContext delta $ do
-              --           fmap fromReduced $ runReduceM $
-              --             appDef' (Def f []) [cl] [] (map notReduced $ raise (size delta) args ++ teleArgs delta)
-              --   reportSDoc "tc.sys.cover" 30 $ "applying Γ → Δ₁ ..." <+> (nest 2 . vcat)
-              --     [ "args        = " <+> prettyTCM args
-              --     , "t           = " <+> prettyTCM t
-              --     , "t'          = " <+> prettyTCM t'
-              --     , "bodycl1     = " <+> (prettyTCM =<< body cl1)
-              --     , "bodycl2     = " <+> (prettyTCM =<< body cl2) ]
-                         
-              thectxGamma <- getContext
-              let (wk1 :: Substitution) = raiseFromS i1 1 --wk1 : gamma -> delta1. "forget psivar1" (ie sm kind of wkning)
-                  (wk2 :: Substitution) = raiseFromS i2 1 --wk2 : gamma -> delta2.
-                  cl1bodyInGamma = wk1 `applySubst` clauseBody cl1
-                  cl2bodyInGamma = wk2 `applySubst` clauseBody cl2
-              -- we build sigma12 : Γ{where ψ1,ψ2 hold} → Δ₁ → Γ
-              (delta1, sigma1) <- substContext psi1var psi1val thectxGamma --sigma1 : delta1 -> gamma
-              let (Var psi2varInDelta1 _) = sigma1 `applySubst` (Var psi2var []) --problems when psi1var = psi2var ...
-              (delta12, presigma12) <- substContext psi2varInDelta1 psi2val delta1
-              let sigma12 = presigma12 `applySubst` sigma1
-              -- we pull cl1bodyInGamma, cl2bodyInGamma back in ctx delta12 and compare them!
-              let finalCl1rhs = sigma12 `applySubst` cl1bodyInGamma
-                  finalCl2rhs = sigma12 `applySubst` cl2bodyInGamma
+          when (psi1var == psi2var && psi1val == psi2val) (typeError $ GenericError "Duplicated clause in BPartial pattern matching")
 
-              -- (delta12, enforcePsi12) <- substContextN thectxGamma [(psi1var,psi1val) , (psi2var,psi2val)]
-              reportSDoc "tc.sys.cover" 30 $  "coherent RHS's? ... " <+> (nest 2 . vcat)
-                [ "thectxGamma   = " <+> prettyTCM thectxGamma
-                , "wk1           = " <+> prettyTCM wk1
-                , "cl1bodyInG    = " <+> prettyTCM cl1bodyInGamma
-                , "wk2           = " <+> prettyTCM wk2
-                , "cl2bodyInG    = " <+> prettyTCM cl2bodyInGamma
-                , "delta1        = " <+> prettyTCM delta1
-                , "sigma1        = " <+> prettyTCM sigma1
-                , "delta12       = " <+> prettyTCM delta12
-                , "presigma12    = " <+> prettyTCM presigma12
-                , "sigma12       = " <+> prettyTCM sigma12
-                , "finalCl1rhs   = " <+> (addContext (reverse delta12) $ prettyTCM finalCl1rhs)
-                , "finalCl2rhs   = " <+> (addContext (reverse delta12) $ prettyTCM finalCl2rhs) ]
-                -- , "enforcePsi12  = " <+> prettyTCM enforcePsi12 ]
-              
-
-              return ()
+          -- The only kinds of hyperplanes that do not intersect are of the form (x = bi0), (x = bi1)
+          let (stop :: Bool) = (psi1var == psi2var) && (psi1val /= psi2val)
+          reportSDoc "tc.sys.cover" 30 $ "psi1 = " <+> (prettyTCM psi1) <+> ", psi2 = " <+> (prettyTCM psi2) <+> "goOn = " <+> (prettyTCM $ not stop)
+          unless stop $ do
+            thectx <- getContext --gamma has been pushed on this.
+            
+            reportSDoc "tc.sys.cover" 10 $ "info of cur. clauses" <+> (nest 2 . vcat)
+             [ "gamma              " <+> (prettyTCM gamma)
+             , "thectx             " <+> (prettyTCM thectx)
+             , "---"
+             , "clauseTel1:        " <+> (prettyTCM $ clauseTel cl1)
+             -- , "namedClausedPats1: " <+> (prettyTCM $ namedClausePats cl1)
+             , "clauseBody1:       " <+> (addContext (clauseTel cl1) $ prettyTCM $ clauseBody cl1)
+             , "clauseType1:       " <+> (addContext (clauseTel cl1) $ prettyTCM $ clauseType cl1)
+             , "---"
+             , "clauseTel2:        " <+> (prettyTCM $ clauseTel cl2)
+             -- , "namedClausedPats2: " <+> (prettyTCM $ namedClausePats cl2)
+             , "clauseBody2:       " <+> (addContext (clauseTel cl2) $ prettyTCM $  clauseBody cl2)
+             , "clauseType2:       " <+> (addContext (clauseTel cl2) $ prettyTCM $  clauseType cl2) ]
 
 
--- -- | @Γ, Ξ, Δ ⊢ raiseFromS |Δ| |Ξ| : Γ, Δ@
--- raiseFromS :: Nat -> Nat -> Substitution' a
--- raiseFromS n k = liftS n $ raiseS k              
-      
-      -- forM_ (initWithDefault __IMPOSSIBLE__ $
-      --        initWithDefault __IMPOSSIBLE__ $ List.tails pcs) $ \ ((phi1,cl1):pcs') -> do
-      --   forM_ pcs' $ \ (phi2,cl2) -> do
-      --     phi12 <- reduce (imin `apply` [argN phi1, argN phi2])
-      --     forallFaceMaps phi12 (\ _ _ -> __IMPOSSIBLE__) $ \ sigma -> do
-      --       let args = sigma `applySubst` teleArgs gamma
-      --           t' = sigma `applySubst` t
-      --           fromReduced (YesReduction _ x) = x
-      --           fromReduced (NoReduction x) = ignoreBlocking x
-      --           body cl = do
-      --             let extra = length (drop n $ namedClausePats cl)
-      --             TelV delta _ <- telViewUpTo extra t'
-      --             fmap (abstract delta) $ addContext delta $ do
-      --               fmap fromReduced $ runReduceM $
-      --                 appDef' (Def f []) [cl] [] (map notReduced $ raise (size delta) args ++ teleArgs delta)
-      --       v1 <- body cl1
-      --       v2 <- body cl2
-      --       equalTerm t' v1 v2
+            -- Idea. clauseBody cl1, clauseBody cl2 do type in their respective clauseTel, but not in cur. context ≈Γ.
+            -- Hence we pullback (substitute) those rhs, first to current context Γ, and then to Γ{where ψ1,ψ2 hold}.
 
+            -- note: the substitution game below is sound because trivial substitutions biε/x commute
+            -- we could maybe have used substContextN instead.
+            let (wk1 :: Substitution) = raiseFromS i1 1 --wk1 : gamma -> delta1. "forget psivar1" (ie sm kind of wkning)
+                (wk2 :: Substitution) = raiseFromS i2 1 --wk2 : gamma -> delta2.
+                cl1bodyInGamma = wk1 `applySubst` (maybe __IMPOSSIBLE__ id $ clauseBody cl1)
+                cl1TypeInGamma = wk1 `applySubst` (maybe __IMPOSSIBLE__ id $ clauseType cl1)                
+                cl2bodyInGamma = wk2 `applySubst` (maybe __IMPOSSIBLE__ id $ clauseBody cl2)
+
+            -- we build sigma12 : Γ{where ψ1,ψ2 hold} → Δ₁ → Γ
+            (delta1, sigma1) <- substContext psi1var psi1val thectx --sigma1 : delta1 -> gamma
+            let (Var psi2varInDelta1 _) = sigma1 `applySubst` (Var psi2var []) --no problem because psi1var != psi2var here.
+            (delta12, presigma12) <- substContext psi2varInDelta1 psi2val delta1
+            let sigma12 = presigma12 `applySubst` sigma1
+            -- we pull cl1bodyInGamma, cl2bodyInGamma back in ctx delta12 and compare them!
+            let finalCl1rhs = sigma12 `applySubst` cl1bodyInGamma
+                preRhsType  = sigma12 `applySubst` t --useless
+                rhsType     = unArg $ sigma12 `applySubst` cl1TypeInGamma            
+                finalCl2rhs = sigma12 `applySubst` cl2bodyInGamma
+                
+            reportSDoc "tc.sys.cover" 30 $  "coherent RHS's? ... " <+> (nest 2 . vcat)
+              [ "thectx        = " <+> prettyTCM thectx
+              , "wk1           = " <+> prettyTCM wk1
+              , "cl1bodyInG    = " <+> prettyTCM cl1bodyInGamma
+              , "wk2           = " <+> prettyTCM wk2
+              , "cl2bodyInG    = " <+> prettyTCM cl2bodyInGamma
+              , "delta1        = " <+> prettyTCM delta1
+              , "sigma1        = " <+> prettyTCM sigma1
+              , "delta12       = " <+> prettyTCM delta12
+              , "presigma12    = " <+> prettyTCM presigma12
+              , "sigma12       = " <+> prettyTCM sigma12
+              , "finalCl1rhs   = " <+> (addContext (reverse delta12) $ prettyTCM finalCl1rhs)
+              , "finalCl2rhs   = " <+> (addContext (reverse delta12) $ prettyTCM finalCl2rhs)
+              , "comp. BPrt typ= " <+> (addContext (reverse delta12) $ prettyTCM preRhsType)
+              , "comp. rhsType = " <+> (addContext (reverse delta12) $ prettyTCM rhsType)
+              ]
+            addContext (reverse delta12) $ equalTerm rhsType finalCl1rhs finalCl2rhs
 
       sys <- forM (zip alphas cs) $ \ (alpha,cl) -> do
 
