@@ -10,12 +10,14 @@ import Control.Monad.Except
 import qualified Agda.Utils.Pretty as P
 import Agda.Utils.FileName
 import Agda.Utils.Lens
+import Agda.Utils.Impossible
 import Agda.Syntax.Builtin
 import Agda.Syntax.Internal
 import Agda.TypeChecking.Monad.Builtin
 import Agda.TypeChecking.Monad.Base
 import Agda.TypeChecking.Primitive
 import Agda.TypeChecking.Pretty
+import Agda.TypeChecking.Reduce
 
 import Agda.Interaction.Options
 import Agda.Compiler.Backend
@@ -57,6 +59,11 @@ printInTCM :: Doc -> TCM ()
 printInTCM adoc = do
   liftIO $ putStrLn $ P.render adoc
 
+printInTCMnice :: PrettyTCM a => a -> TCM ()
+printInTCMnice x = do
+  tmp <- prettyTCM x -- ::Doc. may use the context to render.
+  printInTCM tmp
+
 endOfMain :: TCM ()
 endOfMain = do
   printInTCM $ P.text "\nend of main"
@@ -76,7 +83,15 @@ main :: IO ()
 main = runTCMPrettyErrors $ do
   beInNiceTCState "./All.agda"
 
-  understandLocallyTC'
+  Just toDecClause <- getOnlyClause "toDec"
+  addContext (clauseTel toDecClause) $ do
+    -- printTheEnvCtx
+    printInTCM =<< prettyTCM (clauseBody toDecClause)
+    printInTCM $ P.pretty $ ""
+    printInTCMnice $ clauseBody toDecClause
+    printInTCM $ P.pretty $ ""
+    reduced <- reduce $ maybe __IMPOSSIBLE__ id $ clauseBody toDecClause
+    printInTCMnice reduced
   
   endOfMain
 
@@ -191,6 +206,40 @@ understandLocallyTC' = do
     vartm = Var 0 []
   vartm' <- locallyTC eContext (somedom :) $ return vartm
   printInTCM =<< prettyTCM vartm'
+
+-- | from a human name we get a @Monad.Base.Defn@ which may contain clauses and @Term@s.
+getDefn :: String -> TCM Defn
+getDefn hname = do
+  hnameDef0 <- getDefFromQName =<< getQNameFromHuman hname -- ::Definition
+  return $ hnameDef0 ^. theDefLens -- ::Defn
+
+-- | from human name, gets you a @Internal.Clause@ if input is one line function.
+getOnlyClause :: String -> TCM (Maybe Clause)
+getOnlyClause hname = do
+  hnameDefn <- getDefn "toDec"
+  case hnameDefn of
+    Function{funClauses = [onlyCs]} -> return $ Just onlyCs
+    _ -> do
+      typeError $ GenericError $ "The human name " ++ hname ++ " does not map to a 1clause Function ::Defn."
+      return $ Nothing
+      -- printInTCM $ "The human name " <+> hname <+> " does not map to a 1clause Function ::Defn."
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   --note: @underAbstractionAbs@ updates the ctx but also consider terms up to a certain substitution
   -- check out @TC.Monad.Context@, @TC.Substitute.Class@
 
