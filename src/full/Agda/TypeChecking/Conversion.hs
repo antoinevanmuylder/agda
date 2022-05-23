@@ -54,7 +54,7 @@ import qualified Agda.Utils.List1 as List1
 import Agda.Utils.Monad
 import Agda.Utils.Maybe
 import Agda.Utils.Permutation
-import Agda.Utils.Pretty (prettyShow)
+import qualified Agda.Utils.Pretty as P-- (prettyShow)
 import qualified Agda.Utils.ProfileOptions as Profile
 import Agda.Utils.BoolSet (BoolSet)
 import qualified Agda.Utils.BoolSet as BoolSet
@@ -337,7 +337,7 @@ compareTerm' cmp a m n =
   where
     -- equality at function type (accounts for eta)
     equalFun :: (MonadConversion m) => Sort -> Term -> Term -> Term -> m ()
-    equalFun s a@(Pi dom b) m n | domFinite dom = do
+    equalFun s a@(Pi dom b)  m n | domFinite dom = do
        mp <- fmap getPrimName <$> getBuiltin' builtinIsOne
        mbholds <- fmap getPrimName <$> getBuiltin' builtinBHolds
        case unEl $ unDom dom of
@@ -1138,7 +1138,7 @@ compareElims pols0 fors0 a v els01 els02 =
             compareElims [] [] t u els1 els2
           Nothing -> do
             reportSDoc "tc.conv.elims" 30 $ sep
-              [ text $ "projection " ++ prettyShow f
+              [ text $ "projection " ++ P.prettyShow f
               , text   "applied to value " <+> prettyTCM v
               , text   "of unexpected type " <+> prettyTCM a
               ]
@@ -2058,7 +2058,7 @@ forallFaceMaps t kb k = do
     reportSDoc "conv.forall" 40 $
       fsep ["substContextN, cxt xs params: "
            , prettyTCM cxt
-           , text $ prettyShow xs
+           , text $ P.prettyShow xs
            ]
     (cxt',sigma) <- substContextN cxt xs
     reportSDoc "conv.forall" 40 $
@@ -2284,9 +2284,10 @@ compareTermOnFace' k cmp phi ty u v = do
 compareTermOnBdgFace :: MonadConversion m => Comparison -> Term -> Type -> Term -> Term -> m ()
 compareTermOnBdgFace cmp psi (El s (Pi psiholdsDom b)) m n = do
   psi <- reduce psi 
-  mbno <- getPrimitiveName' builtinBno ; mbyes <- getPrimitiveName' builtinByes
-  mbisone <- getPrimitiveName' builtinBisone ; mbiszero <- getPrimitiveName' builtinBiszero
-  mbconj <- getPrimitiveName' builtinBconj
+  -- mbno <- getPrimitiveName' builtinBno ; mbyes <- getPrimitiveName' builtinByes
+  -- mbisone <- getPrimitiveName' builtinBisone ; mbiszero <- getPrimitiveName' builtinBiszero
+  -- mbconj <- getPrimitiveName' builtinBconj
+  bitholds <- primBitHolds -- Term
 
   canPsi <- asCanBCstr psi
   case canPsi of
@@ -2294,10 +2295,16 @@ compareTermOnBdgFace cmp psi (El s (Pi psiholdsDom b)) m n = do
     CanByes -> do
       reportSDoc "tc.conv.comparebdgface" 30 $ "some info... " <+> (nest 2 . vcat)
         [ "the ctx = " <+> (prettyTCM =<< getContext)
-        , "and b   = " <+> prettyTCM (unAbs b) ]
-      -- equalTerm (unAbs b) (
-    _ -> return ()
-  
+        , "and b   = " <+> prettyTCM (unAbs b)
+        , "and m   = " <+> prettyTCM m
+        , "and n   = " <+> prettyTCM n ]
+      equalTerm (unAbs b) (m `apply` [Arg defaultArgInfo bitholds]) (n `apply` [Arg defaultArgInfo bitholds])
+    CanMap mapVarToCstr -> do
+      let aslist :: [(Int, BoolSet)]
+          aslist = IntMap.toList mapVarToCstr
+      -- reportSDoc "tc.conv.comparebdgface" 30 $ prettyShow 
+      -- reportSDoc "tc.conv.comparebdgface" 30 $ return $ P.text $ P.prettyShow aslist
+      return ()
   return ()
 compareTermOnBdgFace cmp psi _ m n = __IMPOSSIBLE__
   

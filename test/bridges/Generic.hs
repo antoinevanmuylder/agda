@@ -166,7 +166,7 @@ main :: IO ()
 main = runTCMPrettyErrors $ do
   beInNiceTCState "./All.agda"
 
-  
+  testingConversion2
   
   endOfMain
 
@@ -274,6 +274,7 @@ testingConversion = do
   cs2pre <-  getOnlyClause "bpartial2" 
   let cs2 = maybe __IMPOSSIBLE__ id $ cs2pre
   printInTCM $ P.pretty cs2
+  printInTCM $ P.pretty $ clauseTel cs2
 
   cs1pre <- getOnlyClause "bpartial1"
   let cs1 = maybe __IMPOSSIBLE__ id $ cs1pre
@@ -284,13 +285,33 @@ testingConversion = do
       cs1tm = maybe __IMPOSSIBLE__ id $ clauseBody cs1
       cs2tm = maybe __IMPOSSIBLE__ id $ clauseBody cs2
 
-  printInTCMnice $ thetype
-  printInTCMnice $ cs1tm
-  printInTCMnice $ cs2tm
+  addContext (clauseTel cs2) $ do
+    printInTCMnice thetype
+    printInTCMnice cs1tm
+    printInTCMnice cs2tm
 
-  equalTerm thetype cs1tm cs2tm
+    equalTerm thetype cs1tm cs2tm
 
+testingConversion2 :: TCM ()
+testingConversion2 = do
+  addVerb "tc.conv.comparebdgface:30"
 
+  cs1pre <- getOnlyClause "hey"
+  let cs1 = maybe __IMPOSSIBLE__ id $ cs1pre
+
+  cs2pre <-  getOnlyClause "hey2" 
+  let cs2 = maybe __IMPOSSIBLE__ id $ cs2pre
+
+  let thetype = maybe __IMPOSSIBLE__ unArg $ clauseType cs2
+      cs1tm = maybe __IMPOSSIBLE__ id $ clauseBody cs1
+      cs2tm = maybe __IMPOSSIBLE__ id $ clauseBody cs2
+
+  addContext (clauseTel cs2) $ do
+    printInTCMnice thetype
+    printInTCMnice cs1tm
+    printInTCMnice cs2tm
+
+    equalTerm thetype cs1tm cs2tm
 
 
 
