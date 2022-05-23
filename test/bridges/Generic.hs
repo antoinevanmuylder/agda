@@ -11,6 +11,7 @@ import qualified Agda.Utils.Pretty as P
 import Agda.Utils.FileName
 import Agda.Utils.Lens
 import Agda.Utils.Impossible
+import Agda.Syntax.Common
 import Agda.Syntax.Builtin
 import Agda.Syntax.Internal
 import Agda.TypeChecking.Monad.Builtin
@@ -18,8 +19,10 @@ import Agda.TypeChecking.Monad.Base
 import Agda.TypeChecking.Primitive
 import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Reduce
+import Agda.TypeChecking.Conversion
 
 import Agda.Interaction.Options
+-- import Agda.Interaction.Options.Base
 import Agda.Compiler.Backend
 -- import Agda.Compiler.JS.Pretty (render)
 import Agda.Main
@@ -76,6 +79,86 @@ showTheImports = do
   printInTCM $ P.pretty qnames
 
 
+
+showThePragmaOptions :: TCM ()
+showThePragmaOptions = do
+  tcs <- getTCState
+  let pragmas = tcs ^. stPragmaOptions
+  liftIO $ putStrLn $ show $ pragmas
+
+
+-- | we specify part of the unqualified agda name. It yields a qname of an import containing the former.
+getQNameFromHuman :: String -> TCM QName
+getQNameFromHuman hname = do
+  tcs <- getTCState
+  let qnames = HMap.keys (tcs ^. stImports ^. sigDefinitions)
+  return $ head $ filter (\q -> (pack hname) `isSuffixOf` (pack $ P.render $ P.pretty q)) qnames
+
+getDefFromQName :: QName -> TCM Definition
+getDefFromQName qnam = do
+  tcs <- getTCState
+  let qsToDefs = tcs ^. stImports ^. sigDefinitions
+  case HMap.lookup qnam qsToDefs of
+    Just def -> return def
+    _        -> typeError $ GenericError "no defs for that Qname!!"
+
+getDefFromHuman :: String -> TCM Definition
+getDefFromHuman hname = getDefFromQName =<< getQNameFromHuman hname
+
+getDefnFromHuman :: String -> TCM Defn
+getDefnFromHuman hname = do
+  hnameDef <- getDefFromQName =<< getQNameFromHuman hname
+  return $ theDef hnameDef
+
+
+-- | from human name, we pretty print the bound-in-imports Defn
+printDefn :: String -> TCM ()
+printDefn hname = do
+  hnameDef <- getDefFromQName =<< getQNameFromHuman hname
+  printInTCM $ P.pretty $ P.text $ "Printing Defn..."
+  printInTCM $ P.pretty $ defName hnameDef
+  printInTCM $ P.text ""
+  printInTCM $ P.pretty $ defType hnameDef
+  printInTCM $ P.text ""
+  printInTCM $ P.pretty $ theDef hnameDef
+
+printTheEnvCtx :: TCM ()
+printTheEnvCtx = do
+  tce <- askTC
+  let ctx = tce ^. eContext
+  printInTCM $ P.pretty ctx
+
+newline :: TCM ()
+newline = do
+ printInTCM $ P.text $ ""
+
+
+
+-- | from a human name we get a @Monad.Base.Defn@ which may contain clauses and @Term@s.
+getDefn :: String -> TCM Defn
+getDefn hname = do
+  hnameDef0 <- getDefFromQName =<< getQNameFromHuman hname -- ::Definition
+  return $ hnameDef0 ^. theDefLens -- ::Defn
+
+-- | from human name, gets you a @Internal.Clause@ if input is one line function.
+getOnlyClause :: String -> TCM (Maybe Clause)
+getOnlyClause hname = do
+  hnameDefn <- getDefn hname
+  case hnameDefn of
+    Function{funClauses = [onlyCs]} -> return $ Just onlyCs
+    _ -> do
+      typeError $ GenericError $ "The human name " ++ hname ++ " does not map to a 1clause Function ::Defn."
+      return $ Nothing
+      -- printInTCM $ "The human name " <+> hname <+> " does not map to a 1clause Function ::Defn."
+
+
+
+
+
+---------------------- main
+
+
+
 -- | there are nice lenses to inspect TCState, near Monad.Base.stTokens. (first: getTCState)
 --   and lenses to inspect TCEnv, near eContext. (first: askTC)
 --   seems that @Internal.Term@s resulting from tc can be inspected via stPostScopeState
@@ -83,15 +166,7 @@ main :: IO ()
 main = runTCMPrettyErrors $ do
   beInNiceTCState "./All.agda"
 
-  Just toDecClause <- getOnlyClause "toDec"
-  addContext (clauseTel toDecClause) $ do
-    -- printTheEnvCtx
-    printInTCM =<< prettyTCM (clauseBody toDecClause)
-    printInTCM $ P.pretty $ ""
-    printInTCMnice $ clauseBody toDecClause
-    printInTCM $ P.pretty $ ""
-    reduced <- reduce $ maybe __IMPOSSIBLE__ id $ clauseBody toDecClause
-    printInTCMnice reduced
+  
   
   endOfMain
 
@@ -101,13 +176,22 @@ main = runTCMPrettyErrors $ do
 
 
 
--------------- what we can put in main.
+-------------- random testing
 
-showThePragmaOptions :: TCM ()
-showThePragmaOptions = do
+-- @Monad.Base.PragmaOptions@ has a field @optVerbose :: Verbosity@
+-- can manipulate this with @verboseFlag :: String -> Flag PragmaOptions@ ?
+
+-- | tc.conv.comparebdgface:30
+addVerb :: String -> TCM ()
+addVerb verb = do
   tcs <- getTCState
-  let pragmas = tcs ^. stPragmaOptions
-  liftIO $ putStrLn $ show $ pragmas
+  let theopts = tcs ^. stPragmaOptions -- ::PragmaOptions
+      mopt = runExcept $ verboseFlag verb theopts -- Either String PragmaOptions
+  case mopt of
+    Left s -> typeError $ GenericError s
+    Right o ->
+      setTCLens stPragmaOptions o --we overwrite but @o@ is just an extended dic.
+  return ()
 
 
 tryGetBasicBuiltin :: TCM ()
@@ -128,7 +212,7 @@ showTheImports' = do
   tcs <- getTCState
   let qnames = HMap.keys (tcs ^. stImports ^. sigDefinitions)
       keyQ :: QName
-      keyQ = head $ filter (\q -> (pack "toDec") `isInfixOf` (pack $ P.render $ P.pretty q)) qnames
+      keyQ = head $ filter (\q -> (pack "toDec") `isSuffixOf` (pack $ P.render $ P.pretty q)) qnames
   printInTCM $ P.text $ show keyQ
 
 
@@ -138,28 +222,6 @@ showTheConcreteNames = do
   let themap = tcs ^. stConcreteNames -- Map Name C.Name
   printInTCM $ P.text $ show $  themap
 
--- | we specify part of the unqualified agda name. It yields a qname of an import containing the former.
-getQNameFromHuman :: String -> TCM QName
-getQNameFromHuman hname = do
-  tcs <- getTCState
-  let qnames = HMap.keys (tcs ^. stImports ^. sigDefinitions)
-  return $ head $ filter (\q -> (pack hname) `isInfixOf` (pack $ P.render $ P.pretty q)) qnames
-
-getDefFromQName :: QName -> TCM Definition
-getDefFromQName qnam = do
-  tcs <- getTCState
-  let qsToDefs = tcs ^. stImports ^. sigDefinitions
-  case HMap.lookup qnam qsToDefs of
-    Just def -> return def
-    _        -> typeError $ GenericError "no defs for that Qname!!"
-
-getDefFromHuman :: String -> TCM Definition
-getDefFromHuman hname = getDefFromQName =<< getQNameFromHuman hname
-
-getDefnFromHuman :: String -> TCM Defn
-getDefnFromHuman hname = do
-  hnameDef <- getDefFromQName =<< getQNameFromHuman hname
-  return $ theDef hnameDef
   
 
 experimentWithToDec :: TCM ()
@@ -170,21 +232,6 @@ experimentWithToDec = do
   printInTCM =<< prettyTCM (defType toDecDef)
   printInTCM $ P.pretty $ theDef toDecDef
 
--- | from human name, we pretty print the bound-in-imports Defn
-printDefn :: String -> TCM ()
-printDefn hname = do
-  hnameDef <- getDefFromQName =<< getQNameFromHuman hname
-  printInTCM $ P.pretty $ defName hnameDef
-  printInTCM $ P.text ""
-  printInTCM $ P.pretty $ defType hnameDef
-  printInTCM $ P.text ""
-  printInTCM $ P.pretty $ theDef hnameDef
-
-printTheEnvCtx :: TCM ()
-printTheEnvCtx = do
-  tce <- askTC
-  let ctx = tce ^. eContext
-  printInTCM $ P.pretty ctx
 
 -- | it is stated that TCEnv is read only. Is that really true?
 --   yes. locallyTC gives a new TCM, instead of mutating somehting.
@@ -207,26 +254,41 @@ understandLocallyTC' = do
   vartm' <- locallyTC eContext (somedom :) $ return vartm
   printInTCM =<< prettyTCM vartm'
 
--- | from a human name we get a @Monad.Base.Defn@ which may contain clauses and @Term@s.
-getDefn :: String -> TCM Defn
-getDefn hname = do
-  hnameDef0 <- getDefFromQName =<< getQNameFromHuman hname -- ::Definition
-  return $ hnameDef0 ^. theDefLens -- ::Defn
 
--- | from human name, gets you a @Internal.Clause@ if input is one line function.
-getOnlyClause :: String -> TCM (Maybe Clause)
-getOnlyClause hname = do
-  hnameDefn <- getDefn "toDec"
-  case hnameDefn of
-    Function{funClauses = [onlyCs]} -> return $ Just onlyCs
-    _ -> do
-      typeError $ GenericError $ "The human name " ++ hname ++ " does not map to a 1clause Function ::Defn."
-      return $ Nothing
-      -- printInTCM $ "The human name " <+> hname <+> " does not map to a 1clause Function ::Defn."
+petitTest :: TCM ()
+petitTest = do
+  Just toDecClause <- getOnlyClause "toDec"
+  addContext (clauseTel toDecClause) $ do
+    -- printTheEnvCtx
+    printInTCM =<< prettyTCM (clauseBody toDecClause)
+    printInTCM $ P.pretty $ ""
+    printInTCMnice $ clauseBody toDecClause
+    printInTCM $ P.pretty $ ""
+    reduced <- reduce $ maybe __IMPOSSIBLE__ id $ clauseBody toDecClause
+    printInTCMnice reduced
 
+testingConversion :: TCM()
+testingConversion = do
+  addVerb "tc.conv.comparebdgface:30"
 
+  cs2pre <-  getOnlyClause "bpartial2" 
+  let cs2 = maybe __IMPOSSIBLE__ id $ cs2pre
+  printInTCM $ P.pretty cs2
 
+  cs1pre <- getOnlyClause "bpartial1"
+  let cs1 = maybe __IMPOSSIBLE__ id $ cs1pre
 
+  newline
+
+  let thetype = maybe __IMPOSSIBLE__ unArg $ clauseType cs2
+      cs1tm = maybe __IMPOSSIBLE__ id $ clauseBody cs1
+      cs2tm = maybe __IMPOSSIBLE__ id $ clauseBody cs2
+
+  printInTCMnice $ thetype
+  printInTCMnice $ cs1tm
+  printInTCMnice $ cs2tm
+
+  equalTerm thetype cs1tm cs2tm
 
 
 

@@ -29,6 +29,7 @@ module Agda.Interaction.Options.Base
     , usage
     -- Reused by PandocAgda
     , inputFlag
+    , verboseFlag
     , standardOptions, deadStandardOptions
     , getOptSimple
     ) where
