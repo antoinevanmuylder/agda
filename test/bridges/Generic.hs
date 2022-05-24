@@ -2,7 +2,7 @@ module Generic where
 
 import qualified Data.Map as Map
 import qualified Data.HashMap.Strict as HMap
-import Data.Text hiding (filter, head)
+import Data.Text hiding (filter, head, map, last)
 
 import Control.Monad.IO.Class       ( MonadIO(..) )
 import Control.Monad.Except
@@ -11,6 +11,7 @@ import qualified Agda.Utils.Pretty as P
 import Agda.Utils.FileName
 import Agda.Utils.Lens
 import Agda.Utils.Impossible
+import Agda.Utils.List
 import Agda.Syntax.Common
 import Agda.Syntax.Builtin
 import Agda.Syntax.Internal
@@ -88,11 +89,14 @@ showThePragmaOptions = do
 
 
 -- | we specify part of the unqualified agda name. It yields a qname of an import containing the former.
+--   case wordsBy (`elem` (":." :: String)) s
 getQNameFromHuman :: String -> TCM QName
 getQNameFromHuman hname = do
   tcs <- getTCState
   let qnames = HMap.keys (tcs ^. stImports ^. sigDefinitions)
-  return $ head $ filter (\q -> (pack hname) `isSuffixOf` (pack $ P.render $ P.pretty q)) qnames
+      qnames' = map (\qnam -> (last $ wordsBy (`elem` ("." :: String)) (P.prettyShow qnam)) == hname) qnames
+  return $ head $ filter (\qnam -> (last $ wordsBy (`elem` ("." :: String)) (P.prettyShow qnam)) == hname) qnames
+                            -- (pack hname) `isSuffixOf` (pack $ P.render $ P.pretty q)) qnames
 
 getDefFromQName :: QName -> TCM Definition
 getDefFromQName qnam = do
@@ -151,7 +155,17 @@ getOnlyClause hname = do
       return $ Nothing
       -- printInTCM $ "The human name " <+> hname <+> " does not map to a 1clause Function ::Defn."
 
-
+-- | tc.conv.comparebdgface:30
+addVerb :: String -> TCM ()
+addVerb verb = do
+  tcs <- getTCState
+  let theopts = tcs ^. stPragmaOptions -- ::PragmaOptions
+      mopt = runExcept $ verboseFlag verb theopts -- Either String PragmaOptions
+  case mopt of
+    Left s -> typeError $ GenericError s
+    Right o ->
+      setTCLens stPragmaOptions o --we overwrite but @o@ is just an extended dic.
+  return ()
 
 
 
@@ -166,7 +180,12 @@ main :: IO ()
 main = runTCMPrettyErrors $ do
   beInNiceTCState "./All.agda"
 
-  testingConversion2
+  printDefn "premulti1"
+  newline
+  printDefn "premulti2"
+  newline
+  
+  testingConversion3
   
   endOfMain
 
@@ -181,17 +200,7 @@ main = runTCMPrettyErrors $ do
 -- @Monad.Base.PragmaOptions@ has a field @optVerbose :: Verbosity@
 -- can manipulate this with @verboseFlag :: String -> Flag PragmaOptions@ ?
 
--- | tc.conv.comparebdgface:30
-addVerb :: String -> TCM ()
-addVerb verb = do
-  tcs <- getTCState
-  let theopts = tcs ^. stPragmaOptions -- ::PragmaOptions
-      mopt = runExcept $ verboseFlag verb theopts -- Either String PragmaOptions
-  case mopt of
-    Left s -> typeError $ GenericError s
-    Right o ->
-      setTCLens stPragmaOptions o --we overwrite but @o@ is just an extended dic.
-  return ()
+
 
 
 tryGetBasicBuiltin :: TCM ()
@@ -313,9 +322,27 @@ testingConversion2 = do
 
     equalTerm thetype cs1tm cs2tm
 
+testingConversion3 :: TCM ()
+testingConversion3 = do
+  addVerb "tc.conv.comparebdgface:30"
 
+  cs1pre <- getOnlyClause "multi1"
+  let cs1 = maybe __IMPOSSIBLE__ id $ cs1pre
 
+  cs2pre <-  getOnlyClause "multi2" 
+  let cs2 = maybe __IMPOSSIBLE__ id $ cs2pre  
 
+  let thetype = maybe __IMPOSSIBLE__ unArg $ clauseType cs2
+      cs1tm = maybe __IMPOSSIBLE__ id $ clauseBody cs1
+      cs2tm = maybe __IMPOSSIBLE__ id $ clauseBody cs2
+
+  addContext (clauseTel cs2) $ do
+    printInTCMnice thetype
+    printInTCMnice cs1tm
+    printInTCMnice cs2tm
+    printInTCM $ P.text ""
+
+    equalTerm thetype cs1tm cs2tm
 
 
 

@@ -2106,12 +2106,12 @@ forallBridgeFaceMaps xi k = do
   return [thing0, thing1]
 
 
--- | ≈builds σ : ctx -> ctx' where ctx' is obtained from ctx by setting db var xi := biEps.
+-- | ≈builds σ : ctx <- ctx' (?direction) where ctx' is obtained from ctx by setting db var xi := biEps.
 --   then run continuation k with σ.
 bridgeGoK :: MonadConversion m => (Substitution -> m a) -> Int -> Term -> m a
 bridgeGoK k xi biEps = do --biEps is either bi0 or bi1
   cxt <- getContext
-  (cxt', sigma) <- substContextN cxt [(xi, biEps)] -- sigma : ctx -> ctx'
+  (cxt', sigma) <- substContextN cxt [(xi, biEps)] -- sigma : ctx <- ctx' (?direction)
   resolved <- forM [(xi, biEps)] (\ (i,t) -> (,) <$> lookupBV i <*> return (applySubst sigma t))
   updateContext sigma (const cxt') $ addBindings resolved $ do
     k sigma
@@ -2284,27 +2284,37 @@ compareTermOnFace' k cmp phi ty u v = do
 compareTermOnBdgFace :: MonadConversion m => Comparison -> Term -> Type -> Term -> Term -> m ()
 compareTermOnBdgFace cmp psi (El s (Pi psiholdsDom b)) m n = do
   psi <- reduce psi 
-  -- mbno <- getPrimitiveName' builtinBno ; mbyes <- getPrimitiveName' builtinByes
-  -- mbisone <- getPrimitiveName' builtinBisone ; mbiszero <- getPrimitiveName' builtinBiszero
-  -- mbconj <- getPrimitiveName' builtinBconj
-  bitholds <- primBitHolds -- Term
-
+  bitholds <- primBitHolds 
   canPsi <- asCanBCstr psi
   case canPsi of
     CanBno -> return () --when psi holds (impossible), m and n are equal.
-    CanByes -> do
+    CanByes -> do --psi holding brings no information.
       reportSDoc "tc.conv.comparebdgface" 30 $ "some info... " <+> (nest 2 . vcat)
         [ "the ctx = " <+> (prettyTCM =<< getContext)
         , "and b   = " <+> prettyTCM (unAbs b)
         , "and m   = " <+> prettyTCM m
         , "and n   = " <+> prettyTCM n ]
       equalTerm (unAbs b) (m `apply` [Arg defaultArgInfo bitholds]) (n `apply` [Arg defaultArgInfo bitholds])
-    CanMap mapVarToCstr -> do
-      let aslist :: [(Int, BoolSet)]
-          aslist = IntMap.toList mapVarToCstr
-      -- reportSDoc "tc.conv.comparebdgface" 30 $ prettyShow 
-      -- reportSDoc "tc.conv.comparebdgface" 30 $ return $ P.text $ P.prettyShow aslist
-      return ()
+    CanMap mapVarToCstr -> do --we check that on every hyperplane of the form x =bi0 eg, m and n agree.
+      let aslist :: [(Int, [Bool])]
+          aslist = IntMap.toList $ IntMap.map (\bset -> BoolSet.toList bset) mapVarToCstr
+      reportSLn "tc.conv.comparebdgface" 30 $ "cstrs as list... = " ++ P.prettyShow aslist
+      bi0 <- primBIZero
+      bi1 <- primBIOne
+      let boolToBI :: Bool -> Term
+          boolToBI False = bi0
+          boolToBI True = bi1
+      forM_ aslist  $ \ (xi , bfaces) -> do
+        forM_ bfaces  $ \bfac -> do
+          let biEps = boolToBI bfac
+          (\ xi biEps k -> bridgeGoK k xi biEps) xi biEps $ \sigma -> do            
+            reportSLn "tc.conv.comparebdgface" 30 $ "type, m & n subst..."
+            reportSLn "tc.conv.comparebdgface" 30 $ "  " ++ (P.prettyShow $ (sigma `applySubst` b))            
+            reportSLn "tc.conv.comparebdgface" 30 $ "  " ++ (P.prettyShow $ (sigma `applySubst` m))
+            reportSLn "tc.conv.comparebdgface" 30 $ "  " ++ (P.prettyShow $ (sigma `applySubst` n))
+            equalTerm (sigma `applySubst` (unAbs b))
+                      ((sigma `applySubst` m) `apply` [Arg defaultArgInfo bitholds])
+                      ((sigma `applySubst` n) `apply` [Arg defaultArgInfo bitholds])
   return ()
 compareTermOnBdgFace cmp psi _ m n = __IMPOSSIBLE__
   
