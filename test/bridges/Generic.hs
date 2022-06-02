@@ -180,12 +180,12 @@ main :: IO ()
 main = runTCMPrettyErrors $ do
   beInNiceTCState "./All.agda"
 
-  printDefn "premulti1"
-  newline
-  printDefn "premulti2"
-  newline
-  
-  testingConversion3
+  -- judgEquMixedCstr
+  bz <- primBIZero
+  case bz of
+    Def q es -> printInTCMnice "its a def"
+    Con h i es -> printInTCMnice "its a con"
+    _ -> __IMPOSSIBLE__
   
   endOfMain
 
@@ -345,10 +345,49 @@ testingConversion3 = do
     equalTerm thetype cs1tm cs2tm
 
 
+reduceMixedCstr :: TCM ()
+reduceMixedCstr = do
+  printDefn "amixcstr"
+  newline
+
+  cs1pre <- getOnlyClause "amixcstr"
+  let cs1 = maybe __IMPOSSIBLE__ id $ cs1pre
+
+  let thetype = maybe __IMPOSSIBLE__ unArg $ clauseType cs1
+      cs1tm = maybe __IMPOSSIBLE__ id $ clauseBody cs1
+
+  addContext (clauseTel cs1) $ do
+    printInTCMnice thetype
+    printInTCMnice cs1tm
+    newline
+
+    red <- reduce cs1tm
+    printInTCMnice red
 
 
+judgEquMixedCstr :: TCM ()
+judgEquMixedCstr = do
+  printDefn "amixcstr"
+  newline
+  printDefn "mixcstr2"
+  newline
 
+  cs1pre <- getOnlyClause "amixcstr"
+  let cs1 = maybe __IMPOSSIBLE__ id $ cs1pre
+  cs2pre <- getOnlyClause "mixcstr2"
+  let cs2 = maybe __IMPOSSIBLE__ id $ cs2pre
 
+  let thetype = maybe __IMPOSSIBLE__ unArg $ clauseType cs1
+      cs1tm = maybe __IMPOSSIBLE__ id $ clauseBody cs1
+      cs2tm = maybe __IMPOSSIBLE__ id $ clauseBody cs2
+
+  addContext (clauseTel cs1) $ do
+    printInTCMnice thetype
+    printInTCMnice cs1tm
+    printInTCMnice cs2tm
+    newline
+
+    equalTerm  thetype cs1tm cs2tm
 
   --note: @underAbstractionAbs@ updates the ctx but also consider terms up to a certain substitution
   -- check out @TC.Monad.Context@, @TC.Substitute.Class@

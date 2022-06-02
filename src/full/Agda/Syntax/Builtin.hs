@@ -28,6 +28,7 @@ builtinNat, builtinSuc, builtinZero, builtinNatPlus, builtinNatMinus,
   builtinExtent, builtinGel, builtin_gel, builtin_ungel, builtinCstrUniv, builtinBCstr,
   builtinByes, builtinBno, builtinBisone, builtinBiszero, builtinBconj,
   builtinBHolds, builtinBitHolds, builtinBPartial,
+  builtinMCstr, builtinMkmc, builtinMHolds, builtinMitHolds, builtinMPartial,
   builtinSizeUniv, builtinSize, builtinSizeLt,
   builtinSizeSuc, builtinSizeInf, builtinSizeMax,
   builtinInf, builtinSharp, builtinFlat,
@@ -167,6 +168,11 @@ builtinBconj                             = "primBconj"
 builtinBHolds                            = "BHOLDS"
 builtinBitHolds                          = "BITHOLDS"
 builtinBPartial                          = "BPARTIAL"
+builtinMCstr                             = "MCSTR"
+builtinMkmc                              = "MKMC"
+builtinMHolds                            = "MHOLDS"
+builtinMitHolds                          = "MITHOLDS"
+builtinMPartial                          = "MPARTIAL"
 builtinSizeUniv                          = "SIZEUNIV"
 builtinSize                              = "SIZE"
 builtinSizeLt                            = "SIZELT"
@@ -334,7 +340,7 @@ builtinsNoDef =
   , builtinIZero
   , builtinIOne
   , builtinBridgeInterval --TODO-antva not sure about those..
-  , builtinBIZero
+  , builtinBIZero         -- when stuff is in this list,   we do not have to postulate it in .agda?
   , builtinBIOne 
   , builtinCstrUniv
   , builtinByes
@@ -343,7 +349,11 @@ builtinsNoDef =
   , builtinBiszero
   , builtinBconj
   , builtinBHolds
-  , builtinBPartial -- .. until here (included). what about BitHolds?
+  , builtinBPartial 
+  , builtinMCstr
+  , builtinMkmc
+  , builtinMHolds
+  , builtinMPartial -- .. until here (included). what about BitHolds, MitHolds?
   , builtinSet
   , builtinProp
   , builtinSetOmega

@@ -67,3 +67,17 @@ module _ (q : BridgeP (λ _ → Bool) false true) (q' : BridgeP (λ _ → Bool) 
 
   multi2 : BPartial (x =bi0 b∨ y =bi0 b∨ y =bi1) Bool
   multi2 = premulti2
+
+
+module _ (x : I) (@tick y : BI) where
+
+  amixcstr : MCstr
+  amixcstr = mkmc ((x ∨ ~ x) ∧ i1) (y =bi0 b∨ bno)
+
+  mixcstr2 : MCstr
+  mixcstr2 = mkmc ((x ∨ ~ x) ∧ i0) (y =bi0 b∨ bno)
+
+module _ where
+
+  ampartial : MPartial (mkmc i1 bno) Bool
+  ampartial _ = false

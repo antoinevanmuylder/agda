@@ -73,6 +73,9 @@ primBridgeIntervalType = El LockUniv <$> primBridgeInterval
 primBCstrType :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m) => m Type
 primBCstrType = El CstrUniv <$> primBCstr
 
+primMCstrType :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m) => m Type
+primMCstrType = El CstrUniv <$> primMCstr
+
 -- | two functions to fill implementations holes
 dummyRedTerm0 :: ReduceM( Reduced MaybeReducedArgs Term)
 dummyRedTerm0 = do
@@ -476,5 +479,23 @@ primBPartial' = do
           (El s (Pi d b)) <- runNamesT [] $ do
                              [l,a,psi] <- mapM (open . unArg) [l,a,psi]
                              elSSet (pure tbholds <@> psi) --> el' l a
+          redReturn $ Pi (setRelevance Irrelevant $ d { domFinite = True }) b
+      _ -> __IMPOSSIBLE__
+
+primMPartial' :: TCM PrimitiveImpl
+primMPartial' = do
+  requireBridges ""
+  t <- runNamesT [] $
+       hPi' "l" (el $ cl primLevel) (\ l ->
+        nPi' "mψ" primMCstrType $ \ _ ->
+        nPi' "A" (sort . tmSort <$> l) $ \ bA ->
+        (sort . tmSSort <$> l))
+  tmholds <- primMHolds
+  return $ PrimImpl t $ primFun __IMPOSSIBLE__ 3 $ \ ts -> do
+    case ts of
+      [l,mpsi,a] -> do
+          (El s (Pi d b)) <- runNamesT [] $ do
+                             [l,a,mpsi] <- mapM (open . unArg) [l,a,mpsi]
+                             elSSet (pure tmholds <@> mpsi) --> el' l a
           redReturn $ Pi (setRelevance Irrelevant $ d { domFinite = True }) b
       _ -> __IMPOSSIBLE__

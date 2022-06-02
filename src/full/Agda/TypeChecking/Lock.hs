@@ -160,12 +160,22 @@ isTimeless' typ lki = do -- @(El stype ttyp)
   -- t <- abortIfBlocked typ
   timeless <- mapM getName' timelessThings
   bholds <- getName' builtinBHolds
+  mholds <- getName' builtinMHolds
+  mkmc <- getName' builtinMkmc
   case (unEl typ) of
     Def q _ | Just q `elem` timeless -> return True
     Def q [Apply (Arg _ psi)] | Just q == bholds -> do
       psi' <- reduce psi
       let fvPsi = allVars $ freeVarsIgnore IgnoreAll $ psi'
       return $ not $ ISet.member lki fvPsi
+    Def q [Apply (Arg _ mixPsi)] | Just q == mholds -> do
+      mixPsi' <- reduce mixPsi
+      case mixPsi' of
+        Con (ConHead q _ _ _) _ [Apply (Arg _ phi), Apply (Arg _ psi)] | Just q == mkmc -> do
+          psi' <- reduce psi
+          let fvPsi = allVars $ freeVarsIgnore IgnoreAll $ psi'
+          return $ not $ ISet.member lki fvPsi
+        _ -> __IMPOSSIBLE__ -- mixPsi : MCstr reduced to smth != than mkmc (φ:I) (ψ:BCstr)
     _                                -> return False
 
 notAllowedVarsError :: Term -> [Int] -> TCM b
