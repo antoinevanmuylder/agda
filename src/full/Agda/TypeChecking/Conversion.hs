@@ -1396,8 +1396,8 @@ leqLevel a b = catchConstraint (LevelCmp CmpLeq a b) $ do
           sep [ prettyTCM a <+> "=<"
               , prettyTCM b ]
 
-      (a, b) <- reduce (a, b)
-      SynEq.checkSyntacticEquality a b
+      (a, b) <- normalise (a, b)
+      SynEq.checkSyntacticEquality' a b
         (\_ _ ->
           reportSDoc "tc.conv.level" 60
             "checkSyntacticEquality returns True") $ \a b -> do
@@ -1546,17 +1546,18 @@ equalLevel a b = do
                ]
         ]
 
-  (a, b) <- reduce (a, b)
-  SynEq.checkSyntacticEquality a b
+  (a, b) <- normalise (a, b)
+
+  -- Jesper, 2014-02-02 remove terms that certainly do not contribute
+  -- to the maximum
+  let (a', b') = removeSubsumed a b
+
+  SynEq.checkSyntacticEquality' a' b'
     (\_ _ ->
       reportSDoc "tc.conv.level" 60
         "checkSyntacticEquality returns True") $ \a b -> do
 
   reportSDoc "tc.conv.level" 60 "checkSyntacticEquality returns False"
-
-  -- Jesper, 2014-02-02 remove terms that certainly do not contribute
-  -- to the maximum
-  let (a', b') = removeSubsumed a b
 
   let notok    = unlessM typeInType notOk
       notOk    = typeError $ UnequalLevel CmpEq a' b'
@@ -1651,8 +1652,8 @@ equalLevel a b = do
               List1.zipWithM_ ((===) `on` levelTm . unSingleLevel . fmap ignoreBlocking) as bs
 
         -- more cases?
-        _ | noMetas (Level a , Level b) -> notok
-          | otherwise                   -> postpone
+        _ | noMetas (a , b) -> notok
+          | otherwise       -> postpone
 
       where
         a === b = unlessM typeInType $ do

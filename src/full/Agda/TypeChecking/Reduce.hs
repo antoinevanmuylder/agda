@@ -1526,6 +1526,7 @@ instance InstantiateFull NLPType where
 instance InstantiateFull NLPSort where
   instantiateFull' (PType x) = PType <$> instantiateFull' x
   instantiateFull' (PProp x) = PProp <$> instantiateFull' x
+  instantiateFull' (PSSet x) = PSSet <$> instantiateFull' x
   instantiateFull' (PInf f n) = return $ PInf f n
   instantiateFull' PSizeUniv = return PSizeUniv
   instantiateFull' PLockUniv = return PLockUniv
@@ -1603,7 +1604,7 @@ instance InstantiateFull CompiledClauses where
   instantiateFull' (Case n bs) = Case n <$> instantiateFull' bs
 
 instance InstantiateFull Clause where
-    instantiateFull' (Clause rl rf tel ps b t catchall exact recursive unreachable ell) =
+    instantiateFull' (Clause rl rf tel ps b t catchall exact recursive unreachable ell wm) =
        Clause rl rf <$> instantiateFull' tel
        <*> instantiateFull' ps
        <*> instantiateFull' b
@@ -1613,6 +1614,7 @@ instance InstantiateFull Clause where
        <*> return recursive
        <*> return unreachable
        <*> return ell
+       <*> return wm
 
 instance InstantiateFull Instantiation where
   instantiateFull' (Instantiation a b) =
@@ -1674,6 +1676,7 @@ instantiateFullExceptForDefinitions =
 instance InstantiateFull a => InstantiateFull (Builtin a) where
     instantiateFull' (Builtin t) = Builtin <$> instantiateFull' t
     instantiateFull' (Prim x)   = Prim <$> instantiateFull' x
+    instantiateFull' b@(BuiltinRewriteRelations xs) = pure b
 
 instance InstantiateFull Candidate where
   instantiateFull' (Candidate q u t ov) =

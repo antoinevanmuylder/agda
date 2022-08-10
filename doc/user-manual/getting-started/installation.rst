@@ -38,7 +38,7 @@ You need recent versions of the following programs to compile Agda:
 * GHC:           https://www.haskell.org/ghc/
 
   + Agda has been tested with GHC 8.0.2, 8.2.2, 8.4.4, 8.6.5, 8.8.4,
-    8.10.7, 9.0.2 and 9.2.2.
+    8.10.7, 9.0.2 and 9.2.3.
 
 * cabal-install: https://www.haskell.org/cabal/
 * Alex:          https://www.haskell.org/alex/
@@ -236,7 +236,7 @@ Prebuilt packages are available for Debian and Ubuntu from Karmic onwards. To in
 
 .. code-block:: bash
 
-  apt-get install agda-mode
+  apt-get install agda agda-mode
 
 This should install Agda and the Emacs mode.
 
