@@ -41,6 +41,7 @@ import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Telescope
 import Agda.TypeChecking.Lock
+import Agda.TypeChecking.Primitive.Cubical ( primIntervalType )
 
 import Agda.Utils.Either
 import Agda.Utils.Functor
@@ -481,6 +482,65 @@ primBPartial' = do
                              elSSet (pure tbholds <@> psi) --> el' l a
           redReturn $ Pi (setRelevance Irrelevant $ d { domFinite = True }) b
       _ -> __IMPOSSIBLE__
+
+
+
+-- Constructors for the type of mixed constraints MCstr.
+-- A Mcstr is a pair (φ : I, ψ : BCstr) up to "top identification":
+--   any pair with a top constraint on either side, beta-reduces to myes:MCstr
+-- For convenience we also have a bottom (mno : MCstr), the normal form of (no,no)
+
+-- | bottom element in MCstr
+primMno' :: TCM PrimitiveImpl
+primMno' = do
+  requireBridges "in primMno'"
+  mcstr <- primMCstr
+  return $ PrimImpl (El CstrUniv mcstr) $ primFun __IMPOSSIBLE__ 0 $ \ _ ->
+    return $ NoReduction []
+
+-- | top element in MCstr
+primMyes' :: TCM PrimitiveImpl
+primMyes' = do
+  requireBridges "in primMyes'"
+  mcstr <- primMCstr
+  return $ PrimImpl (El CstrUniv mcstr) $ primFun __IMPOSSIBLE__ 0 $ \ _ ->
+    return $ NoReduction []
+
+-- | Make mixed constraint by pairing a path and a bridge constraint.
+--   This pairing may be understood as a union of cubes:
+--   Let φ and ψ be approriate subcubes of a path/bridge cube.
+--   Then mkmc φ ψ can be parsed as (φ x PSI) U (PHI x ψ)
+--   where capital greek letters denote entire bridge/path cubes.
+--   The equational thy on MCstr induced by the present constructor
+--   corresponds to the computational behaviour of this union of subcubes.
+primMkmc' :: TCM PrimitiveImpl
+primMkmc' = do
+  requireBridges "in primMkmc'"
+  mcstr <- primMCstr
+  -- t <- runNamesT [] $
+  --       nPi' "φ" primIntervalType $ \ _ ->
+  --       nPi' "ψ" primBCstrType $ \ _ ->
+  --       primMCstrType
+  typ <- (primIntervalType --> primBCstrType --> primMCstrType)
+  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 2 $  \args@[ φ , ψ ] -> do
+    bno <- getTerm "primMkmc'" builtinBno
+    byes <- getTerm "primMkmc'" builtinByes
+    iz <- getTerm "primMkmc'" builtinIZero
+    io <- getTerm "primMkmc'" builtinIOne
+    mno <- getTerm "primMKmc'" "primMno"
+    myes <- getTerm "primMKmc'" "primMyes"
+    φ' <- reduceB' φ
+    ψ' <- reduceB' ψ
+    viewφ <- intervalView $ unArg $ ignoreBlocking φ'
+    viewψ <- bcstrView $ unArg $ ignoreBlocking ψ'
+    case (viewφ, viewψ) of
+      -- A top constraint on either side makes the pair reduce to the top mixed constraint
+      (IOne, _) -> redReturn $ myes
+      (_ , Byes) -> redReturn $ myes
+      (IZero, Bno) -> redReturn $ mno
+      _ -> return $ NoReduction $ map reduced [ φ' , ψ'] --metas?..
+
+
 
 -- primMPartial' :: TCM PrimitiveImpl
 -- primMPartial' = do
