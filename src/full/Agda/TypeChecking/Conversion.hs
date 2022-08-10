@@ -377,6 +377,7 @@ compareTerm' cmp a m n =
        mBHolds <- getBuiltinName' builtinBHolds
        -- mMHolds <- getBuiltinName' builtinMHolds
        mBCstr <- getBuiltinName' builtinBCstr
+       mMCstr <- getBuiltinName' builtinMCstr
        case ty of
          Def q es | Just q == mIsOne -> return ()
          Def q es | Just q == mGlue, Just args@(l:_:a:phi:_) <- allApplyElims es -> do
@@ -390,6 +391,7 @@ compareTerm' cmp a m n =
          Def q es | Just q == mBHolds -> return ()
          -- Def q es | Just q == mMHolds -> return ()
          Def q [] | Just q == mBCstr -> compareBCstrTm cmp m n --TODO-antva: what about leq cmp?
+         Def q [] | Just q == mMCstr -> compareMCstrTm cmp m n --TODO-antva: same
          Def q es | Just q == mHComp, Just (sl:s:args@[phi,u,u0]) <- allApplyElims es
                   , Sort (Type lvl) <- unArg s
                   , Just unglueU <- mUnglueU, Just subIn <- mSubIn
@@ -505,7 +507,7 @@ compareBCstrTm cmp lpsi rpsi = do
       case (canLpsi == canRpsi) of
         False -> typeError $ UnequalTerms cmp lpsi rpsi (AsTermsOf bcstr)
         True -> do
-          reportSDoc "tc.conv.interval" 15 $ "Ok! }"
+          reportSDoc "tc.conv.bcstr" 15 $ "Ok! }"
           return ()
       -- x <- leqInterval it iu
       -- y <- leqInterval iu it
@@ -518,7 +520,38 @@ compareBCstrTm cmp lpsi rpsi = do
   where
     isBlocked Blocked{}    = True
     isBlocked NotBlocked{} = False
-  
+
+-- | TODO-antva: I will probably have to give non trivial answer for <= comparison
+compareMCstrTm :: MonadConversion m => Comparison -> Term -> Term -> m ()
+compareMCstrTm cmp zeta1 zeta2 = do
+  reportSDoc "tc.conv.mcstr" 15 $
+    sep [ "{ compareMCstrTm" <+> prettyTCM zeta1 <+> "=" <+> prettyTCM zeta2 ]
+  zeta1' <- reduceB zeta1
+  zeta2' <- reduceB zeta2
+  mcstr <- primMCstrType
+  if (isBlocked zeta1' || isBlocked zeta2')
+    then compareAtom CmpEq (AsTermsOf mcstr) (ignoreBlocking zeta1') (ignoreBlocking zeta2')
+  else do
+    view1 <- mcstrView $ ignoreBlocking zeta1'
+    view2 <- mcstrView $ ignoreBlocking zeta2'
+    case (view1, view2) of
+      (Myes, Myes) -> do
+        reportSDoc "tc.conv.mcstr" 15 $ "Ok! }"
+        return ()
+      (Mno, Mno) -> do
+        reportSDoc "tc.conv.mcstr" 15 $ "Ok! }"
+        return ()
+      (Mkmc (Arg _ phi1) (Arg _ psi1), Mkmc (Arg _ phi2) (Arg _ psi2)) -> do
+        cint <- primIntervalType
+        compareInterval cmp cint phi1 phi2
+        compareBCstrTm cmp psi1 psi2
+        reportSDoc "tc.conv.mcstr" 15 $ "Ok! }"
+        return ()
+      _ -> typeError $ UnequalTerms cmp zeta1 zeta2 (AsTermsOf mcstr)
+  where
+    isBlocked Blocked{}    = True
+    isBlocked NotBlocked{} = False
+    
 
 compareAtomDir :: MonadConversion m => CompareDirection -> CompareAs -> Term -> Term -> m ()
 compareAtomDir dir a = dirToCmp (`compareAtom` a) dir

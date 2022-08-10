@@ -541,6 +541,32 @@ primMkmc' = do
       _ -> return $ NoReduction $ map reduced [ φ' , ψ'] --metas?..
 
 
+data MCstrView
+  = Mno
+  | Myes
+  | Mkmc (Arg Term) (Arg Term)
+  | OtherMCstr Term
+
+mcstrView' :: HasBuiltins m => m (Term -> MCstrView)
+mcstrView' = do
+  mno <- getPrimitiveName' "primMno"
+  myes <- getPrimitiveName' "primMyes"
+  mkmc <- getPrimitiveName' "primMkmc"
+  return $ \ t ->
+    case t of
+      Def q es ->
+        case es of
+          [] | Just q == mno -> Mno
+          [] | Just q == myes -> Myes
+          [ Apply phi , Apply psi ] | Just q == mkmc -> Mkmc phi psi
+          _                 -> OtherMCstr t
+      _ -> OtherMCstr t
+
+mcstrView :: HasBuiltins m => Term -> m MCstrView
+mcstrView t = do
+  f <- mcstrView'
+  return (f t)
+
 
 -- primMPartial' :: TCM PrimitiveImpl
 -- primMPartial' = do
