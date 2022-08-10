@@ -609,6 +609,7 @@ defineCompData d con params names fsT t boundary = do
               -- Or: Just False;  is it known to be non-recursive?
           , clauseUnreachable = Just False
           , clauseEllipsis    = NoEllipsis
+          , clauseWhereModule = Nothing
           }
         cs = [clause]
       addClauses theName cs
@@ -1275,7 +1276,8 @@ defineConClause trD' isHIT mtrX npars nixs xTel' telI sigma dT' cnames = do
             -- it is indirectly recursive through transp, does it count?
             , clauseUnreachable = Just False
             , clauseEllipsis    = NoEllipsis
-            , clauseExact = Nothing
+            , clauseExact       = Nothing
+            , clauseWhereModule = Nothing
             }
       reportSDoc "tc.data.transp.con" 20 $
         "gamma:" <+> prettyTCM gamma

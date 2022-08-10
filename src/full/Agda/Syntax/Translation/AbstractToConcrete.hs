@@ -43,8 +43,6 @@ import Data.Map (Map)
 import qualified Data.Foldable as Fold
 import Data.Void
 import Data.List (sortBy)
-import Data.List.NonEmpty (NonEmpty(..))
-import qualified Data.List.NonEmpty as NonEmpty
 import Data.Semigroup (Semigroup, (<>))
 import Data.String
 
@@ -98,7 +96,7 @@ data Env = Env { takenVarNames :: Set A.Name
                   -- ^ Abstract names currently in scope. Unlike the
                   --   ScopeInfo, this includes names for hidden
                   --   arguments inserted by the system.
-               , takenDefNames :: Set C.Name
+               , takenDefNames :: Set C.NameParts
                   -- ^ Concrete names of all definitions in scope
                , currentScope :: ScopeInfo
                , builtins     :: Map String A.QName
@@ -139,14 +137,20 @@ makeEnv scope = do
         , foldPatternSynonyms = foldPatSyns
         }
   where
+    defs = Set.map nameParts . Map.keysSet $
+        Map.filterWithKey usefulDef $
+        nsNames $ everythingInScope scope
+
     -- Jesper, 2018-12-10: It's fine to shadow generalizable names as
     -- they will never show up directly in printed terms.
     notGeneralizeName AbsName{ anameKind = k }  =
       not (k == GeneralizeName || k == DisallowedGeneralizeName)
 
-    defs = Map.keysSet $
-           Map.filter (all notGeneralizeName) $
-           nsNames $ everythingInScope scope
+    usefulDef C.NoName{} _ = False
+    usefulDef C.Name{} names = all notGeneralizeName names
+
+    nameParts (C.NoName {}) = __IMPOSSIBLE__
+    nameParts (C.Name { nameNameParts }) = nameNameParts
 
 currentPrecedence :: AbsToCon PrecedenceStack
 currentPrecedence = asks $ (^. scopePrecedence) . currentScope
@@ -186,7 +190,7 @@ isBuiltinFun = asks $ is . builtins
   where is m q b = Just q == Map.lookup b m
 
 -- | Resolve a concrete name. If illegally ambiguous fail with the ambiguous names.
-resolveName :: KindsOfNames -> Maybe (Set A.Name) -> C.QName -> AbsToCon (Either (NonEmpty A.QName) ResolvedName)
+resolveName :: KindsOfNames -> Maybe (Set A.Name) -> C.QName -> AbsToCon (Either (List1 A.QName) ResolvedName)
 resolveName kinds candidates q = runExceptT $ tryResolveName kinds candidates q
 
 -- | Treat illegally ambiguous names as UnknownNames.
@@ -441,13 +445,21 @@ chooseName x = lookupNameInScope (nameConcrete x) >>= \case
     return $ nameConcrete x
   -- Otherwise we pick a name that does not shadow other names
   _ -> do
+    takenDefs <- asks takenDefNames
     taken   <- takenNames
     toAvoid <- shadowingNames x
     glyphMode <- optUseUnicode <$> pragmaOptions
     let freshNameMode = case glyphMode of
           UnicodeOk -> A.UnicodeSubscript
           AsciiOnly -> A.AsciiCounter
-    let shouldAvoid = (`Set.member` (taken `Set.union` toAvoid)) . C.nameToRawName
+
+        shouldAvoid C.NoName {} = False
+        shouldAvoid name@C.Name { nameNameParts } =
+          let raw = C.nameToRawName name in
+          nameNameParts `Set.member` takenDefs ||
+          raw `Set.member` taken ||
+          raw `Set.member` toAvoid
+
         y = firstNonTakenName freshNameMode shouldAvoid $ nameConcrete x
     reportSLn "toConcrete.bindName" 80 $ render $ vcat
       [ "picking concrete name for:" <+> text (C.nameToRawName $ nameConcrete x)
@@ -460,11 +472,10 @@ chooseName x = lookupNameInScope (nameConcrete x) >>= \case
   where
     takenNames :: AbsToCon (Set RawName)
     takenNames = do
-      xs <- asks takenDefNames
       ys0 <- asks takenVarNames
       reportSLn "toConcrete.bindName" 90 $ render $ "abstract names of local vars: " <+> prettyList_ (map (C.nameToRawName . nameConcrete) $ Set.toList ys0)
       ys <- Set.fromList . concat <$> mapM hasConcreteNames (Set.toList ys0)
-      return $ Set.map C.nameToRawName $ xs `Set.union` ys
+      return $ Set.map C.nameToRawName ys
 
 
 -- | Add a abstract name to the scope and produce an available concrete version of it.
@@ -722,9 +733,9 @@ instance ToConcrete ResolvedName where
   toConcrete = \case
     VarName x _          -> C.QName <$> toConcrete x
     DefinedName _ x s    -> addSuffixConcrete s $ toConcrete x
-    FieldName xs         -> toConcrete (NonEmpty.head xs)
-    ConstructorName _ xs -> toConcrete (NonEmpty.head xs)
-    PatternSynResName xs -> toConcrete (NonEmpty.head xs)
+    FieldName xs         -> toConcrete (List1.head xs)
+    ConstructorName _ xs -> toConcrete (List1.head xs)
+    PatternSynResName xs -> toConcrete (List1.head xs)
     UnknownName          -> __IMPOSSIBLE__
 
 addSuffixConcrete :: HasOptions m => A.Suffix -> m C.QName -> m C.QName
@@ -869,7 +880,7 @@ instance ToConcrete A.Expr where
                 reportSLn "extendedlambda" 50 $ "abstractToConcrete extended lambda patterns ps = " ++ prettyShow ps
                 return $ LamClause ps rhs ca
               decl2clause _ = __IMPOSSIBLE__
-          C.ExtendedLam (getRange i) erased . List1.fromList <$>
+          C.ExtendedLam (getRange i) erased . List1.fromList __IMPOSSIBLE__ <$>
             mapM decl2clause decls
             -- TODO List1: can we demonstrate non-emptiness?
 
@@ -1035,15 +1046,15 @@ instance ToConcrete A.LetBinding where
 instance ToConcrete A.WhereDeclarations where
   type ConOfAbs A.WhereDeclarations = WhereClause
 
-  bindToConcrete (A.WhereDecls _ Nothing) ret = ret C.NoWhere
-  bindToConcrete (A.WhereDecls (Just am) (Just (A.Section _ _ _ ds))) ret = do
+  bindToConcrete (A.WhereDecls _ _ Nothing) ret = ret C.NoWhere
+  bindToConcrete (A.WhereDecls (Just am) False (Just (A.Section _ _ _ ds))) ret = do
     ds' <- declsToConcrete ds
     cm  <- unqualify <$> lookupModule am
     -- Andreas, 2016-07-08 I put PublicAccess in the following SomeWhere
     -- Should not really matter for printing...
     let wh' = (if isNoName cm then AnyWhere noRange else SomeWhere noRange cm PublicAccess) $ ds'
     local (openModule' am defaultImportDir id) $ ret wh'
-  bindToConcrete (A.WhereDecls _ (Just d)) ret =
+  bindToConcrete (A.WhereDecls _ _ (Just d)) ret =
     ret . AnyWhere noRange =<< toConcrete d
 
 mergeSigAndDef :: [C.Declaration] -> [C.Declaration]
