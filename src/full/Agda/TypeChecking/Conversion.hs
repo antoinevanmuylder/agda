@@ -375,7 +375,7 @@ compareTerm' cmp a m n =
        mSubIn   <- getPrimitiveTerm' builtinSubIn
        mGel <- getPrimitiveName' builtinGel
        mBHolds <- getBuiltinName' builtinBHolds
-       mMHolds <- getBuiltinName' builtinMHolds
+       -- mMHolds <- getBuiltinName' builtinMHolds
        mBCstr <- getBuiltinName' builtinBCstr
        case ty of
          Def q es | Just q == mIsOne -> return ()
@@ -388,7 +388,7 @@ compareTerm' cmp a m n =
               compareTerm cmp aty (mkUnglue m) (mkUnglue n)
          Def q es | Just q == mGel, Just args <- allApplyElims es -> compareGelTm cmp a' args m n
          Def q es | Just q == mBHolds -> return ()
-         Def q es | Just q == mMHolds -> return ()
+         -- Def q es | Just q == mMHolds -> return ()
          Def q [] | Just q == mBCstr -> compareBCstrTm cmp m n --TODO-antva: what about leq cmp?
          Def q es | Just q == mHComp, Just (sl:s:args@[phi,u,u0]) <- allApplyElims es
                   , Sort (Type lvl) <- unArg s

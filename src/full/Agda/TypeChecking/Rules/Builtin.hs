@@ -240,11 +240,12 @@ coreBuiltins =
   , (builtinBHolds                            |-> BuiltinPostulate Relevant (requireBridges "" >> (tbcstr --> return (ssort $ ClosedLevel 0))))
   , (builtinBitHolds                          |-> BuiltinPostulate Relevant (requireBridges "" >> (elSSet $ primBHolds <@> primByes)))
   , (builtinBPartial                          |-> BuiltinPrim "primBPartial" (const $ return ()))
-  , (builtinMCstr                             |-> BuiltinData (requireBridges "" >> (return $ sort CstrUniv)) [builtinMkmc])
-  , (builtinMkmc                              |-> BuiltinDataCons (tinterval --> tbcstr --> tmcstr))
-  , (builtinMHolds                            |-> BuiltinPostulate Relevant (requireBridges "" >> (tmcstr --> return (ssort $ ClosedLevel 0))))
-  , (builtinMitHolds                          |-> BuiltinPostulate Relevant (requireBridges "" >> (elSSet $ primMHolds <@> (primMkmc <@> primIOne <@> primByes))))
-  , (builtinMPartial                          |-> BuiltinPrim "primMPartial" (const $ return ()))
+  , (builtinMCstr                             |-> BuiltinPostulate Relevant (requireBridges "" >> (return $ sort CstrUniv)))
+--  , (builtinMCstr                             |-> BuiltinData (requireBridges "" >> (return $ sort CstrUniv)) [builtinMkmc])
+--  , (builtinMkmc                              |-> BuiltinDataCons (tinterval --> tbcstr --> tmcstr))
+--  , (builtinMHolds                            |-> BuiltinPostulate Relevant (requireBridges "" >> (tmcstr --> return (ssort $ ClosedLevel 0))))
+--  , (builtinMitHolds                          |-> BuiltinPostulate Relevant (requireBridges "" >> (elSSet $ primMHolds <@> (primMkmc <@> primIOne <@> primByes))))
+--  , (builtinMPartial                          |-> BuiltinPrim "primMPartial" (const $ return ()))
 
   , (builtinAgdaSort                         |-> BuiltinData tset
                                                    [ builtinAgdaSortSet, builtinAgdaSortLit
@@ -480,7 +481,7 @@ coreBuiltins =
         tTCM_ a    = el (primAgdaTCM <#> primLevelZero <@> a)
         tinterval  = El IntervalUniv <$> primInterval
         tbcstr     = El CstrUniv <$> primBCstr
-        tmcstr     = El CstrUniv <$> primMCstr
+        -- tmcstr     = El CstrUniv <$> primMCstr
 
         verifyPlus plus =
             verify ["n","m"] $ \(@@) zero suc (==) (===) choice -> do
