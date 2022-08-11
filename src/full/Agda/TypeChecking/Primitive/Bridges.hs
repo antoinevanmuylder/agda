@@ -567,21 +567,20 @@ mcstrView t = do
   f <- mcstrView'
   return (f t)
 
-
--- primMPartial' :: TCM PrimitiveImpl
--- primMPartial' = do
---   requireBridges ""
---   t <- runNamesT [] $
---        hPi' "l" (el $ cl primLevel) (\ l ->
---         nPi' "mψ" primMCstrType $ \ _ ->
---         nPi' "A" (sort . tmSort <$> l) $ \ bA ->
---         (sort . tmSSort <$> l))
---   tmholds <- primMHolds
---   return $ PrimImpl t $ primFun __IMPOSSIBLE__ 3 $ \ ts -> do
---     case ts of
---       [l,mpsi,a] -> do
---           (El s (Pi d b)) <- runNamesT [] $ do
---                              [l,a,mpsi] <- mapM (open . unArg) [l,a,mpsi]
---                              elSSet (pure tmholds <@> mpsi) --> el' l a
---           redReturn $ Pi (setRelevance Irrelevant $ d { domFinite = True }) b
---       _ -> __IMPOSSIBLE__
+primMPartial' :: TCM PrimitiveImpl
+primMPartial' = do
+  requireBridges ""
+  t <- runNamesT [] $
+       hPi' "l" (el $ cl primLevel) (\ l ->
+        nPi' "ζ" primMCstrType $ \ _ ->
+        nPi' "A" (sort . tmSort <$> l) $ \ bA ->
+        (sort . tmSSort <$> l))
+  mholds <- primMHolds
+  return $ PrimImpl t $ primFun __IMPOSSIBLE__ 3 $ \ ts -> do
+    case ts of
+      [l, ζ, bA] -> do
+          (El s (Pi d b)) <- runNamesT [] $ do
+                             [l, bA, ζ] <- mapM (open . unArg) [l, bA, ζ]
+                             elSSet (pure mholds <@> ζ) --> el' l bA
+          redReturn $ Pi (setRelevance Irrelevant $ d { domFinite = True }) b
+      _ -> __IMPOSSIBLE__

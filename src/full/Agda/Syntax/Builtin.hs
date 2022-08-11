@@ -28,7 +28,7 @@ builtinNat, builtinSuc, builtinZero, builtinNatPlus, builtinNatMinus,
   builtinExtent, builtinGel, builtin_gel, builtin_ungel, builtinCstrUniv, builtinBCstr,
   builtinByes, builtinBno, builtinBisone, builtinBiszero, builtinBconj,
   builtinBHolds, builtinBitHolds, builtinBPartial,
-  builtinMCstr, builtinMno, builtinMyes, builtinMkmc, builtinMHolds, builtinMitHolds, -- builtinMPartial,
+  builtinMCstr, builtinMno, builtinMyes, builtinMkmc, builtinMHolds, builtinMitHolds, builtinMPartial,
   builtinSizeUniv, builtinSize, builtinSizeLt,
   builtinSizeSuc, builtinSizeInf, builtinSizeMax,
   builtinInf, builtinSharp, builtinFlat,
@@ -174,7 +174,7 @@ builtinMyes                              = "primMyes"
 builtinMkmc                              = "primMkmc"
 builtinMHolds                            = "MHOLDS"
 builtinMitHolds                          = "MITHOLDS"
--- builtinMPartial                          = "MPARTIAL"
+builtinMPartial                          = "MPARTIAL"
 builtinSizeUniv                          = "SIZEUNIV"
 builtinSize                              = "SIZE"
 builtinSizeLt                            = "SIZELT"
@@ -354,7 +354,7 @@ builtinsNoDef =
   , builtinBPartial 
   , builtinMCstr
   , builtinMHolds
-  -- , builtinMPartial -- .. until here (included). what about BitHolds, MitHolds?
+  , builtinMPartial -- .. until here (included). what about BitHolds, MitHolds?
   , builtinSet
   , builtinProp
   , builtinSetOmega
