@@ -154,28 +154,28 @@ isTimeless t lki = do
   --   _                                -> return False
 
 -- | isTimeless' typ lki is true if
---   (typ ∈ timelessThings)   OR   typ is a bcstr not mentionning lki.
+--   (typ ∈ timelessThings)   OR   typ is a bcstr/mcstr not mentionning lki.
 isTimeless' :: PureTCM m => Type -> Int -> m Bool
 isTimeless' typ lki = do -- @(El stype ttyp)
   -- t <- abortIfBlocked typ
   timeless <- mapM getName' timelessThings
   bholds <- getName' builtinBHolds
-  -- mholds <- getName' builtinMHolds
-  -- mkmc <- getName' builtinMkmc
+  mholds <- getName' builtinMHolds
+  mkmc <- getName' builtinMkmc
   case (unEl typ) of
     Def q _ | Just q `elem` timeless -> return True
     Def q [Apply (Arg _ psi)] | Just q == bholds -> do
       psi' <- reduce psi
       let fvPsi = allVars $ freeVarsIgnore IgnoreAll $ psi'
       return $ not $ ISet.member lki fvPsi
-    -- Def q [Apply (Arg _ mixPsi)] | Just q == mholds -> do
-    --   mixPsi' <- reduce mixPsi
-    --   case mixPsi' of
-    --     Con (ConHead q _ _ _) _ [Apply (Arg _ phi), Apply (Arg _ psi)] | Just q == mkmc -> do
-    --       psi' <- reduce psi
-    --       let fvPsi = allVars $ freeVarsIgnore IgnoreAll $ psi'
-    --       return $ not $ ISet.member lki fvPsi
-    --     _ -> __IMPOSSIBLE__ -- mixPsi : MCstr reduced to smth != than mkmc (φ:I) (ψ:BCstr)
+    Def q [Apply (Arg _ zeta)] | Just q == mholds -> do
+      zeta' <- reduce zeta
+      case zeta' of
+        Def q [Apply (Arg _ phi), Apply (Arg _ psi)] | Just q == mkmc -> do
+          psi' <- reduce psi
+          let fvPsi = allVars $ freeVarsIgnore IgnoreAll $ psi'
+          return $ not $ ISet.member lki fvPsi
+        _ -> return True -- zeta reduces to bot or top mixed cstr.
     _                                -> return False
 
 notAllowedVarsError :: Term -> [Int] -> TCM b
