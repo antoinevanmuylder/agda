@@ -559,7 +559,7 @@ checkSystemCoverage f splits t cs = do
   case splitKind of
     Csplit -> checkCubSystemCoverage f n t cs
     Bsplit -> checkBdgSystemCoverage f n t cs
-    Msplit -> checkBdgSystemCoverage f n t cs
+    Msplit -> typeError $ NotImplemented "coverage, coherence for mixed systems" -- checkBdgSystemCoverage f n t cs
 
 checkCubSystemCoverage
   :: QName

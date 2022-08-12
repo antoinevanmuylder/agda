@@ -628,7 +628,7 @@ buildIntMap [] = IntMap.empty
 buildIntMap (Nothing : rest) = buildIntMap rest
 buildIntMap (Just (CPsplit x) : rest) = IntMap.insert x Csplit $ buildIntMap rest
 buildIntMap (Just (BPsplit x mb) : rest) = IntMap.insert x (Bsplit) $ buildIntMap rest
-buildIntMap (Just (MPsplit x mb) : rest) = IntMap.insert x (Msplit) $ buildIntMap rest
+buildIntMap (Just (MPsplit x) : rest) = IntMap.insert x (Msplit) $ buildIntMap rest
 
 isBsplit :: PartialSplit -> Bool
 isBsplit Bsplit = True
@@ -888,6 +888,21 @@ checkLHS
   -> LHSState a       -- ^ The current state.
   -> tcm a
 checkLHS mf = updateModality checkLHS_ where
+  --Example: in ctx b:Bool, we define f : A1 -> A2 -> Bool as f (mkA1 x1) (mkA2 x2 x3) = b in agda
+  --the LHSState is updated if there are non-trivial problem equations
+  --initial LHSState:
+  --  @tel@: (b:Bool),(a1:A1),(a2:A2)       in gen., current telescope
+  --  @ip@ : b,a1,a2 ⊢ (b,a1,a2) : Bool,A1,A2          current subst   curr tel → init tel
+  --  @problem._problemEqs@    b=b, mkA1 x1 = a1 , mkA2 x2 x3 = a2     in gen, usr pattern=var in usr type
+  --intermediate LHSState:
+  --  @tel@: (b:Bool),(x1:X1),(a2:A2)       
+  --  @ip@ : b,x1,a2: Bool,X1,A2 ⊢ (b,mkA1 x1,a2) : Bool,A1,A2
+  --  @problem._problemEqs@    b=b, x1=x1 , mkA2 x2 x3 = a2
+  --final LHSState
+  --  @tel@: (b:Bool),(x1:X1),(x2:X2),(x3:X3)
+  --  @ip@ : b,x1,x2,x3: Bool,X1,X2,X3 ⊢ (b,mkA1 x1,mkA2 x2 x3) : Bool,A1,A2      usr variables → init tel from usr type
+  --  @problem._problemEqs@    b=b, x1=x1 , x2=x2, x3=x3
+  
     -- If the target type is irrelevant or in Prop,
     -- we need to check the lhs in irr. cxt. (see Issue 939).
  updateModality cont st@(LHSState tel ip problem target psplit) = do
@@ -899,6 +914,7 @@ checkLHS mf = updateModality checkLHS_ where
         -- the modalities in the clause telescope also need updating.
 
  checkLHS_ st@(LHSState tel ip problem target psplit) = do
+  reportSDoc "tc.lhs.top" 30 $ "in checkLHS_"
   reportSDoc "tc.lhs.top" 30 $ "tel is" <+> prettyTCM tel
   reportSDoc "tc.lhs.top" 30 $ "ip is" <+> pretty ip
   if isSolvedProblem problem then
@@ -952,6 +968,13 @@ checkLHS mf = updateModality checkLHS_ where
 
       let pos = size tel - (i+1)
           (delta1, tel'@(ExtendTel dom adelta2)) = splitTelescopeAt pos tel -- TODO:: tel' defined but not used
+
+      reportSDoc "tc.lhs.split" 30 $ sep
+        [ "In splitArg, divide current tel in 3 parts, tel = delta1.dom.adelta2"
+        , nest 2 $ "tel = " <+> prettyTCM tel
+        , nest 2 $ "delta1 = " <+> prettyTCM delta1
+        , nest 2 $ "dom.adelta2 = " <+> addContext delta1 (prettyTCM tel') --we split on a variable of type dom
+        ]
 
       p <- liftTCM $ expandLitPattern p
       let splitOnPat = \case
@@ -1016,10 +1039,13 @@ checkLHS mf = updateModality checkLHS_ where
 
 
     -- | delegates splitting for cubical partial (Partial) or bridge partial (BPartial) or mixed partial (MPartial)
-    splitCorBPartial :: Telescope     -- The types of arguments before the one we split on
-                     -> Dom Type      -- The type of the argument we split on
-                     -> Abs Telescope -- The types of arguments after the one we split on
-                     -> [(A.Expr, A.Expr)] -- [(φ₁ = b1),..,(φn = bn)] a list of constraints
+    splitCorBPartial :: Telescope     -- ^ The types of arguments before the one we split on
+                     -> Dom Type      -- ^ The type of the argument we split on (eg: (_ : IsOne phi) in path case)
+                     -> Abs Telescope -- ^ The types of arguments after the one we split on
+                     -> [(A.Expr, A.Expr)]
+                     -- ^ [(φ₁ = b1),..,(φn = bn)] an equality pattern coming from usr lhs.
+                     --   In the path case, there can be more than 1.
+                     --   For instance, @partial (x = i1) (y = i1) = ...@ leads to [(x,i1) , (y,i1)]
                      -> ExceptT TCErr tcm (LHSState a)
     splitCorBPartial delta1 dom adelta2 ts = do
       -- --bridges option active?
@@ -1042,10 +1068,11 @@ checkLHS mf = updateModality checkLHS_ where
             _ -> typeError . GenericError $ "not IsOne/BHolds/MHolds"
 
     -- | inspired from splitPartial
-    splitMPartial :: Telescope     -- ^  The types of arguments before the one we split on
-                     -> Dom Type      -- ^ The type of the argument we split on
-                     -> Abs Telescope -- ^ The types of arguments after the one we split on
-                     -> [(A.Expr, A.Expr)] -- ^ [(φ₁ = b1),..,(φn = bn)]
+    --   for info on args, look at splitCorBPartial
+    splitMPartial :: Telescope
+                     -> Dom Type
+                     -> Abs Telescope
+                     -> [(A.Expr, A.Expr)]
                      -> ExceptT TCErr tcm (LHSState a)
     splitMPartial delta1 dom adelta2 ts = do
 
@@ -1053,9 +1080,10 @@ checkLHS mf = updateModality checkLHS_ where
         softTypeError . GenericDocError =<<
         hsep [ "Not a finite domain:" , prettyTCM $ unDom dom ]
 
-      tbinterval <- liftTCM $ primBridgeIntervalType
+      tbinterval <- liftTCM $ primBridgeIntervalType --TODO-antva: OK to load bridge stuff?
+      tcinterval <- liftTCM $ primIntervalType
 
-      names <- liftTCM $ addContext tel $ do
+      names <- liftTCM $ addContext tel $ do -- init tel includes (_ : MHolds zeta) as its last entry
         LeftoverPatterns{patternVariables = vars} <- getLeftoverPatterns $ problem ^. problemEqs
         return $ take (size delta1) $ fst $ getUserVariableNames tel vars
 
@@ -1067,89 +1095,176 @@ checkLHS mf = updateModality checkLHS_ where
 
       let cpSub = raiseS $ size newContext - lhsCxtSize
 
-      -- Γ replaces Δ1∙dom. σ uses the info (BitHolds:dom) in ᵃΔ₂ where dom = BHolds ψ.
-      (gamma,sigma,whichCstr) <- liftTCM $ updateContext cpSub (const newContext) $ do
-        ts <- forM ts $ \ (t,u) -> do
-                reportSDoc "tc.lhs.split.partial" 10 $ "currentCxt =" <+> (prettyTCM =<< getContext)
-                reportSDoc "tc.lhs.split.partial" 10 $ text "t, u (Expr) =" <+> prettyTCM (t,u)
-                t <- checkExpr t tbinterval
-                u <- checkExpr u tbinterval
-                reportSDoc "tc.lhs.split.partial" 10 $ text "t, u        =" <+> pretty (t, u)
-                u <- bridgeIntervalView =<< reduce u
-                case u of
-                  BIZero -> primBiszero <@> pure t
-                  BIOne  -> primBisone <@> pure t
-                  _     -> typeError $ GenericError $ "Only 0 or 1 allowed on the rhs of bridge face"
-        psi <- case ts of
-                  [] -> do --TODO-antva: do we have this case?
-                    a <- reduce (unEl $ unDom dom)
-                    -- builtinIsOne is defined, since this is a precondition for having Partial
-                    bholds <- fromMaybe __IMPOSSIBLE__ <$>  -- newline because of CPP
-                      getBuiltinName' builtinBHolds
-                    case a of
-                      Def q [Apply psi] | q == bholds -> return (unArg psi)
-                      _           -> typeError . GenericDocError =<< do
-                        prettyTCM a <+> " is not IsOne."
-                  [t] -> pure t
-                  _ -> typeError . GenericError $ "only bridge hyperfaces are allowed" --TODO-antva: true?
-        reportSDoc "tc.lhs.split.partial" 30 $ text "psi           =" <+> prettyTCM psi
-        psi <- reduce psi
-        reportSDoc "tc.lhs.split.partial" 30 $ text "psi (reduced) =" <+> prettyTCM psi
-        -- at this point psi is either byes/bno, or an irreducible _=bi0 / _=bi1 constraint.
-        -- disjunctions have already been split??
-        psiView <- bcstrView psi
-        case (psiView) of
-          Bno -> typeError $ GenericError $ "The bdg face constraint is unsatisfiable."
-          Byes -> return (delta1 , idS, Nothing)
-          Biszero (Arg _ (Var xi [])) -> do
-            bi0 <- primBIZero
-            (g,s) <- bridgeGoK (\ sigma -> (,sigma) <$> getContextTelescope) xi bi0
-            return (g,s,Just False)
-          Bisone (Arg _ (Var xi [])) -> do
-            bi1 <- primBIOne
-            (g,s) <- bridgeGoK (\ sigma -> (,sigma) <$> getContextTelescope) xi bi1
-            return (g,s,Just True)
-          _  -> typeError $ GenericError $ "Cannot have disjunctions/metas in a bdg face constraint."
+      --are we pattern matching on path or bridge constraints?
+      pathOrBdg <- case ts of
+        (_,u) : rest ->
+          liftTCM $ (checkExpr u tcinterval >> return True) `catchError_` ( \ _ -> return False)
+        _ -> __IMPOSSIBLE__ --this list should not be empty anyway??
 
-      bitholds <- liftTCM primBitHolds
-      -- substitute the literal in p1 and dpi
-      -- reportSDoc "tc.lhs.faces" 60 $ text $ show sigma
+      case pathOrBdg of
+        False -> do -- we are pattern matching on a bdg constraint. For instance, @f (x = bi0) = bla@
+          -- Γ replaces Δ1∙dom. σ uses the info (BitHolds:dom) in ᵃΔ₂ where dom = BHolds ψ.
+          (gamma,sigma,whichCstr) <- liftTCM $ updateContext cpSub (const newContext) $ do
+            ts <- forM ts $ \ (t,u) -> do
+                    reportSDoc "tc.lhs.split.partial" 10 $ "currentCxt =" <+> (prettyTCM =<< getContext)
+                    reportSDoc "tc.lhs.split.partial" 10 $ text "t, u (Expr) =" <+> prettyTCM (t,u)
+                    t <- checkExpr t tbinterval
+                    u <- checkExpr u tbinterval
+                    reportSDoc "tc.lhs.split.partial" 10 $ text "t, u        =" <+> pretty (t, u)
+                    u <- bridgeIntervalView =<< reduce u
+                    case u of
+                      BIZero -> primBiszero <@> pure t
+                      BIOne  -> primBisone <@> pure t
+                      _     -> typeError $ GenericError $ "Only 0 or 1 allowed on the rhs of bridge face"
+            psi <- case ts of
+                      [] -> __IMPOSSIBLE__ -- do --TODO-antva: do we have this case?
+                        -- a <- reduce (unEl $ unDom dom)
+                        -- -- builtinIsOne is defined, since this is a precondition for having Partial
+                        -- bholds <- fromMaybe __IMPOSSIBLE__ <$>  -- newline because of CPP
+                        --   getBuiltinName' builtinBHolds
+                        -- case a of
+                        --   Def q [Apply psi] | q == bholds -> return (unArg psi)
+                        --   _           -> typeError . GenericDocError =<< do
+                        --     prettyTCM a <+> " is not BHolds."
+                      [t] -> pure t
+                      _ -> typeError . GenericError $ "only bridge hyperfaces are allowed"
+            reportSDoc "tc.lhs.split.partial" 30 $ text "psi           =" <+> prettyTCM psi
+            psi <- reduce psi
+            reportSDoc "tc.lhs.split.partial" 30 $ text "psi (reduced) =" <+> prettyTCM psi
+            -- at this point psi is either byes/bno, or an irreducible _=bi0 / _=bi1 constraint.
+            -- disjunctions have already been split??
+            psiView <- bcstrView psi
+            case (psiView) of
+              Bno -> typeError $ GenericError $ "The bdg face constraint is unsatisfiable."
+              Byes -> return (delta1 , idS, Nothing) --TODO-antva: case @f (bi0 = bi0) = bla@. should we raise an error?
+              Biszero (Arg _ (Var xi [])) -> do
+                bi0 <- primBIZero
+                (g,s) <- bridgeGoK (\ sigma -> (,sigma) <$> getContextTelescope) xi bi0
+                return (g,s,Just False)
+              Bisone (Arg _ (Var xi [])) -> do
+                bi1 <- primBIOne
+                (g,s) <- bridgeGoK (\ sigma -> (,sigma) <$> getContextTelescope) xi bi1
+                return (g,s,Just True)
+              _  -> typeError $ GenericError $ "Cannot have disjunctions/metas in a bdg face constraint."
 
-      let oix = size adelta2 -- de brujin index of BHolds
-          o_n = fromMaybe __IMPOSSIBLE__ $
-            findIndex (\ x -> case namedThing (unArg x) of
-                                   VarP _ x -> dbPatVarIndex x == oix
-                                   _        -> False) ip
-          delta2' = absApp adelta2 bitholds
-          delta2 = applySubst sigma delta2'
-          mkConP (Con c _ [])
-             = ConP c (noConPatternInfo { conPType = Just (Arg defaultArgInfo tbinterval)
-                                              , conPFallThrough = True })
-                          []
-          mkConP (Var i []) = VarP defaultPatternInfo (DBPatVar "x" i)
-          mkConP _          = __IMPOSSIBLE__
-          rho0 = fmap mkConP sigma
+          bitholds <- liftTCM primBitHolds
+          mitholds <- liftTCM primMitHolds
 
-          rho    = liftS (size delta2) $ consS (DotP defaultPatternInfo bitholds) rho0
+          let oix = size adelta2 -- de brujin index of MHolds
+              o_n = fromMaybe __IMPOSSIBLE__ $
+                findIndex (\ x -> case namedThing (unArg x) of
+                                       VarP _ x -> dbPatVarIndex x == oix
+                                       _        -> False) ip
+              delta2' = absApp adelta2 mitholds
+              delta2 = applySubst sigma delta2'
 
-          delta'   = abstract gamma delta2
-          eqs'     = applyPatSubst rho $ problem ^. problemEqs
-          ip'      = applySubst rho ip
-          target'  = applyPatSubst rho target
+              mkConP (Con c _ [])
+                 = ConP c (noConPatternInfo { conPType = Just (Arg defaultArgInfo tbinterval)
+                                                  , conPFallThrough = True })
+                              []
+              mkConP (Var i []) = VarP defaultPatternInfo (DBPatVar "x" i)
+              mkConP _          = __IMPOSSIBLE__
+              rho0 = fmap mkConP sigma
 
-      reportSDoc "tc.lhs.split.partial" 40 $ vcat
-        [ "gamma is" <+> prettyTCM gamma
-        , "sigma is" <+> prettyTCM sigma
-        , "delta2' is" <+> prettyTCM delta2'
-        , "delta2 is" <+>  prettyTCM delta2
-        , "delta'" <+> prettyTCM delta'
-        , "target'" <+> prettyTCM target'
-        ]
+              rho    = liftS (size delta2) $ consS (DotP defaultPatternInfo mitholds) rho0
 
-      -- Compute the new state
-      let problem' = set problemEqs eqs' problem
-      -- reportSDoc "tc.lhs.split.partial" 60 $ text (show problem')
-      liftTCM $ updateLHSState (LHSState delta' ip' problem' target' (psplit ++ [Just $ BPsplit o_n whichCstr]))
+              delta'   = abstract gamma delta2  -- Γ. ᵃΔ₂[σ]
+              eqs'     = applyPatSubst rho $ problem ^. problemEqs
+              ip'      = applySubst rho ip
+              target'  = applyPatSubst rho target
+
+          reportSDoc "tc.lhs.split.partial" 40 $ vcat
+            [ "gamma is" <+> prettyTCM gamma
+            , "sigma is" <+> prettyTCM sigma
+            , "delta2' is" <+> prettyTCM delta2'
+            , "delta2 is" <+>  prettyTCM delta2
+            , "delta'" <+> prettyTCM delta'
+            , "target'" <+> prettyTCM target'
+            ]
+
+          -- Compute the new state
+          let problem' = set problemEqs eqs' problem
+          -- reportSDoc "tc.lhs.split.partial" 60 $ text (show problem')
+          liftTCM $ updateLHSState (LHSState delta' ip' problem' target' (psplit ++ [Just $ MPsplit o_n]))
+
+        True -> do--pattern matching on path constraints
+          (gamma,sigma) <- liftTCM $ updateContext cpSub (const newContext) $ do
+             ts <- forM ts $ \ (t,u) -> do
+                     reportSDoc "tc.lhs.split.partial" 10 $ "currentCxt =" <+> (prettyTCM =<< getContext)
+                     reportSDoc "tc.lhs.split.partial" 10 $ text "t, u (Expr) =" <+> prettyTCM (t,u)
+                     t <- checkExpr t tcinterval
+                     u <- checkExpr u tcinterval
+                     reportSDoc "tc.lhs.split.partial" 10 $ text "t, u        =" <+> pretty (t, u)
+                     u <- intervalView =<< reduce u
+                     case u of
+                       IZero -> primINeg <@> pure t
+                       IOne  -> return t
+                       _     -> typeError $ GenericError $ "Only 0 or 1 allowed on the rhs of face"
+             -- Example: ts = (i=0) (j=1) will result in phi = ¬ i & j
+             phi <- case ts of
+                       [] -> __IMPOSSIBLE__ --TODO-antva: I feel like empty ts is impossible
+                         -- a <- reduce (unEl $ unDom dom)
+                         -- -- builtinIsOne is defined, since this is a precondition for having Partial
+                         -- isone <- fromMaybe __IMPOSSIBLE__ <$>  -- newline because of CPP
+                         --   getBuiltinName' builtinIsOne
+                         -- case a of
+                         --   Def q [Apply phi] | q == isone -> return (unArg phi)
+                         --   _           -> typeError . GenericDocError =<< do
+                         --     prettyTCM a <+> " is not IsOne."
+
+                       _  -> foldl (\ x y -> primIMin <@> x <@> y) primIOne (map pure ts)
+             reportSDoc "tc.lhs.split.partial" 10 $ text "phi           =" <+> prettyTCM phi
+             reportSDoc "tc.lhs.split.partial" 30 $ text "phi           =" <+> pretty phi
+             phi <- reduce phi
+             reportSDoc "tc.lhs.split.partial" 10 $ text "phi (reduced) =" <+> prettyTCM phi
+             refined <- forallFaceMaps phi (\ bs m t -> typeError $ GenericError $ "face blocked on meta")
+                                (\ sigma -> (,sigma) <$> getContextTelescope)
+             case refined of
+               [(gamma,sigma)] -> return (gamma,sigma)
+               []              -> typeError $ GenericError $ "The face constraint is unsatisfiable."
+               _               -> typeError $ GenericError $ "Cannot have disjunctions in a face constraint."
+
+          itisone <- liftTCM primItIsOne
+          mitholds <- liftTCM primMitHolds
+          -- substitute the literal in p1 and dpi
+          reportSDoc "tc.lhs.faces" 60 $ text $ show sigma
+
+          let oix = size adelta2 -- de brujin index of IsOne
+              o_n = fromMaybe __IMPOSSIBLE__ $
+                findIndex (\ x -> case namedThing (unArg x) of
+                                       VarP _ x -> dbPatVarIndex x == oix
+                                       _        -> False) ip
+              delta2' = absApp adelta2 mitholds
+              delta2 = applySubst sigma delta2'
+              mkConP (Con c _ [])
+                 = ConP c (noConPatternInfo { conPType = Just (Arg defaultArgInfo tcinterval)
+                                                  , conPFallThrough = True })
+                              []
+              mkConP (Var i []) = VarP defaultPatternInfo (DBPatVar "x" i)
+              mkConP _          = __IMPOSSIBLE__
+              rho0 = fmap mkConP sigma
+
+              rho    = liftS (size delta2) $ consS (DotP defaultPatternInfo mitholds) rho0
+
+              delta'   = abstract gamma delta2
+              eqs'     = applyPatSubst rho $ problem ^. problemEqs
+              ip'      = applySubst rho ip
+              target'  = applyPatSubst rho target
+
+          reportSDoc "tc.lhs.split.partial" 40 $ vcat
+            [ "gamma is" <+> prettyTCM gamma
+            , "sigma is" <+> prettyTCM sigma
+            , "delta2' is" <+> prettyTCM delta2'
+            , "delta2 is" <+>  prettyTCM delta2
+            , "delta'" <+> prettyTCM delta'
+            , "target'" <+> prettyTCM target'
+            ]
+
+          -- Compute the new state
+          let problem' = set problemEqs eqs' problem
+          reportSDoc "tc.lhs.split.partial" 60 $ text (show problem')
+          liftTCM $ updateLHSState (LHSState delta' ip' problem' target' (psplit ++ [Just $ MPsplit o_n]))
+
 
 
     -- | inspired from splitPartial
