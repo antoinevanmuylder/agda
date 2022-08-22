@@ -559,7 +559,7 @@ checkSystemCoverage f splits t cs = do
   case splitKind of
     Csplit -> checkCubSystemCoverage f n t cs
     Bsplit -> checkBdgSystemCoverage f n t cs
-    Msplit -> typeError $ NotImplemented "coverage, coherence for mixed systems" -- checkBdgSystemCoverage f n t cs
+    Msplit -> checkMSystemCoverage f n t cs
 
 checkCubSystemCoverage
   :: QName
@@ -864,6 +864,269 @@ checkBdgSystemCoverage f n t cs = do
       reportSDoc "tc.sys.cover.sys" 20 $ "gamma,sys     =" <+> (fsep $ prettyTCM gamma : map prettyTCM sys)
       -- reportSDoc "tc.sys.cover.sys" 40 $ fsep $ (text . show) gamma : map (text . show) sys
       return (System gamma sys)
+      
+    _ -> __IMPOSSIBLE__
+
+
+
+checkMSystemCoverage
+  :: QName
+  -> Int -- ^ size of ctx < before .MitHolds
+  -> Type
+  -> [Clause]
+  -> TCM System
+checkMSystemCoverage f n t cs = do
+  reportSDoc "tc.sys.cover" 10 $ vcat
+    [ "n (ctx # of split)           = " <+> (text $ show n)
+    , "# of clauses                 = " <+> (text $ show $ length cs)
+    , "t (full type)               is " <+> prettyTCM t
+    ]
+  TelV gamma t <- telViewUpTo n t -- t = MPartial ζ A = .(Mholds ζ) → A
+  addContext gamma $ do
+  TelV (ExtendTel a _) _ <- telViewUpTo 1 t -- a = MHolds ζ
+  a <- reduce $ unEl $ unDom a
+
+  case a of
+    Def q [Apply mcstr] -> do --mcstr is mixed cstr stated in type.
+      [biz,bio] <- mapM getBuiltinName' [builtinBIZero, builtinBIOne]
+      bno <- primBno
+      byes <- primByes
+      biszero <- primBiszero
+      bisone <- primBisone
+      mBiszero <- getPrimitiveName' builtinBiszero
+      mBisone <- getPrimitiveName' builtinBisone
+      bconj <- primBConj
+      bi0 <- primBIZero
+      bi1 <- primBIOne
+      [iz,io] <- mapM getBuiltinName' [builtinIZero, builtinIOne]
+      ineg <- primINeg
+      imin <- primIMin
+      imax <- primIMax
+      i0 <- primIZero
+      i1 <- primIOne
+      mkmc <- primMkmc
+      let
+        isDir (ConP q _ []) | Just (conName q) == biz = Just False
+        isDir (ConP q _ []) | Just (conName q) == bio = Just True
+        isDir (ConP q _ []) | Just (conName q) == iz = Just False
+        isDir (ConP q _ []) | Just (conName q) == io = Just True
+        isDir _ = Nothing
+
+
+        -- | Given a list of patterns like [a, r, x, y, (i1), (i1)]
+        -- collectDirs returns a list summarizing the directions of various interval constructors
+        -- here, res = [(0,True),(1,True)]
+        collectDirs :: [Int] -> [DeBruijnPattern] -> [(Int,Bool)]
+        collectDirs [] [] = []
+        collectDirs (i : is) (p : ps) | Just d <- isDir p = (i,d) : collectDirs is ps
+                                      | otherwise         = collectDirs is ps
+        collectDirs _ _ = __IMPOSSIBLE__
+
+        -- | does a path or bdg interval construtor pattern appears in the list?
+        giveSplitKind :: [DeBruijnPattern] -> PartialSplit
+        giveSplitKind ((ConP q _ []) : ps) | Just (conName q) == biz || Just (conName q) == bio = Bsplit
+        giveSplitKind ((ConP q _ []) : ps) | Just (conName q) == iz || Just (conName q) == io = Csplit
+        giveSplitKind (_ : ps) = giveSplitKind ps
+        giveSplitKind [] = Msplit -- we use Msplit as error case.
+
+        bdir :: (Int,Bool) -> Term
+        bdir (i,False) = biszero `apply` [argN $ var i]
+        bdir (i,True)  = bisone  `apply` [argN $ var i]
+
+        dir :: (Int,Bool) -> Term
+        dir (i,False) = ineg `apply` [argN $ var i]
+        dir (i,True) = var i       
+        
+        borI :: [Term] -> Term
+        borI [] = bno
+        borI [t] = t
+        borI (t:ts) = bconj `apply` [argN t, argN (borI ts)]
+
+        -- andI and orI have cases for singletons to improve error messages.
+        andI, orI :: [Term] -> Term
+        andI [] = i1
+        andI [t] = t
+        andI (t:ts) = (\ x -> imin `apply` [argN t, argN x]) $ andI ts
+
+        orI [] = i0
+        orI [t] = t
+        orI (t:ts) = imax `apply` [argN t, argN (orI ts)]
+
+
+        unpack :: [Term] -> Term
+        unpack [] = byes
+        unpack [t] = t
+        unpack _ = __IMPOSSIBLE__
+
+        unpack' :: [[(Int, Bool)]] -> [(Int, Bool)]
+        unpack' [] = []
+        unpack' ([] : rest) = __IMPOSSIBLE__
+        unpack' ([ib] : rest) = ib : (unpack' rest)
+        unpack' (_ : rest) = __IMPOSSIBLE__
+
+      let
+        -- an entry in pats is a list of patterns for 1 clause, < before the .MitHolds pattern
+        -- ex: pats     = [A, a, r, (bi0), x, y] [a, r, x, y, (i1), (i1)]
+        pats = map (take n . map (namedThing . unArg) . namedClausePats) cs
+        -- an entry in alphas is a partial function (idx of constructor pattern from right to left) ↦ 1 or 0
+        -- ex: alphas   = [ (Bsplit,[(2,False)]) , (Csplit,[(1,True), (0,True)]) ]
+        alphas :: [ (PartialSplit, [(Int,Bool)]) ]
+        alphas = flip map pats (\p -> (giveSplitKind p, collectDirs (downFrom n) p))
+        -- alphas that have the Csplit flag
+        cubAlphas = map snd $ flip filter alphas $ \a -> fst a == Csplit
+        bdgAlphas = map snd $ flip filter alphas $ \a -> fst a == Bsplit
+
+      reportSDoc "tc.sys.cover" 30 $ vcat
+        [ "pats     =" <+> (fsep $ map prettyTCM pats)
+        , "alphas   =" <+> prettyTCM alphas
+        , "cubAlphas   =" <+> prettyTCM cubAlphas
+        , "bdgAlphas   =" <+> prettyTCM bdgAlphas
+        ]
+
+      --code for cubical
+      let
+        phis :: [Term] -- 1 entry = a (potential) conjunction
+        phis = map (andI . (map dir)) cubAlphas
+        phi = orI $ phis -- phi is a "DNF"
+        cubPcs = zip phis cs
+
+      reportSDoc "tc.sys.cover" 30 $ vcat
+        [ "phi      =" <+> prettyTCM phi
+        , "cubPcs      =" <+> prettyTCM cubPcs
+        ]
+
+      --code for bridges     
+      let
+        bdgAlphas' = unpack' (bdgAlphas)
+        psis :: [Term] -- 1 entry = a bridge hyperface
+        psis = map (unpack . map bdir) (bdgAlphas)
+        psi = borI $ psis --bridge constraint reconstructed from clauses. 
+        bdgPcs = zip psis cs
+        bdgPcs3 = zip3 psis cs bdgAlphas'
+
+      reportSDoc "tc.sys.cover" 30 $ vcat
+        [ "bdgAlphas'  =" <+> prettyTCM bdgAlphas'
+        , "psi      =" <+> prettyTCM psi
+        , "bdgPcs      =" <+> prettyTCM bdgPcs
+        , "bdgPcs3     =" <+> prettyTCM bdgPcs3
+        ]
+
+      --reconstructed constraint zeta = phi m∨ psi
+      let
+        zeta = mkmc `apply` [argN phi, argN psi]
+      reportSDoc "tc.sys.cover" 30 $ vcat
+        [ "zeta = " <+> prettyTCM zeta ]
+
+     
+      -- coverage check. the reconstructed bridge cstr (zeta := phi m∨ psi) matches the stated bridge constraint mcstr.
+      tmcstr <- primMCstrType
+      reportSDoc "tc.sys.cover" 10 $
+        "coverage asks ?equalTerm (stated, inferred): " <+> prettyTCM (unArg mcstr) <+> ", " <+> prettyTCM zeta
+      equalTerm tmcstr (unArg mcstr) zeta
+
+      _ <- typeError $ NotImplemented "coherence check for mixed constraints"
+
+      -- -- coherence check. rhs must agree where they overlap.
+      -- reportSDoc "tc.sys.cover" 20 $ "coherence check for " <+> prettyTCM f <+> "..."
+      -- forM_ (initWithDefault __IMPOSSIBLE__ $
+      --         initWithDefault __IMPOSSIBLE__ $ List.tails pcs3) $ \ ((psi1,cl1,(i1,b1)):pcs3') -> do
+      --   forM_ pcs3' $ \ (psi2,cl2,(i2,b2)) -> do
+          
+      --     let boolToBI :: Bool -> Term
+      --         boolToBI False = bi0
+      --         boolToBI True = bi1
+
+      --         (psi1var, psi1val) = (i1, boolToBI b1)
+      --         (psi2var, psi2val) = (i2, boolToBI b2)
+
+      --     when (psi1var == psi2var && psi1val == psi2val) (typeError $ GenericError "Duplicated clause in BPartial pattern matching")
+
+      --     -- The only kinds of hyperplanes that do not intersect are of the form (x = bi0), (x = bi1)
+      --     let (stop :: Bool) = (psi1var == psi2var) && (psi1val /= psi2val)
+      --     reportSDoc "tc.sys.cover" 30 $ "psi1 = " <+> (prettyTCM psi1) <+> ", psi2 = " <+> (prettyTCM psi2) <+> "goOn = " <+> (prettyTCM $ not stop)
+      --     unless stop $ do
+      --       thectx <- getContext --gamma has been pushed on this.
+            
+      --       reportSDoc "tc.sys.cover" 10 $ "info of cur. clauses" <+> (nest 2 . vcat)
+      --        [ "gamma              " <+> (prettyTCM gamma)
+      --        , "thectx             " <+> (prettyTCM thectx)
+      --        , "---"
+      --        , "clauseTel1:        " <+> (prettyTCM $ clauseTel cl1)
+      --        -- , "namedClausedPats1: " <+> (prettyTCM $ namedClausePats cl1)
+      --        , "clauseBody1:       " <+> (addContext (clauseTel cl1) $ prettyTCM $ clauseBody cl1)
+      --        , "clauseType1:       " <+> (addContext (clauseTel cl1) $ prettyTCM $ clauseType cl1)
+      --        , "---"
+      --        , "clauseTel2:        " <+> (prettyTCM $ clauseTel cl2)
+      --        -- , "namedClausedPats2: " <+> (prettyTCM $ namedClausePats cl2)
+      --        , "clauseBody2:       " <+> (addContext (clauseTel cl2) $ prettyTCM $  clauseBody cl2)
+      --        , "clauseType2:       " <+> (addContext (clauseTel cl2) $ prettyTCM $  clauseType cl2) ]
+
+
+      --       -- Idea. clauseBody cl1, clauseBody cl2 do type in their respective clauseTel, but not in cur. context ≈Γ.
+      --       -- Hence we pullback (substitute) those rhs, first to current context Γ, and then to Γ{where ψ1,ψ2 hold}.
+
+      --       -- note: the substitution game below is sound because trivial substitutions biε/x commute
+      --       -- we could maybe have used substContextN instead.
+      --       let (wk1 :: Substitution) = raiseFromS i1 1 --wk1 : gamma -> delta1. "forget psivar1" (ie sm kind of wkning)
+      --           (wk2 :: Substitution) = raiseFromS i2 1 --wk2 : gamma -> delta2.
+      --           cl1bodyInGamma = wk1 `applySubst` (maybe __IMPOSSIBLE__ id $ clauseBody cl1)
+      --           cl1TypeInGamma = wk1 `applySubst` (maybe __IMPOSSIBLE__ id $ clauseType cl1)                
+      --           cl2bodyInGamma = wk2 `applySubst` (maybe __IMPOSSIBLE__ id $ clauseBody cl2)
+
+      --       -- we build sigma12 : Γ{where ψ1,ψ2 hold} → Δ₁ → Γ
+      --       (delta1, sigma1) <- substContext psi1var psi1val thectx --sigma1 : delta1 -> gamma
+      --       let (Var psi2varInDelta1 _) = sigma1 `applySubst` (Var psi2var []) --no problem because psi1var != psi2var here.
+      --       (delta12, presigma12) <- substContext psi2varInDelta1 psi2val delta1
+      --       let sigma12 = presigma12 `applySubst` sigma1
+      --       -- we pull cl1bodyInGamma, cl2bodyInGamma back in ctx delta12 and compare them!
+      --       let finalCl1rhs = sigma12 `applySubst` cl1bodyInGamma
+      --           preRhsType  = sigma12 `applySubst` t --useless
+      --           rhsType     = unArg $ sigma12 `applySubst` cl1TypeInGamma            
+      --           finalCl2rhs = sigma12 `applySubst` cl2bodyInGamma
+                
+      --       reportSDoc "tc.sys.cover" 30 $  "coherent RHS's? ... " <+> (nest 2 . vcat)
+      --         [ "thectx        = " <+> prettyTCM thectx
+      --         , "wk1           = " <+> prettyTCM wk1
+      --         , "cl1bodyInG    = " <+> prettyTCM cl1bodyInGamma
+      --         , "wk2           = " <+> prettyTCM wk2
+      --         , "cl2bodyInG    = " <+> prettyTCM cl2bodyInGamma
+      --         , "delta1        = " <+> prettyTCM delta1
+      --         , "sigma1        = " <+> prettyTCM sigma1
+      --         , "delta12       = " <+> prettyTCM delta12
+      --         , "presigma12    = " <+> prettyTCM presigma12
+      --         , "sigma12       = " <+> prettyTCM sigma12
+      --         , "finalCl1rhs   = " <+> (addContext (reverse delta12) $ prettyTCM finalCl1rhs)
+      --         , "finalCl2rhs   = " <+> (addContext (reverse delta12) $ prettyTCM finalCl2rhs)
+      --         , "comp. BPrt typ= " <+> (addContext (reverse delta12) $ prettyTCM preRhsType)
+      --         , "comp. rhsType = " <+> (addContext (reverse delta12) $ prettyTCM rhsType)
+      --         ]
+      --       addContext (reverse delta12) $ equalTerm rhsType finalCl1rhs finalCl2rhs
+
+      -- sys <- forM (zip alphas cs) $ \ (alpha,cl) -> do
+
+      --       let
+      --           -- Δ = Γ_α , Δ'α
+      --           delta = clauseTel cl
+      --           -- Δ ⊢ b
+      --           Just b = clauseBody cl
+      --           -- Δ ⊢ ps : Γ , o : [φ] , Δ'
+      --           -- we assume that there's no pattern matching other
+      --           -- than from the system
+      --           ps = namedClausePats cl
+      --           extra = length (drop (size gamma + 1) ps)
+      --           -- size Δ'α = size Δ' = extra
+      --           -- Γ , α ⊢ u
+      --           takeLast n xs = drop (length xs - n) xs
+      --           weak [] = idS
+      --           weak (i:is) = weak is `composeS` liftS i (raiseS 1)
+      --           tel = telFromList (takeLast extra (telToList delta))
+      --           u = abstract tel (liftS extra (weak $ List.sort $ map fst alpha) `applySubst` b)
+      --       return (map (first var) alpha,u)
+
+      -- reportSDoc "tc.sys.cover.sys" 20 $ "gamma,sys     =" <+> (fsep $ prettyTCM gamma : map prettyTCM sys)
+      -- -- reportSDoc "tc.sys.cover.sys" 40 $ fsep $ (text . show) gamma : map (text . show) sys
+      -- return (System gamma sys)
+      return $ __IMPOSSIBLE__
       
     _ -> __IMPOSSIBLE__
 

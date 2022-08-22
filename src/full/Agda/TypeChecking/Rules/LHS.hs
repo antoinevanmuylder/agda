@@ -623,6 +623,8 @@ data PartialSplit
   | Msplit
   deriving (Eq, Show)
 
+instance PrettyTCM PartialSplit where prettyTCM = text . show
+
 buildIntMap :: [Maybe PsplitDatum] -> IntMap PartialSplit
 buildIntMap [] = IntMap.empty
 buildIntMap (Nothing : rest) = buildIntMap rest
