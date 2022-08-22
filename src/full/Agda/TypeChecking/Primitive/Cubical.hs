@@ -1795,6 +1795,17 @@ primFaceForall' = do
         [(m, [_])] | null m -> Nothing
         v -> r
 
+-- | Basically gives t:I in DNF
+--   [ .. (bm_i, ts_i) .. ] <- decomposeInterval phi where phi = phi1 ∨ phi2 ...
+--   then:
+--   bm_i is describes a conjunction phi_i
+--   ts is used to store blocked terms (?)
+-- 
+--   EX1: xyz ⊢ ~ x ∨ (y ∧ ~ z) ∨ i1
+--        [  ([(2,False)],[])  , ([(0,False), (1,True)],[])  , ([],[])  ]
+--   EX2: xyz ⊢ x ∧ (y ∨ z)
+--        [  ([(1,True), (2,True)],[])  , ([(0,True), (2,True)],[])  ]
+--        because x ∧ (y ∨ z) = (x ∧ y) ∨ (x ∧ z)
 decomposeInterval :: HasBuiltins m => Term -> m [(IntMap Bool, [Term])]
 decomposeInterval t = do
   decomposeInterval' t <&> \ xs ->

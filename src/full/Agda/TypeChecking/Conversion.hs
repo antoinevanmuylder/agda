@@ -2075,6 +2075,14 @@ equalSort s1 s2 = do
 --   xs <- mapM (mapM (\ (i,b) -> (,) i <$> intervalUnview (if b then IOne else IZero))) as
 --   return xs
 
+
+-- | t =  φ1 ∨ φ2 ∨ ...∨ φn : I.
+--   @forallFaceMaps t kb k@ generates a list of size n (if nothing is blocked/erroneous, see kb continuation)
+--   The jth entry is the continuation k applied when the (conjunctive) path interval clause φj holds.
+--   k expects a substitution sigma: cxt' -> cxt where
+--    - cxt is the ambient context
+--    - cxt' is a shortened cxt (some path variables say x and z : I disappear)
+--    - sigma: cxt' -> cxt sets x and z to some value i0 or i1.
 forallFaceMaps :: MonadConversion m => Term -> (IntMap Bool -> Blocker -> Term -> m a) -> (Substitution -> m a) -> m [a]
 forallFaceMaps t kb k = do
   reportSDoc "conv.forall" 20 $
@@ -2087,16 +2095,17 @@ forallFaceMaps t kb k = do
     io <- primIOne
     iz <- primIZero
     return (\b -> if b then io else iz)
-  forM as $ \ (ms,ts) -> do
-   ifBlockeds ts (kb ms) $ \ _ _ -> do
-    let xs = map (second boolToI) $ IntMap.toAscList ms
+  forM as $ \ (ms,ts) -> do -- 1 entry in as corresponds to a conjunctive clause of t (info in ms :: IntMap Bool)
+   ifBlockeds ts (kb ms) {- else -} $ \ _ _ -> do
+    let xs = map (second boolToI) $ IntMap.toAscList ms --eg xs = [ (z@0, i0)  , (x@2, i1) ]
     cxt <- getContext
     reportSDoc "conv.forall" 40 $
       fsep ["substContextN, cxt xs params: "
            , prettyTCM cxt
            , text $ P.prettyShow xs
            ]
-    (cxt',sigma) <- substContextN cxt xs
+    -- sigma: cxt' -> cxt. in the example above, cxt' is 2 units shorter and sigma sets z:=i0,x:=i1.
+    (cxt',sigma) <- substContextN cxt xs 
     reportSDoc "conv.forall" 40 $
       fsep ["substContextN results"
            , "cxt' = " <+> prettyTCM cxt'
@@ -2180,6 +2189,10 @@ addBindings :: MonadConversion m => [(Dom (Name, Type), Term)] -> m a -> m a
 addBindings [] m = m
 addBindings ((Dom{domInfo = info,unDom = (nm,ty)},t):bs) m = addLetBinding info nm t ty (addBindings bs m)
 
+-- | gives you a shortened context and a subst to the input ctx.
+--   (short,sigma) <- substContextN c [..(i,t)..]   then
+--   short does not mention the "ith" vars anymore
+--   and sigma : short -> c is a substitution that fills the ith (db) var of c with the term t.
 substContextN :: MonadConversion m => Context -> [(Int,Term)] -> m (Context , Substitution)
 substContextN c [] = return (c, idS)
 substContextN c ((i,t):xs) = do

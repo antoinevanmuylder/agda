@@ -334,6 +334,7 @@ checkFunDefS t ai delayed extlam with i name withSub cs = do
         -- also add an absurd clause for the cases not needed.
         (cs,sys) <- if not isSystem then return (cs, empty) else do
                  fullType <- flip abstract t <$> getContextTelescope
+                 reportSDoc "tc.def.fun" 30 $ "About to check coverage/coherence of " <+> (prettyTCM name)
                  sys <- inTopContext $ checkSystemCoverage name psplit fullType cs
                  reportSDoc "tc.def.fun" 40 $ "after system coverage/coherence check"
                  tel <- getContextTelescope
@@ -638,14 +639,20 @@ checkCubSystemCoverage f n t cs = do
           reportSDoc "tc.sys.cover" 30 $ "phi1 is " <+> (prettyTCM phi1) <+> " and phi2 is " <+> (prettyTCM phi2)
           phi12 <- reduce (imin `apply` [argN phi1, argN phi2])
           forallFaceMaps phi12 (\ _ _ -> __IMPOSSIBLE__) $ \ sigma -> do
+            -- gamma= ambient ctx, ie ends right < before (_ : IsOne _) -> ...
+            -- by design of forallFaceMaps, we assume that sigma : shorter ctx -> gamma
+            -- and sigma sets substitutions such that phi12 (ie phi1 and phi2) holds
             let args = sigma `applySubst` teleArgs gamma
+                -- above args lists variables of gamma but where phi12 holds thanks to sigma (some vars are cst)
+                -- this means the the body function below yields something in t' as expected.
                 t' = sigma `applySubst` t
                 fromReduced (YesReduction _ x) = x
                 fromReduced (NoReduction x) = ignoreBlocking x
                 body cl = do
                   let extra = length (drop n $ namedClausePats cl)
-                  TelV delta _ <- telViewUpTo extra t'
+                  TelV delta _ <- telViewUpTo extra t' --normally delta = (_ : IsOne φ[σ]) is of size 1
                   fmap (abstract delta) $ addContext delta $ do
+                    reportSDoc "tc.sys.coh" 40 $ "extra tel delta" <+> prettyTCM delta
                     fmap fromReduced $ runReduceM $
                       appDef' (Def f []) [cl] [] (map notReduced $ raise (size delta) args ++ teleArgs delta)
             v1 <- body cl1
@@ -881,7 +888,9 @@ checkMSystemCoverage f n t cs = do
     , "# of clauses                 = " <+> (text $ show $ length cs)
     , "t (full type)               is " <+> prettyTCM t
     ]
-  TelV gamma t <- telViewUpTo n t -- t = MPartial ζ A = .(Mholds ζ) → A
+  -- t = MPartial ζ A = .(Mholds ζ) → A
+  -- often, gamma contains (x:(B)I) as last entry, but gamma can have extra stuff like (b:Bool)
+  TelV gamma t <- telViewUpTo n t
   addContext gamma $ do
   TelV (ExtendTel a _) _ <- telViewUpTo 1 t -- a = MHolds ζ
   a <- reduce $ unEl $ unDom a
@@ -967,6 +976,9 @@ checkMSystemCoverage f n t cs = do
       let
         -- an entry in pats is a list of patterns for 1 clause, < before the .MitHolds pattern
         -- ex: pats     = [A, a, r, (bi0), x, y] [a, r, x, y, (i1), (i1)]
+        -- note that both the variable and the concrete value appear. thats not a problem.
+        -- TODO-antva: sometimes pats may seem weirder, eg if a conjunction mention two non adjacent variables in the context
+        --             The weirdness of the generated pats won't affect the correctness of the code though.
         pats = map (take n . map (namedThing . unArg) . namedClausePats) cs
         -- an entry in alphas is a partial function (idx of constructor pattern from right to left) ↦ 1 or 0
         -- ex: alphas   = [ (Bsplit,[(2,False)]) , (Csplit,[(1,True), (0,True)]) ]
@@ -976,19 +988,31 @@ checkMSystemCoverage f n t cs = do
         cubAlphas = map snd $ flip filter alphas $ \a -> fst a == Csplit
         bdgAlphas = map snd $ flip filter alphas $ \a -> fst a == Bsplit
 
+        csAlphas = zip cs alphas
+        cubCs = map fst $ flip filter csAlphas $ \ (c,a) -> fst a == Csplit
+        bdgCs = map fst $ flip filter csAlphas $ \(c,a) -> fst a == Bsplit
+
       reportSDoc "tc.sys.cover" 30 $ vcat
-        [ "pats     =" <+> (fsep $ map prettyTCM pats)
-        , "alphas   =" <+> prettyTCM alphas
+        [ "pats        =" <+> (fsep $ map prettyTCM pats)
+        , "alphas      =" <+> prettyTCM alphas
         , "cubAlphas   =" <+> prettyTCM cubAlphas
+        , "cubCs       =" <+> prettyTCM cubCs
+        , "bdgCs       =" <+> prettyTCM bdgCs
         , "bdgAlphas   =" <+> prettyTCM bdgAlphas
         ]
+
+      reportSDoc "tc.sys.cover" 40 $ "clauses, again, but clause contexts are displayed:"
+      _ <- forM cs $ \c -> do
+        addContext (clauseTel c) $ reportSDoc "tc.sys.cover" 40 $ nest 2 $ prettyTCM (clauseTel c)
+        reportSDoc "tc.sys.cover" 40 $ nest 2 $ prettyTCM c
+        
 
       --code for cubical
       let
         phis :: [Term] -- 1 entry = a (potential) conjunction
         phis = map (andI . (map dir)) cubAlphas
         phi = orI $ phis -- phi is a "DNF"
-        cubPcs = zip phis cs
+        cubPcs = zip phis cubCs
 
       reportSDoc "tc.sys.cover" 30 $ vcat
         [ "phi      =" <+> prettyTCM phi
@@ -1001,8 +1025,8 @@ checkMSystemCoverage f n t cs = do
         psis :: [Term] -- 1 entry = a bridge hyperface
         psis = map (unpack . map bdir) (bdgAlphas)
         psi = borI $ psis --bridge constraint reconstructed from clauses. 
-        bdgPcs = zip psis cs
-        bdgPcs3 = zip3 psis cs bdgAlphas'
+        bdgPcs = zip psis bdgCs
+        bdgPcs3 = zip3 psis bdgCs bdgAlphas'
 
       reportSDoc "tc.sys.cover" 30 $ vcat
         [ "bdgAlphas'  =" <+> prettyTCM bdgAlphas'
@@ -1026,8 +1050,8 @@ checkMSystemCoverage f n t cs = do
 
       _ <- typeError $ NotImplemented "coherence check for mixed constraints"
 
-      -- -- coherence check. rhs must agree where they overlap.
-      -- reportSDoc "tc.sys.cover" 20 $ "coherence check for " <+> prettyTCM f <+> "..."
+      -- coherence check. rhs must agree where they overlap.
+      reportSDoc "tc.sys.cover" 20 $ "coherence check for " <+> prettyTCM f <+> "..."
       -- forM_ (initWithDefault __IMPOSSIBLE__ $
       --         initWithDefault __IMPOSSIBLE__ $ List.tails pcs3) $ \ ((psi1,cl1,(i1,b1)):pcs3') -> do
       --   forM_ pcs3' $ \ (psi2,cl2,(i2,b2)) -> do
