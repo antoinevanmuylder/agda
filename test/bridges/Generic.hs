@@ -2,7 +2,7 @@ module Generic where
 
 import qualified Data.Map as Map
 import qualified Data.HashMap.Strict as HMap
-import Data.Text hiding (filter, head, map, last)
+import Data.Text hiding (filter, head, map, last, elem)
 
 import Control.Monad.IO.Class       ( MonadIO(..) )
 import Control.Monad.Except
@@ -180,18 +180,29 @@ main :: IO ()
 main = runTCMPrettyErrors $ do
   beInNiceTCState "./All.agda"
 
-  -- judgEquMixedCstr
-  bz <- primBIZero
-  case bz of
-    Def q es -> printInTCMnice "its a def"
-    Con h i es -> printInTCMnice "its a con"
-    _ -> __IMPOSSIBLE__
+  -- experimentWithToDec
+  -- newline
+  -- newline
+  understandDecomposeInterval
+
+  -- showTheImports
+  
   
   endOfMain
 
 
 
+-- main = runTCMPrettyErrors $ do
+--   beInNiceTCState "./All.agda"
 
+--   -- judgEquMixedCstr
+--   bz <- primBIZero
+--   case bz of
+--     Def q es -> printInTCMnice "its a def"
+--     Con h i es -> printInTCMnice "its a con"
+--     _ -> __IMPOSSIBLE__
+  
+--   endOfMain
 
 
 
@@ -241,6 +252,39 @@ experimentWithToDec = do
   printInTCM =<< prettyTCM (defType toDecDef)
   printInTCM $ P.pretty $ theDef toDecDef
 
+-- decomposeInterval :: HasBuiltins m => Term -> m [ (IntMap Bool, [Term]) ]
+-- EX1: xyz ⊢ ~ x ∨ (y ∧ ~ z) ∨ i1
+--      [  ([(2,False)],[])  , ([(0,False), (1,True)],[])  , ([],[])  ]
+-- EX2: xyz ⊢ x ∧ (y ∨ z)
+--      [  ([(1,True), (2,True)],[])  , ([(0,True), (2,True)],[])  ]
+--      because x ∧ (y ∨ z) = (x ∧ y) ∨ (x ∧ z)
+understandDecomposeInterval :: TCM ()
+understandDecomposeInterval = do
+  mbToDecClause <- getOnlyClause "toDec2"
+  case mbToDecClause of
+    Nothing -> typeError $ GenericError "failed..."
+    Just toDecClause -> do
+      addContext (clauseTel toDecClause) $ do
+        -- printTheEnvCtx
+        let todectm :: Term
+            todectm = maybe __IMPOSSIBLE__ id $ clauseBody toDecClause
+        printInTCM $ P.pretty todectm
+        newline
+        decomp <- decomposeInterval todectm
+        doc <- prettyTCM decomp
+        printInTCM doc
+    
+    -- reduced <- reduce $ maybe __IMPOSSIBLE__ id $ clauseBody toDecClause
+    -- printInTCMnice reduced
+    
+  -- todecPre <-  getOnlyClause "todec" 
+  -- let todec = maybe __IMPOSSIBLE__ id $ todecPre
+  -- printInTCM $ P.pretty todec
+  -- printInTCM $ P.pretty $ clauseTel todec
+  -- let todecTm = maybe __IMPOSSIBLE__ id $ clauseBody todec
+  -- res <- decomposeInterval todecTm
+  -- printInTCM $ P.pretty $ res
+  -- return ()
 
 -- | it is stated that TCEnv is read only. Is that really true?
 --   yes. locallyTC gives a new TCM, instead of mutating somehting.

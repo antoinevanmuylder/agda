@@ -1,9 +1,7 @@
 {-# OPTIONS --cubical --guarded --bridges --no-fast-reduce #-}
 module BridgePrims where
 
-{-
-slightly different from `bridgy-lib/src/BridgePrims.agda`
--}
+-- this is a reproduction of test/Succeed/LaterPrims.agda and-or Agda.Primitive.Cubical
 
 open import Cubical.Core.Everything public
 
@@ -89,17 +87,24 @@ postulate
 {-# BUILTIN BITHOLDS BitHolds #-} -- similar to itIsOne.
 
 
--- BPartial : ∀{ℓ} (ψ : BCstr) (A : Set ℓ) → Set ℓ
+-- BPartial : ∀{ℓ} (ψ : BCstr) (A : Set ℓ) → SSet ℓ
 -- BPartial ψ A = BHolds ψ → A
 -- and reduces to .(BHolds ψ) → A
 {-# BUILTIN BPARTIAL  BPartial  #-} -- wonder if SSet ℓ as tgt (instead of SSet 0) is useful.
 
 
-
-{-# BUILTIN MCSTR MCstr #-} -- data MCstr : CstrUniv
-{-# BUILTIN MKMC mkmc #-}   -- mkmc : I → BCstr → MCstr
-{-# BUILTIN MHOLDS MHolds #-} -- MHolds : MCstr → Setω
+{-# BUILTIN MCSTR MCstr #-} -- MCstr : CstrUniv
+module MCstrPrims where
+  primitive
+    primMno : MCstr
+    primMyes : MCstr
+    primMkmc : I → BCstr → MCstr
+open MCstrPrims public
+  renaming ( primMno    to mno
+           ; primMyes   to myes
+           ; primMkmc   to infixl 18 _m∨_ )
+{-# BUILTIN MHOLDS MHolds #-} -- MHolds : MCstr → SSet ℓ-zero
 postulate
-  MitHolds : MHolds (mkmc i1 byes)
+  MitHolds : MHolds myes
 {-# BUILTIN MITHOLDS MitHolds #-}
-{-# BUILTIN MPARTIAL MPartial #-} -- MPartial : ∀{ℓ} (mψ : MCstr) (A : Set ℓ) → SSet ℓ ; MPartial mψ A = MHolds mψ → A ; and reduces to .(MHolds mψ) → A
+{-# BUILTIN MPARTIAL MPartial #-} -- MPartial : ∀{ℓ} (ζ : MCstr) (A : Set ℓ) → SSet ℓ ; MPartial ζ A = MHolds ζ → A ; and reduces to .(MHolds ζ) → A

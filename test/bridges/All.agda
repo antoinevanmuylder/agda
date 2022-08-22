@@ -12,6 +12,9 @@ module decomposeInterval (x y z : I) where
   toDec : I
   toDec = ~ x ∨ (y ∧ ~ z) ∨ i1
 
+  toDec2 : I
+  toDec2 = x ∧ (y ∨ z)
+
 
   otherDec : I
   otherDec = toDec
@@ -72,12 +75,12 @@ module _ (q : BridgeP (λ _ → Bool) false true) (q' : BridgeP (λ _ → Bool) 
 module _ (x : I) (@tick y : BI) where
 
   amixcstr : MCstr
-  amixcstr = mkmc ((x ∨ ~ x) ∧ i1) (y =bi0 b∨ bno)
+  amixcstr = ((x ∨ ~ x) ∧ i1) m∨ (y =bi0 b∨ bno)
 
   mixcstr2 : MCstr
-  mixcstr2 = mkmc ((x ∨ ~ x) ∧ i0) (y =bi0 b∨ bno)
+  mixcstr2 = ((x ∨ ~ x) ∧ i0) m∨ (y =bi0 b∨ bno)
 
 module _ where
 
-  ampartial : MPartial (mkmc i1 bno) Bool
+  ampartial : MPartial ( i1 m∨ bno) Bool
   ampartial _ = false
