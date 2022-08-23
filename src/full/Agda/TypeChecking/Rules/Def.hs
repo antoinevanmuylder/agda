@@ -996,9 +996,9 @@ checkMSystemCoverage f n t cs = do
         [ "pats        =" <+> (fsep $ map prettyTCM pats)
         , "alphas      =" <+> prettyTCM alphas
         , "cubAlphas   =" <+> prettyTCM cubAlphas
-        , "cubCs       =" <+> prettyTCM cubCs
-        , "bdgCs       =" <+> prettyTCM bdgCs
         , "bdgAlphas   =" <+> prettyTCM bdgAlphas
+        , "cubCs       =" <+> prettyTCM cubCs
+        , "bdgCs       =" <+> prettyTCM bdgCs        
         ]
 
       reportSDoc "tc.sys.cover" 40 $ "clauses, again, but clause contexts are displayed:"
@@ -1048,17 +1048,76 @@ checkMSystemCoverage f n t cs = do
         "coverage asks ?equalTerm (stated, inferred): " <+> prettyTCM (unArg mcstr) <+> ", " <+> prettyTCM zeta
       equalTerm tmcstr (unArg mcstr) zeta
 
-      _ <- typeError $ NotImplemented "coherence check for mixed constraints"
 
       -- coherence check. rhs must agree where they overlap.
-      reportSDoc "tc.sys.cover" 20 $ "coherence check for " <+> prettyTCM f <+> "..."
-      -- forM_ (initWithDefault __IMPOSSIBLE__ $
-      --         initWithDefault __IMPOSSIBLE__ $ List.tails pcs3) $ \ ((psi1,cl1,(i1,b1)):pcs3') -> do
-      --   forM_ pcs3' $ \ (psi2,cl2,(i2,b2)) -> do
+      reportSDoc "tc.sys.coh" 20 $ "mixed coherence check for " <+> prettyTCM f <+> "..."      
+
+      -- below, in order: path/bdg (mb conjunctive) clause, clause, split kind, clause LHS analysis
+      zetasCsAlphas <- do -- (:: [(Term, Clause, PartialSplit, [(Int,Bool)])] )
+        forM cs $ \ c -> do
+          let thePat = (take n . map (namedThing . unArg) . namedClausePats) c --1 entry of pats
+              theKind = giveSplitKind thePat -- 1 half entry of  alphas
+              theAnalysis = collectDirs (downFrom n) thePat -- 1 half entry of alphas
+              theZeta = case theKind of -- 1 entry of phis or psis
+                Msplit -> __IMPOSSIBLE__
+                Csplit -> (andI . (map dir)) theAnalysis
+                Bsplit -> (unpack . map bdir) theAnalysis
+          return (theZeta , c , theKind , theAnalysis )
+              
+      reportSDoc "tc.sys.coh" 30 $ vcat
+        [ "coh chk traverses: " <+> (prettyTCM zetasCsAlphas) ]
+
+      forM_ (initWithDefault __IMPOSSIBLE__ $
+              initWithDefault __IMPOSSIBLE__ $ List.tails zetasCsAlphas) $ \ ((zeta1, cl1, splitKind1, clAn1): zetasCsAlphasRest) -> do
+        forM_ zetasCsAlphasRest $ \ (zeta2 , cl2 , splitKind2, clAn2) -> do
+
+          reportSDoc "tc.sys.coh" 30 $ vcat
+            [ "coh check (zeta1,zeta2) = " <+> prettyTCM (zeta1,zeta2) ]
+
+          let asMCstr :: PartialSplit -> Term -> Term
+              asMCstr Msplit = id
+              asMCstr Csplit = \ tm -> mkmc `apply` [argN tm , argN bno]
+              asMCstr Bsplit = \ tm -> mkmc `apply` [argN i0 , argN tm]
+
+              zeta1asMCstr = asMCstr splitKind1 zeta1
+              zeta2asMCstr = asMCstr splitKind2 zeta2
+
+          -- we first have to compute the intersection of zeta1 and zeta2
+          -- if its empty, then the coherence check holds trivially
+          unlessM (hasEmptyMeet zeta1asMCstr zeta2asMCstr) $ do
           
-      --     let boolToBI :: Bool -> Term
-      --         boolToBI False = bi0
-      --         boolToBI True = bi1
+          
+          let boolToInt :: PartialSplit -> Bool -> Term
+              boolToInt skind = case skind of
+                Msplit -> __IMPOSSIBLE__
+                Csplit -> \ bl -> case bl of
+                  False -> i0
+                  True -> i1
+                Bsplit -> \ bl -> case bl of
+                  False -> bi0
+                  True -> bi1
+
+          
+              clAn1' = map (second (boolToInt splitKind1)) clAn1
+              clAn2' = map (second (boolToInt splitKind2)) clAn2
+              --ex: [ (z@0, i0)  , (x@2, i1) ] instead of [ (z@0, False)  , (x@2, True) ]
+
+          
+          
+          reportSDoc "tc.sys.coh" 40 $ nest 2 $ vcat
+            [ "clAn1' = " <+> prettyTCM clAn1'
+            , "clAn2' = " <+> prettyTCM clAn2' ]
+
+          -- sigma : ctx' -> ctx, where ctx is ambient context
+          -- (it ends in gamma, containing all the variables strictly before the (_ : MHolds) entry of MPartial)
+          -- ctx' is a context where the variables mentionned in the lhs of cl1,cl2 (path or bdg) are forgotten
+          -- sigma sets those variables to the values appearing in the lhs of cl1,cl2
+          ctx <- getContext
+          (ctx' , sigma ) <- substContextN ctx (clAn1' ++ clAn2')
+          return ()
+
+      typeError $ NotImplemented "coherence check for mixed constraints"
+           
 
       --         (psi1var, psi1val) = (i1, boolToBI b1)
       --         (psi2var, psi2val) = (i2, boolToBI b2)
@@ -1150,7 +1209,7 @@ checkMSystemCoverage f n t cs = do
       -- reportSDoc "tc.sys.cover.sys" 20 $ "gamma,sys     =" <+> (fsep $ prettyTCM gamma : map prettyTCM sys)
       -- -- reportSDoc "tc.sys.cover.sys" 40 $ fsep $ (text . show) gamma : map (text . show) sys
       -- return (System gamma sys)
-      return $ __IMPOSSIBLE__
+      -- return $ __IMPOSSIBLE__
       
     _ -> __IMPOSSIBLE__
 

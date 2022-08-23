@@ -567,6 +567,87 @@ mcstrView t = do
   f <- mcstrView'
   return (f t)
 
+-- -- | pre: the two inputs are in MCstr
+-- mixedMeet :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m, MonadReduce m)
+--           => Term -> Term -> m [Term]
+-- mixedMeet zeta1 zeta2 = do
+--   viewZeta1 <- mcstrView zeta1
+--   viewZeta2 <- mcstrView zeta2
+--   mno <- primMno
+--   imin <- primIMin
+--   case (viewZeta1, viewZeta2) of
+--     (OTerm _, OTerm _) -> __IMPOSSIBLE__    
+--     (Mno, _) -> return [mno]
+--     (_ , Mno) -> return [mno]
+--     (Myes, _) -> do
+--       rzeta2 <- reduce zeta2
+--       return [zeta2]
+--     (_, Myes) -> do
+--       rzeta1 <- reduce zeta1
+--       return [zeta1]
+--     (Mkmc (Arg phi1Inf phi1) (Arg psi1Inf psi1) , Mkmc (Arg phi2Inf phi2) (Arg psi2Inf psi2) ) -> do
+
+-- | pre: the two inputs are in MCstr, and their bcstr components (psi1, psi2 below) consist of 1 single face (x = biε)
+--   Assume zeta1 = phi1 m∨ psi1 and zeta2 = phi2 m∨ psi2
+--   zeta1,zeta2 have an empty meet (those mixed constraints are never sat together) iff
+--     phi1, phi2 do not meet AND
+--     psi1, psi2 do not meet AND
+--     phi1 × psi2 = empty   and    phi2 × psi1 = empty
+hasEmptyMeet :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m, MonadReduce m)
+             => Term -> Term -> m Bool
+hasEmptyMeet zeta1 zeta2 = do
+  rzeta1 <- reduce zeta1
+  rzeta2 <- reduce zeta2
+  viewZeta1 <- mcstrView rzeta1
+  viewZeta2 <- mcstrView rzeta2
+  imin <- primIMin
+  mbno <- getPrimitiveName' builtinBno
+  mBiszero <- getPrimitiveName' builtinBiszero
+  mBisone <- getPrimitiveName' builtinBisone  
+  case (viewZeta1, viewZeta2) of
+    (OtherMCstr _,  _) -> __IMPOSSIBLE__
+    (_, OtherMCstr _) -> __IMPOSSIBLE__    
+    (Mno, _) -> return True
+    (_ , Mno) -> return True -- else if
+    (Myes, _) -> return False
+    (_, Myes) -> return False
+    (Mkmc (Arg phi1Inf phi1) (Arg psi1Inf psi1) , Mkmc (Arg phi2Inf phi2) (Arg psi2Inf psi2) ) -> do
+      rphi12 <- reduce $ imin `apply` [argN phi1, argN phi2]
+      phi1meetsphi2_0 <- (intervalView rphi12)
+      let phi1meetsphi2 = case phi1meetsphi2_0 of
+            IZero -> False
+            _ -> True
+      psi1View <- bcstrView psi1
+      psi2View <- bcstrView psi2
+      let psi1isEmpty = case psi1View of
+            Bno -> True
+            _ -> False
+      let psi2isEmpty = case psi2View of
+            Bno -> True
+            _ -> False
+      let psi12oppositeFaces = case (psi1View, psi2View) of
+            (Bno, _) -> True
+            (_, Bno) -> True
+            (Bisone (Arg _ (Var v1 [])), Biszero (Arg _ (Var v2 []))) | v1 == v2 -> True
+            (Biszero (Arg _ (Var v1 [])), Bisone (Arg _ (Var v2 []))) | v1 == v2 -> True        
+            _ -> False
+
+      phi1View <- intervalView phi1
+      phi2View <- intervalView phi2
+      let phi1isEmpty = case phi1View of
+            IZero -> True
+            _ -> False
+      let phi2isEmpty = case phi2View of
+            IZero -> True
+            _ -> False
+                        
+      
+      let notpsi1meetspsi2 =
+            psi1isEmpty || psi2isEmpty || psi12oppositeFaces
+
+      return $ (not phi1meetsphi2) && (notpsi1meetspsi2) && (phi1isEmpty || psi2isEmpty) && (phi2isEmpty || psi1isEmpty)      
+      
+
 primMPartial' :: TCM PrimitiveImpl
 primMPartial' = do
   requireBridges ""

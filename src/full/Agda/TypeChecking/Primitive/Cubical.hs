@@ -1822,8 +1822,8 @@ decomposeInterval' t = do
      let f :: IntervalView -> [[Either (Int,Bool) Term]]
          -- TODO handle primIMinDep
          -- TODO? handle forall
-         f IZero = mzero
-         f IOne  = return []
+         f IZero = mzero -- []
+         f IOne  = return [] -- [[]]
          f (IMin x y) = do xs <- (f . view . unArg) x; ys <- (f . view . unArg) y; return (xs ++ ys)
          f (IMax x y) = msum $ map (f . view . unArg) [x,y]
          f (INeg x)   = map (either (\ (x,y) -> Left (x,not y)) (Right . unview . INeg . argN)) <$> (f . view . unArg) x

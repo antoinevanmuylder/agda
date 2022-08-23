@@ -181,8 +181,8 @@ main = runTCMPrettyErrors $ do
   beInNiceTCState "./All.agda"
 
   -- experimentWithToDec
-  -- newline
-  -- newline
+  newline
+  newline
   understandDecomposeInterval
 
   -- showTheImports
@@ -285,6 +285,21 @@ understandDecomposeInterval = do
   -- res <- decomposeInterval todecTm
   -- printInTCM $ P.pretty $ res
   -- return ()
+
+
+-- understandDecomposeInterval2 :: TCM ()
+--   view   <- intervalView'
+--   unview <- intervalUnview'
+--   let f :: IntervalView -> [[Either (Int,Bool) Term]]
+--     f IZero = mzero -- []
+--     f IOne  = return [] -- [[]]
+--     f (IMin x y) = do xs <- (f . view . unArg) x; ys <- (f . view . unArg) y; return (xs ++ ys)
+--     f (IMax x y) = msum $ map (f . view . unArg) [x,y]
+--     f (INeg x)   = map (either (\ (x,y) -> Left (x,not y)) (Right . unview . INeg . argN)) <$> (f . view . unArg) x
+--     f (OTerm (Var i [])) = return [Left (i,True)]
+--     f (OTerm t)          = return [Right t]
+      
+
 
 -- | it is stated that TCEnv is read only. Is that really true?
 --   yes. locallyTC gives a new TCM, instead of mutating somehting.
@@ -439,6 +454,10 @@ judgEquMixedCstr = do
 -- -- | Modify the lens-indicated part of the @TCEnv@ in a subcomputation.
 -- locallyTC :: MonadTCEnv m => Lens' a TCEnv -> (a -> a) -> m b -> m b
 -- locallyTC l = localTC . over l
+
+
+whatIsMzero :: [Bool]
+whatIsMzero = mzero -- []
 
   
 

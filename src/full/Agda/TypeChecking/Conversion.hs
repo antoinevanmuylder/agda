@@ -2077,8 +2077,8 @@ equalSort s1 s2 = do
 
 
 -- | t =  φ1 ∨ φ2 ∨ ...∨ φn : I.
---   @forallFaceMaps t kb k@ generates a list of size n (if nothing is blocked/erroneous, see kb continuation)
---   The jth entry is the continuation k applied when the (conjunctive) path interval clause φj holds.
+--   @forallFaceMaps t kb k :: m [a]@ executes k (or kb if something  is blocked) n times.
+--   The jth time corresponds to the continuation k applied when the (conjunctive) path interval clause φj holds.
 --   k expects a substitution sigma: cxt' -> cxt where
 --    - cxt is the ambient context
 --    - cxt' is a shortened cxt (some path variables say x and z : I disappear)
@@ -2149,6 +2149,14 @@ forallBridgeFaceMaps xi k = do
   thing0 <- bridgeGoK k xi bi0
   thing1 <- bridgeGoK k xi bi1
   return [thing0, thing1]
+  
+-- -- | mixed version of forallFaceMaps
+-- forallMixedFaces ::
+--   (Term,[Term]) -- ^ A path constraint phi = phi_1 or.. phi_n
+--   -> (IntMap Bool -> Blocker -> Term -> m a) -- ^ a continuation kb, what to do if zeta contains metas
+--   -> (Substitution -> m a)
+--   -- ^ a continuation k. 
+--   ->  m [a]
 
 
 -- | ≈builds σ : ctx <- ctx' (?direction) where ctx' is obtained from ctx by setting db var xi := biEps.

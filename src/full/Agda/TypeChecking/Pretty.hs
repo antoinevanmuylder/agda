@@ -193,6 +193,10 @@ instance (PrettyTCM a, PrettyTCM b, PrettyTCM c) => PrettyTCM (a,b,c) where
   prettyTCM (a, b, c) = parens $
     prettyTCM a <> comma <> prettyTCM b <> comma <> prettyTCM c
 
+instance (PrettyTCM a, PrettyTCM b, PrettyTCM c, PrettyTCM d) => PrettyTCM (a,b,c, d) where
+  prettyTCM (a, b, c, d) = parens $
+    prettyTCM a <> comma <> prettyTCM b <> comma <> prettyTCM c <> comma <> prettyTCM d
+
 instance PrettyTCM Term               where prettyTCM = prettyA <=< reify
 instance PrettyTCM Type               where prettyTCM = prettyA <=< reify
 instance PrettyTCM Sort               where prettyTCM = prettyA <=< reify
