@@ -1097,23 +1097,36 @@ checkMSystemCoverage f n t cs = do
                   False -> bi0
                   True -> bi1
 
-          
-              clAn1' = map (second (boolToInt splitKind1)) clAn1
-              clAn2' = map (second (boolToInt splitKind2)) clAn2
+              -- TODO-antva: build the assoc list of (var,value) used for substituting.
+              --             I believe substContextN expects it to be sorted wrt keys.
+              temp1 = zip3 (map fst clAn1) (map snd clAn1) (repeat splitKind1)
+              temp2 = zip3 (map fst clAn2) (map snd clAn2) (repeat splitKind2)
+              temp12 = List.sort $ temp1 ++ temp2 -- sort by variable db index.
+              clAn12' = flip map temp12 $ \ (var , dir , skind) ->
+                (var , boolToInt skind dir)
+              -- clAn1' = map (second (boolToInt splitKind1)) clAn1
+              -- clAn2' = map (second (boolToInt splitKind2)) clAn2
+              
               --ex: [ (z@0, i0)  , (x@2, i1) ] instead of [ (z@0, False)  , (x@2, True) ]
 
           
           
           reportSDoc "tc.sys.coh" 40 $ nest 2 $ vcat
-            [ "clAn1' = " <+> prettyTCM clAn1'
-            , "clAn2' = " <+> prettyTCM clAn2' ]
+            [ "clAn12' = " <+> prettyTCM clAn12' ]
 
           -- sigma : ctx' -> ctx, where ctx is ambient context
           -- (it ends in gamma, containing all the variables strictly before the (_ : MHolds) entry of MPartial)
           -- ctx' is a context where the variables mentionned in the lhs of cl1,cl2 (path or bdg) are forgotten
           -- sigma sets those variables to the values appearing in the lhs of cl1,cl2
           ctx <- getContext
-          (ctx' , sigma ) <- substContextN ctx (clAn1' ++ clAn2')
+          (ctx' , sigma ) <- substContextN ctx (clAn12')
+
+          reportSDocDocs "tc.sys.coh" 40
+            (text "Back from substContextN...")
+            [ "ctx   = " <+> prettyTCM ctx
+            , addContext ctx' $ "ctx' = " <+> prettyTCM ctx'
+            , prettyTCM sigma ] --makes sense to print sigma in ctx instead of ctx'?
+          
           return ()
 
       typeError $ NotImplemented "coherence check for mixed constraints"

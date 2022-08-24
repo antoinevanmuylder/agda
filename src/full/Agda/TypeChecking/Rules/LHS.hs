@@ -621,7 +621,7 @@ data PartialSplit
   = Csplit
   | Bsplit -- (Maybe Bool) info not needed.
   | Msplit
-  deriving (Eq, Show)
+  deriving (Eq, Show, Ord)
 
 instance PrettyTCM PartialSplit where prettyTCM = text . show
 

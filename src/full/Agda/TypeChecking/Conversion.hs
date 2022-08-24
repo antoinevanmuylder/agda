@@ -2201,6 +2201,8 @@ addBindings ((Dom{domInfo = info,unDom = (nm,ty)},t):bs) m = addLetBinding info 
 --   (short,sigma) <- substContextN c [..(i,t)..]   then
 --   short does not mention the "ith" vars anymore
 --   and sigma : short -> c is a substitution that fills the ith (db) var of c with the term t.
+--
+--   pre: the list of face substitutions is sorted wrt Int's.
 substContextN :: MonadConversion m => Context -> [(Int,Term)] -> m (Context , Substitution)
 substContextN c [] = return (c, idS)
 substContextN c ((i,t):xs) = do
