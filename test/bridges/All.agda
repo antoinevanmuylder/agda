@@ -84,3 +84,27 @@ module _ where
 
   ampartial : MPartial ( i1 m∨ bno) Bool
   ampartial _ = false
+
+
+module _ (i : I) (@tick r : BI) (j : I) (@tick s : BI) where
+
+  mcstr1 : MCstr
+  mcstr1 = i0 m∨ r =bi0
+
+  mcstr2 : MCstr
+  mcstr2 = i ∧ j m∨ bno
+
+  notj : MCstr
+  notj = ~ j m∨ bno
+
+  yesi : MCstr
+  yesi = i m∨ bno
+
+  noti = ~ i m∨ bno
+  yesr = i0 m∨ r =bi1
+
+  notr = i0 m∨ r =bi0
+  yess = i0 m∨ s =bi1
+
+  toRed : I
+  toRed = ~ i ∧ i

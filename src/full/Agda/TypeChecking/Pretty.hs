@@ -15,6 +15,8 @@ import Control.Monad.State  (StateT)
 
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
+import qualified Agda.Utils.BoolSet as BoolSet
+import Agda.Utils.BoolSet (BoolSet)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -182,6 +184,9 @@ instance {-# OVERLAPPABLE #-} PrettyTCM a => PrettyTCM [a] where
 
 instance PrettyTCM a => PrettyTCM (IntMap a) where
   prettyTCM = prettyTCM . IntMap.toList
+
+instance PrettyTCM BoolSet where 
+  prettyTCM = prettyTCM . BoolSet.toList
 
 instance {-# OVERLAPPABLE #-} PrettyTCM a => PrettyTCM (Maybe a) where
   prettyTCM = maybe empty prettyTCM

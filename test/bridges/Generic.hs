@@ -155,6 +155,23 @@ getOnlyClause hname = do
       return $ Nothing
       -- printInTCM $ "The human name " <+> hname <+> " does not map to a 1clause Function ::Defn."
 
+getTheClause :: String -> TCM Clause
+getTheClause hname = do
+  mbCs <- getOnlyClause hname
+  let cs = maybe __IMPOSSIBLE__ id $ mbCs
+  return cs
+
+
+-- | from human name, gets you the term t :: Term
+getTheTerm :: String -> TCM Term
+getTheTerm hname = do
+  mbCs <- getOnlyClause hname
+  let mbTm = case mbCs of
+        Nothing -> __IMPOSSIBLE__
+        Just cs ->
+          clauseBody cs
+  return $ maybe __IMPOSSIBLE__ id $ mbTm
+
 -- | tc.conv.comparebdgface:30
 addVerb :: String -> TCM ()
 addVerb verb = do
@@ -179,14 +196,10 @@ addVerb verb = do
 main :: IO ()
 main = runTCMPrettyErrors $ do
   beInNiceTCState "./All.agda"
-
-  -- experimentWithToDec
-  newline
-  newline
-  understandDecomposeInterval
-
-  -- showTheImports
+  addVerb "antvascript:0"
   
+  testMixedMeet
+  -- decIntervalBotTop
   
   endOfMain
 
@@ -459,11 +472,64 @@ judgEquMixedCstr = do
 whatIsMzero :: [Bool]
 whatIsMzero = mzero -- []
 
+
+testMixedMeet :: TCM ()
+testMixedMeet = do
+  addVerb "tc.prim.bridges.hasEmptyMeet:50"
   
+  m1Tel <- clauseTel <$> getTheClause "mcstr1"
+  m1 <- getTheTerm "mcstr1"
+  m2 <- getTheTerm "mcstr2"
+  oppositeKind <- addContext m1Tel $ hasEmptyMeet m1 m2
+  printInTCM $ (P.<+>)
+    (P.text  "Pure constraints of oppositve kind have empty meet (expecting False): ")
+    (P.pretty oppositeKind)
+
+  notj <- getTheTerm "notj"
+  yesi <- getTheTerm "yesi"
+  notjyesi <- addContext m1Tel $ hasEmptyMeet notj yesi
+  printInTCM $ (P.<+>)
+    (P.text  "Pure constraints of same kind whose comp. intersect, have empty meet (expecting False): ")
+    (P.pretty notjyesi)
+
+  notr <- getTheTerm "notr"
+  yess <- getTheTerm "yess"
+  notryess <- addContext m1Tel $ hasEmptyMeet notr yess
+  printInTCM $ (P.<+>)
+    (P.text  "Same but with bridge kind (expecting False): ")
+    (P.pretty notryess)
+
+  noti <- getTheTerm "noti"
+  yesr <- getTheTerm "yesr"
+
+  notryesr <- addContext m1Tel $ hasEmptyMeet notr yesr
+  notiyesi <- addContext m1Tel $ hasEmptyMeet noti yesi
+  printInTCM $ (P.<+>)
+    (P.text  "Pure constraints of same kind whose comp. dont intersect, have empty meet (expecting True): ")
+    (P.pretty notiyesi)
+  printInTCM $ (P.<+>)
+    (P.text  "Same but with bridge kind (expecting True): ")
+    (P.pretty notryesr)
+
+decIntervalBotTop :: TCM ()
+decIntervalBotTop = do
+  i0 <- primIZero
+  i1 <- primIOne
+  dnfList0 <- decomposeInterval' i0
+  dnfList1 <- decomposeInterval' i1
+  reportSDocDocs "antvascript" 0
+    (text "DNF of i0 and i1...")
+    [ prettyTCM dnfList0 , prettyTCM dnfList1 ]
+  return () --printInTCM
 
 {-
 best short at "declaring in .agda, working in .hs"
+see All.agda for Agda declarations.
 
+sometimes you have to runghc twice on this file in order for it to work.
+
+
+OLD JUNK
 I can already be in a nice TCState with @beInNiceTCState@ above.
 I can obtain a realistic QName (this include the file and position of the name ie "range") with @getGNameFromHuman@
 

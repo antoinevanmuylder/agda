@@ -19,6 +19,10 @@ import Data.Either ( partitionEithers )
 import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.List as List
+import qualified Agda.Utils.BoolSet as BoolSet
+import Agda.Utils.BoolSet (BoolSet)
+import Data.IntMap (IntMap)
+import qualified Data.IntMap as IntMap
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.IntSet (IntSet)
@@ -41,7 +45,7 @@ import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Telescope
 import Agda.TypeChecking.Lock
-import Agda.TypeChecking.Primitive.Cubical ( primIntervalType )
+import Agda.TypeChecking.Primitive.Cubical ( primIntervalType , decomposeInterval' )
 
 import Agda.Utils.Either
 import Agda.Utils.Functor
@@ -87,6 +91,21 @@ dummyRedTerm t = return $ YesReduction NoSimplification t
 
 psh :: P.Pretty a => a -> String
 psh = P.prettyShow
+
+
+-- | The first doc is printed. The subsequent list of docs is printed below, with 2 space nesting.
+{-# SPECIALIZE reportSDocDocs :: VerboseKey -> VerboseLevel -> TCM Doc -> [TCM Doc] -> TCM () #-}
+reportSDocDocs :: MonadDebug m
+               => VerboseKey -> VerboseLevel -> TCM Doc  -> [TCM Doc] -> m ()
+reportSDocDocs key lvl doc1 docList = do
+  reportSDoc key lvl $ doc1
+  reportSDoc key lvl $ nest 2 $ vcat docList
+
+      -- reportSDoc "tc.prim.bridges.hasEmptyMeet" 50 $ nest 2 $ vcat
+      --   [ "phi1     = " <+> prettyTCM phi1
+      --   , "phi2     = " <+> prettyTCM phi2
+      --   , "rphi12   = " <+> prettyTCM rphi12 ]
+
 
 -- * extent primitive
 
@@ -567,33 +586,20 @@ mcstrView t = do
   f <- mcstrView'
   return (f t)
 
--- -- | pre: the two inputs are in MCstr
--- mixedMeet :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m, MonadReduce m)
---           => Term -> Term -> m [Term]
--- mixedMeet zeta1 zeta2 = do
---   viewZeta1 <- mcstrView zeta1
---   viewZeta2 <- mcstrView zeta2
---   mno <- primMno
---   imin <- primIMin
---   case (viewZeta1, viewZeta2) of
---     (OTerm _, OTerm _) -> __IMPOSSIBLE__    
---     (Mno, _) -> return [mno]
---     (_ , Mno) -> return [mno]
---     (Myes, _) -> do
---       rzeta2 <- reduce zeta2
---       return [zeta2]
---     (_, Myes) -> do
---       rzeta1 <- reduce zeta1
---       return [zeta1]
---     (Mkmc (Arg phi1Inf phi1) (Arg psi1Inf psi1) , Mkmc (Arg phi2Inf phi2) (Arg psi2Inf psi2) ) -> do
 
--- | pre: the two inputs are in MCstr, and their bcstr components (psi1, psi2 below) consist of 1 single face (x = biε)
+-- | pre: the two inputs zeta1 zeta2 type in MCstr, and have no metas.
+--        and their bcstr components (psi1, psi2 below) consist of 1 single face (x = biε) (b∨ atomic)
+--        their I components (phi1, phi2) are ∨-atomic, ie are conjunctive clauses like i ∧ ~ i
 --   Assume zeta1 = phi1 m∨ psi1 and zeta2 = phi2 m∨ psi2
 --   zeta1,zeta2 have an empty meet (those mixed constraints are never sat together) iff
 --     phi1, phi2 do not meet AND
 --     psi1, psi2 do not meet AND
 --     phi1 × psi2 = empty   and    phi2 × psi1 = empty
-hasEmptyMeet :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m, MonadReduce m)
+--   Note: if zeta1, zeta2 are non empty but have empty meet then zeta1 and zeta2 are pure (either path or bridge)
+--         and have the same kind (path or bridge)
+--         If theyre embedded path constraints, theyre just non-intersecting sub-path-cubes (we basically can say nothing)
+--         If theyre embedded bridge constraints, theyre opposite hyperplanes (assuming the precondition holds)
+hasEmptyMeet :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m, MonadReduce m, MonadDebug m)
              => Term -> Term -> m Bool
 hasEmptyMeet zeta1 zeta2 = do
   rzeta1 <- reduce zeta1
@@ -613,10 +619,31 @@ hasEmptyMeet zeta1 zeta2 = do
     (_, Myes) -> return False
     (Mkmc (Arg phi1Inf phi1) (Arg psi1Inf psi1) , Mkmc (Arg phi2Inf phi2) (Arg psi2Inf psi2) ) -> do
       rphi12 <- reduce $ imin `apply` [argN phi1, argN phi2]
-      phi1meetsphi2_0 <- (intervalView rphi12)
-      let phi1meetsphi2 = case phi1meetsphi2_0 of
-            IZero -> False
-            _ -> True
+      -- ~ i ∧ i != 0 as interval value but should be as constraint.
+      -- below, rphi12 = 0 iff ans = []
+      --        rphi12 = 1 iff ans = [([],[])]
+      cubDNFAnalysis <- decomposeInterval' rphi12 -- :: [(IntMap BoolSet, [Term])]
+      notphi1meetsphi2 <- case cubDNFAnalysis of
+        [] -> return True -- but this is not the only case where phi1 does not meet phi2 (see comment above)
+        [ (varToDirset, [] ) ] -> do
+          let morethan1dir = flip filter (IntMap.toList varToDirset) $ \ (v,dset) ->
+                (BoolSet.size dset) > 1
+          return $ not (length morethan1dir == 0) -- ex: true if phi12 = i ∧ (~ i ∧ j)
+        [ (_ , _) ] -> typeError $ GenericError $ "Not authorized: metas in lhs of path clauses of mpartial element"
+        _ -> return False
+        
+
+      -- phi1meetsphi2_0 <- (intervalView rphi12)
+      -- let phi1meetsphi2 = case phi1meetsphi2_0 of
+      --       IZero -> False
+      --       _ -> True
+
+      reportSDoc "tc.prim.bridges.hasEmptyMeet" 50 $ "In hasEmptyMeet, analysing phi1 and phi2"
+      reportSDoc "tc.prim.bridges.hasEmptyMeet" 50 $ nest 2 $ vcat
+        [ "phi1     = " <+> prettyTCM phi1
+        , "phi2     = " <+> prettyTCM phi2
+        , "rphi12   = " <+> prettyTCM rphi12 ]
+      
       psi1View <- bcstrView psi1
       psi2View <- bcstrView psi2
       let psi1isEmpty = case psi1View of
@@ -645,7 +672,18 @@ hasEmptyMeet zeta1 zeta2 = do
       let notpsi1meetspsi2 =
             psi1isEmpty || psi2isEmpty || psi12oppositeFaces
 
-      return $ (not phi1meetsphi2) && (notpsi1meetspsi2) && (phi1isEmpty || psi2isEmpty) && (phi2isEmpty || psi1isEmpty)      
+      reportSDoc "tc.prim.bridges.hasEmptyMeet" 40 $ "hasEmptyMeet results"
+      reportSDoc "tc.prim.bridges.hasEmptyMeet" 40 $ nest 2 $ vcat $
+        [ "input zeta1         =" <+> prettyTCM zeta1
+        , "input zeta2         =" <+> prettyTCM zeta2
+        , "phi1 meets phi2     =" <+> prettyTCM (not notphi1meetsphi2)
+        , "psi1 meets psi2     =" <+> prettyTCM (not notpsi1meetspsi2)
+        , "phi1isEmpty         =" <+> prettyTCM phi1isEmpty
+        , "phi2isEmpty         =" <+> prettyTCM phi2isEmpty
+        , "psi1isEmpty         =" <+> prettyTCM psi1isEmpty
+        , "psi2isEmpty         =" <+> prettyTCM psi2isEmpty ]
+
+      return $ (notphi1meetsphi2) && (notpsi1meetspsi2) && (phi1isEmpty || psi2isEmpty) && (phi2isEmpty || psi1isEmpty)      
       
 
 primMPartial' :: TCM PrimitiveImpl
