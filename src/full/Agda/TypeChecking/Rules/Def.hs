@@ -1052,7 +1052,7 @@ checkMSystemCoverage f n t cs = do
       -- coherence check. rhs must agree where they overlap.
       reportSDoc "tc.sys.coh" 20 $ "mixed coherence check for " <+> prettyTCM f <+> "..."      
 
-      -- below, in order: path/bdg (mb conjunctive) clause, clause, split kind, clause LHS analysis
+      -- below, in order: path/bdg (mb conjunctive) clause (as in DNF clause), clause, split kind, clause LHS analysis
       zetasCsAlphas <- do -- (:: [(Term, Clause, PartialSplit, [(Int,Bool)])] )
         forM cs $ \ c -> do
           let thePat = (take n . map (namedThing . unArg) . namedClausePats) c --1 entry of pats
@@ -1069,7 +1069,7 @@ checkMSystemCoverage f n t cs = do
 
       forM_ (initWithDefault __IMPOSSIBLE__ $
               initWithDefault __IMPOSSIBLE__ $ List.tails zetasCsAlphas) $ \ ((zeta1, cl1, splitKind1, clAn1): zetasCsAlphasRest) -> do
-        forM_ zetasCsAlphasRest $ \ (zeta2 , cl2 , splitKind2, clAn2) -> do
+        forM_ zetasCsAlphasRest $ \ (zeta2 , cl2 , splitKind2, clAn2) -> do -- we must compare clauseBody cl_i i = 1,2 when zeta1,zeta2 overlap.
 
           reportSDoc "tc.sys.coh" 30 $ vcat
             [ "coh check (zeta1,zeta2) = " <+> prettyTCM (zeta1,zeta2) ]
@@ -1086,8 +1086,11 @@ checkMSystemCoverage f n t cs = do
           -- if its empty, then the coherence check holds trivially
           unlessM (hasEmptyMeet zeta1asMCstr zeta2asMCstr) $ do
           
-          
-          let boolToInt :: PartialSplit -> Bool -> Term
+          -- next we compute the substitution σ : Γ{zeta1 and zeta2} → Γ
+          -- σ sets some vars in Γ following zeta1 and zeta2 = 1 (as mixed constraints)
+          -- We are going to compare (clauseBody cl_i) in the domain context
+          -- This part is essentially recasting the code of Conversion.forallFaceMaps in a mixed setting. (until (*))
+          let boolToInt :: PartialSplit -> Bool -> Term --bool to invterval
               boolToInt skind = case skind of
                 Msplit -> __IMPOSSIBLE__
                 Csplit -> \ bl -> case bl of
@@ -1106,16 +1109,14 @@ checkMSystemCoverage f n t cs = do
                 (var , boolToInt skind dir)
               -- clAn1' = map (second (boolToInt splitKind1)) clAn1
               -- clAn2' = map (second (boolToInt splitKind2)) clAn2
+              --ex: clAn12' = [ (j@1, i0)  , (r@2, bi0), (i@3, i1) ]
               
-              --ex: [ (z@0, i0)  , (x@2, i1) ] instead of [ (z@0, False)  , (x@2, True) ]
-
-          
-          
           reportSDoc "tc.sys.coh" 40 $ nest 2 $ vcat
             [ "clAn12' = " <+> prettyTCM clAn12' ]
 
           -- sigma : ctx' -> ctx, where ctx is ambient context
-          -- (it ends in gamma, containing all the variables strictly before the (_ : MHolds) entry of MPartial)
+          -- or σ : Γ{zeta1 and zeta2} → Γ as stated before.
+          -- (sigma ends in gamma, containing all the variables strictly before the (_ : MHolds) entry of MPartial)
           -- ctx' is a context where the variables mentionned in the lhs of cl1,cl2 (path or bdg) are forgotten
           -- sigma sets those variables to the values appearing in the lhs of cl1,cl2
           ctx <- getContext
@@ -1125,104 +1126,68 @@ checkMSystemCoverage f n t cs = do
             (text "Back from substContextN...")
             [ "ctx   = " <+> prettyTCM ctx
             , addContext ctx' $ "ctx' = " <+> prettyTCM ctx'
-            , prettyTCM sigma ] --makes sense to print sigma in ctx instead of ctx'?
-          
-          return ()
+            , prettyTCM sigma ] --the correct way to print sigma, ending in ambient context @ctx@
+            -- Context's and Substitution's are print in reversed std order when displayed with prettyTCM
 
-      typeError $ NotImplemented "coherence check for mixed constraints"
-           
+          -- TODO-antva: the addBindgins and hence resolved may be useless.
+          resolved <- forM clAn12' $ \ (i,t) -> ( (,) <$> (lookupBV i) ) <*> return (sigma `applySubst`  t)
+          -- resolved :: [(Dom(Name,Type) , Term)]
+          -- clAn12' adapted for @addBindings@
 
-      --         (psi1var, psi1val) = (i1, boolToBI b1)
-      --         (psi2var, psi2val) = (i2, boolToBI b2)
-
-      --     when (psi1var == psi2var && psi1val == psi2val) (typeError $ GenericError "Duplicated clause in BPartial pattern matching")
-
-      --     -- The only kinds of hyperplanes that do not intersect are of the form (x = bi0), (x = bi1)
-      --     let (stop :: Bool) = (psi1var == psi2var) && (psi1val /= psi2val)
-      --     reportSDoc "tc.sys.cover" 30 $ "psi1 = " <+> (prettyTCM psi1) <+> ", psi2 = " <+> (prettyTCM psi2) <+> "goOn = " <+> (prettyTCM $ not stop)
-      --     unless stop $ do
-      --       thectx <- getContext --gamma has been pushed on this.
-            
-      --       reportSDoc "tc.sys.cover" 10 $ "info of cur. clauses" <+> (nest 2 . vcat)
-      --        [ "gamma              " <+> (prettyTCM gamma)
-      --        , "thectx             " <+> (prettyTCM thectx)
-      --        , "---"
-      --        , "clauseTel1:        " <+> (prettyTCM $ clauseTel cl1)
-      --        -- , "namedClausedPats1: " <+> (prettyTCM $ namedClausePats cl1)
-      --        , "clauseBody1:       " <+> (addContext (clauseTel cl1) $ prettyTCM $ clauseBody cl1)
-      --        , "clauseType1:       " <+> (addContext (clauseTel cl1) $ prettyTCM $ clauseType cl1)
-      --        , "---"
-      --        , "clauseTel2:        " <+> (prettyTCM $ clauseTel cl2)
-      --        -- , "namedClausedPats2: " <+> (prettyTCM $ namedClausePats cl2)
-      --        , "clauseBody2:       " <+> (addContext (clauseTel cl2) $ prettyTCM $  clauseBody cl2)
-      --        , "clauseType2:       " <+> (addContext (clauseTel cl2) $ prettyTCM $  clauseType cl2) ]
+          reportSDocDocs "tc.sys.coh" 40
+            (text "Bindings...")
+            [ "resolved = " <+> (addContext ctx' $ prettyTCM resolved) ]
 
 
-      --       -- Idea. clauseBody cl1, clauseBody cl2 do type in their respective clauseTel, but not in cur. context ≈Γ.
-      --       -- Hence we pullback (substitute) those rhs, first to current context Γ, and then to Γ{where ψ1,ψ2 hold}.
+          updateContext sigma (const ctx') $ addBindings resolved $ do
 
-      --       -- note: the substitution game below is sound because trivial substitutions biε/x commute
-      --       -- we could maybe have used substContextN instead.
-      --       let (wk1 :: Substitution) = raiseFromS i1 1 --wk1 : gamma -> delta1. "forget psivar1" (ie sm kind of wkning)
-      --           (wk2 :: Substitution) = raiseFromS i2 1 --wk2 : gamma -> delta2.
-      --           cl1bodyInGamma = wk1 `applySubst` (maybe __IMPOSSIBLE__ id $ clauseBody cl1)
-      --           cl1TypeInGamma = wk1 `applySubst` (maybe __IMPOSSIBLE__ id $ clauseType cl1)                
-      --           cl2bodyInGamma = wk2 `applySubst` (maybe __IMPOSSIBLE__ id $ clauseBody cl2)
+          -- (*) now recasting the code of the continuation k provided to forallFaceMaps in Def.checkCubSystemCoverage
+          --     we rebuild bodies of cl1, cl2 and their type t in correct context ctx'
+          let args = sigma `applySubst` teleArgs gamma
+              -- above args lists variables of gamma but where zeta1,2 holds thanks to sigma (some vars are cst)
+              -- this means the the body function below yields something in t' as expected.
+              t' = sigma `applySubst` t --pulled back t = MPartial zeta A
+              fromReduced (YesReduction _ x) = x
+              fromReduced (NoReduction x) = ignoreBlocking x
+              body cl = do --reconstructing (clauseBody cl1) in the correct context ctx'
+                let extra = length (drop n $ namedClausePats cl)
+                TelV delta _ <- telViewUpTo extra t' --normally delta = (_ : IsOne zeta[σ]) is of size 1
+                fmap (abstract delta) $ addContext delta $ do
+                  fmap fromReduced $ runReduceM $
+                    appDef' (Def f []) [cl] [] (map notReduced $ raise (size delta) args ++ teleArgs delta)
+          v1 <- body cl1
+          v2 <- body cl2
+          reportSDocDocs "tc.sys.coh" 40
+            (text "Rebuilding bodies and type in shorter context...")
+            [ "t pulled back = " <+> prettyTCM t'
+            , "rhs1          = " <+> prettyTCM v1
+            , "rhs2          = " <+> prettyTCM v2 ]
+          equalTerm t' v1 v2
 
-      --       -- we build sigma12 : Γ{where ψ1,ψ2 hold} → Δ₁ → Γ
-      --       (delta1, sigma1) <- substContext psi1var psi1val thectx --sigma1 : delta1 -> gamma
-      --       let (Var psi2varInDelta1 _) = sigma1 `applySubst` (Var psi2var []) --no problem because psi1var != psi2var here.
-      --       (delta12, presigma12) <- substContext psi2varInDelta1 psi2val delta1
-      --       let sigma12 = presigma12 `applySubst` sigma1
-      --       -- we pull cl1bodyInGamma, cl2bodyInGamma back in ctx delta12 and compare them!
-      --       let finalCl1rhs = sigma12 `applySubst` cl1bodyInGamma
-      --           preRhsType  = sigma12 `applySubst` t --useless
-      --           rhsType     = unArg $ sigma12 `applySubst` cl1TypeInGamma            
-      --           finalCl2rhs = sigma12 `applySubst` cl2bodyInGamma
-                
-      --       reportSDoc "tc.sys.cover" 30 $  "coherent RHS's? ... " <+> (nest 2 . vcat)
-      --         [ "thectx        = " <+> prettyTCM thectx
-      --         , "wk1           = " <+> prettyTCM wk1
-      --         , "cl1bodyInG    = " <+> prettyTCM cl1bodyInGamma
-      --         , "wk2           = " <+> prettyTCM wk2
-      --         , "cl2bodyInG    = " <+> prettyTCM cl2bodyInGamma
-      --         , "delta1        = " <+> prettyTCM delta1
-      --         , "sigma1        = " <+> prettyTCM sigma1
-      --         , "delta12       = " <+> prettyTCM delta12
-      --         , "presigma12    = " <+> prettyTCM presigma12
-      --         , "sigma12       = " <+> prettyTCM sigma12
-      --         , "finalCl1rhs   = " <+> (addContext (reverse delta12) $ prettyTCM finalCl1rhs)
-      --         , "finalCl2rhs   = " <+> (addContext (reverse delta12) $ prettyTCM finalCl2rhs)
-      --         , "comp. BPrt typ= " <+> (addContext (reverse delta12) $ prettyTCM preRhsType)
-      --         , "comp. rhsType = " <+> (addContext (reverse delta12) $ prettyTCM rhsType)
-      --         ]
-      --       addContext (reverse delta12) $ equalTerm rhsType finalCl1rhs finalCl2rhs
+      let alphass = map snd alphas
+      sys <- forM (zip alphass cs) $ \ (alpha,cl) -> do
+        let
+          -- Δ = Γ_α , Δ'α
+          delta = clauseTel cl
+          -- Δ ⊢ b
+          Just b = clauseBody cl
+          -- Δ ⊢ ps : Γ , o : [φ] , Δ'
+          -- we assume that there's no pattern matching other
+          -- than from the system
+          ps = namedClausePats cl
+          extra = length (drop (size gamma + 1) ps)
+          -- size Δ'α = size Δ' = extra
+          -- Γ , α ⊢ u
+          takeLast n xs = drop (length xs - n) xs
+          weak [] = idS
+          weak (i:is) = weak is `composeS` liftS i (raiseS 1)
+          tel = telFromList (takeLast extra (telToList delta))
+          u = abstract tel (liftS extra (weak $ List.sort $ map fst alpha) `applySubst` b)
+        return (map (first var) alpha,u)
 
-      -- sys <- forM (zip alphas cs) $ \ (alpha,cl) -> do
-
-      --       let
-      --           -- Δ = Γ_α , Δ'α
-      --           delta = clauseTel cl
-      --           -- Δ ⊢ b
-      --           Just b = clauseBody cl
-      --           -- Δ ⊢ ps : Γ , o : [φ] , Δ'
-      --           -- we assume that there's no pattern matching other
-      --           -- than from the system
-      --           ps = namedClausePats cl
-      --           extra = length (drop (size gamma + 1) ps)
-      --           -- size Δ'α = size Δ' = extra
-      --           -- Γ , α ⊢ u
-      --           takeLast n xs = drop (length xs - n) xs
-      --           weak [] = idS
-      --           weak (i:is) = weak is `composeS` liftS i (raiseS 1)
-      --           tel = telFromList (takeLast extra (telToList delta))
-      --           u = abstract tel (liftS extra (weak $ List.sort $ map fst alpha) `applySubst` b)
-      --       return (map (first var) alpha,u)
-
-      -- reportSDoc "tc.sys.cover.sys" 20 $ "gamma,sys     =" <+> (fsep $ prettyTCM gamma : map prettyTCM sys)
-      -- -- reportSDoc "tc.sys.cover.sys" 40 $ fsep $ (text . show) gamma : map (text . show) sys
-      -- return (System gamma sys)
-      -- return $ __IMPOSSIBLE__
+      reportSDoc "tc.sys.cover.sys" 20 $ "gamma,sys     =" <+> (fsep $ prettyTCM gamma : map prettyTCM sys)
+      -- reportSDoc "tc.sys.cover.sys" 40 $ fsep $ (text . show) gamma : map (text . show) sys
+      return (System gamma sys)
       
     _ -> __IMPOSSIBLE__
 

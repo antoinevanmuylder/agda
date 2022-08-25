@@ -2083,6 +2083,7 @@ equalSort s1 s2 = do
 --    - cxt is the ambient context
 --    - cxt' is a shortened cxt (some path variables say x and z : I disappear)
 --    - sigma: cxt' -> cxt sets x and z to some value i0 or i1.
+--   when writing k we may assume to be in ambient context cxt'?
 forallFaceMaps :: MonadConversion m => Term -> (IntMap Bool -> Blocker -> Term -> m a) -> (Substitution -> m a) -> m [a]
 forallFaceMaps t kb k = do
   reportSDoc "conv.forall" 20 $
