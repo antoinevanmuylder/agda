@@ -340,10 +340,12 @@ compareTerm' cmp a m n =
     equalFun s a@(Pi dom b)  m n | domFinite dom = do
        mp <- fmap getPrimName <$> getBuiltin' builtinIsOne
        mbholds <- fmap getPrimName <$> getBuiltin' builtinBHolds
+       mmholds <- fmap getPrimName <$> getBuiltin' builtinMHolds
        case unEl $ unDom dom of
           Def q [Apply phi]
               | Just q == mp -> compareTermOnFace cmp (unArg phi) (El s (Pi (dom {domFinite = False}) b)) m n
               | Just q == mbholds -> compareTermOnBdgFace cmp (unArg phi) (El s (Pi (dom {domFinite = False}) b)) m n
+              | Just q == mmholds -> compareTermOnMixedFace cmp (unArg phi) (El s (Pi (dom {domFinite = False}) b)) m n
           _                  -> equalFun s (Pi (dom{domFinite = False}) b) m n
     equalFun _ (Pi dom@Dom{domInfo = info} b) m n | not $ domFinite dom = do
         let name = suggests [ Suggestion b , Suggestion m , Suggestion n ]
@@ -2207,7 +2209,7 @@ forallMixedFaces zeta kb k = do
           CanMap dbToDir -> -- ≈ the list of  b∨ clauses
             (\ base trav cont -> foldM cont base trav) [] (IntMap.toList dbToDir) $ \ done (bvar,fcs) -> do
             -- (Bsplit :: CorBsplit,
-            --  ? :: IntMap BoolSet   (singleton with key bvar)
+            --  ? :: IntMap Bool
             --  [])  to match ts above.
             return $ (++) done $ flip map (BoolSet.toList fcs) $ \ fc -> (BSPLIT, IntMap.singleton bvar (fc), [] :: [Term])
         reportSDoc "tc.conv.forallmixed" 40 $ "dnfPsi  = " <+> prettyTCM dnfPsi
@@ -2492,7 +2494,48 @@ equalTermOnBridgeFace xi ty u v = do
   _ <- forallBridgeFaceMaps xi $ \ alpha -> do
     compareTerm CmpEq (applySubst alpha ty) (applySubst alpha u) (applySubst alpha v)
   return ()
-    
+
+-- the following functions play the same role than the above cubical ones
+-- the names may be misleading since zeta will in general be a union of faces.
+-- the point is that we are comparing u and v when zeta holds
+-- (substituting in u,v what can be in each case, and  basically checking that they are judg equal)
+
+-- | equalTermOnMixedFace zeta A u v = _ , zeta ⊢ u = v : A
+equalTermOnMixedFace :: MonadConversion m => Term -> Type -> Term -> Term -> m ()
+equalTermOnMixedFace zeta ty u v = do
+  reportSLn "tc.conv.mixedFace" 40 "equalTermOnMixedFace"
+  compareTermOnMixedFace CmpEq zeta ty u v
+
+-- | @compareTermOnMixedFace cmp zeta ty u v@ compares u,v : t when zeta:MCstr holds
+compareTermOnMixedFace :: MonadConversion m => Comparison -> Term -> Type -> Term -> Term -> m ()
+compareTermOnMixedFace = compareTermOnMixedFace' compareTerm
+
+-- | @compareTermOnMixedFace k cmp zeta ty u v@ compares u,v : t when zeta:MCstr holds, using k program
+compareTermOnMixedFace' :: MonadConversion m => (Comparison -> Type -> Term -> Term -> m ()) -> Comparison -> Term -> Type -> Term -> Term -> m ()
+compareTermOnMixedFace' k cmp zeta ty u v = do
+  reportSDoc "tc.conv.mixedFace" 40 $
+    text "compareTermOnMixedFace:" <+> pretty zeta <+> "|-" <+> pretty u <+> "==" <+> pretty v <+> ":" <+> pretty ty
+
+  zeta <- reduce zeta
+  _ <- forallMixedFaces zeta postponed
+         $ \ sigma -> k cmp (applySubst sigma ty) (applySubst sigma u) (applySubst sigma v)
+  return ()
+ where
+  -- by design of forallMixedFaces,
+  -- dirs :: IntMap Bool is a map ((mixed) dbvar ↦ dir) representing a conjunction.
+  -- fow now postponed will not be executed if the split kind of this conjunction is BSPLIT.
+  postponed dirs blocker psi = do
+    phi <- runNamesT [] $ do
+             imin <- cl $ getPrimitiveTerm "primIMin"
+             ineg <- cl $ getPrimitiveTerm "primINeg"
+             psi <- open psi
+             let phi = foldr (\ (i,b) r -> do i <- open (var i); pure imin <@> (if b then i else pure ineg <@> i) <@> r)
+                          psi (IntMap.toList dirs) -- TODO Andrea: make a view?
+             phi
+    addConstraint blocker (ValueCmpOnFace cmp phi ty u v)
+
+
+
 ---------------------------------------------------------------------------
 -- * Definitions
 ---------------------------------------------------------------------------
