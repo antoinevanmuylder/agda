@@ -2083,7 +2083,7 @@ equalSort s1 s2 = do
 --    - cxt is the ambient context
 --    - cxt' is a shortened cxt (some path variables say x and z : I disappear)
 --    - sigma: cxt' -> cxt sets x and z to some value i0 or i1.
---   when writing k we may assume to be in ambient context cxt'?
+--   when writing k we may assume to be in ambient context cxt'
 forallFaceMaps :: MonadConversion m => Term -> (IntMap Bool -> Blocker -> Term -> m a) -> (Substitution -> m a) -> m [a]
 forallFaceMaps t kb k = do
   reportSDoc "conv.forall" 20 $
@@ -2150,14 +2150,108 @@ forallBridgeFaceMaps xi k = do
   thing0 <- bridgeGoK k xi bi0
   thing1 <- bridgeGoK k xi bi1
   return [thing0, thing1]
-  
--- -- | mixed version of forallFaceMaps
--- forallMixedFaces ::
---   (Term,[Term]) -- ^ A path constraint phi = phi_1 or.. phi_n
---   -> (IntMap Bool -> Blocker -> Term -> m a) -- ^ a continuation kb, what to do if zeta contains metas
---   -> (Substitution -> m a)
---   -- ^ a continuation k. 
---   ->  m [a]
+
+
+data CorBsplit
+  = CSPLIT
+  | BSPLIT
+  deriving (Eq, Ord, Show)
+
+instance PrettyTCM CorBsplit where prettyTCM = text . show
+
+-- | mixed version of forallFaceMaps
+--   does continuation k on every DNF clause of zeta : MCstr.
+--   pre: no metas in BCstr component of zeta.
+forallMixedFaces :: MonadConversion m =>
+  Term
+  -- ^ A mixed constraint zeta = phi m∨ psi
+  -> (IntMap Bool -> Blocker -> Term -> m a)
+  -- ^ a continuation kb, what to do if zeta contains metas
+  -> (Substitution -> m a)
+  -- ^ a continuation k.
+  --   when writing (k sigma), the user may assume
+  --   - sigma : Γ' → Γ
+  --   - that the ambient context is dom sigma = Γ'
+  --   - sigma restricts Γ on 1 DNF clause of zeta, ie Γ' = Γ{zeta_i}
+  --     (either path DNF clause or bdg hyperface)
+  --   Moreover, forralMixedFaces should be called in ambient context Γ
+  ->  m [a]
+  -- ^ the size of the output list = the # of DNF clauses of (zeta : MCstr).
+forallMixedFaces zeta kb k = do
+  viewZeta <- mcstrView zeta
+  i0 <- primIZero ; i1 <- primIOne
+  bi0 <- primBIZero ; bi1 <- primBIOne
+  let boolToInt :: CorBsplit -> Bool -> Term --bool to invterval
+      boolToInt skind = case skind of
+        CSPLIT -> \ bl -> case bl of
+          False -> i0
+          True -> i1
+        BSPLIT -> \ bl -> case bl of
+          False -> bi0
+          True -> bi1
+  dnfZeta <- do -- :: [ (CorBsplit, IntMap Bool, [Term]) ]
+    case viewZeta of
+      Mno -> return [] -- there are 0 DNF clauses.
+      Myes -> return [ (CSPLIT , IntMap.empty , [] ) ]
+      OtherMCstr _ -> __IMPOSSIBLE__ -- lets say that we shouldnt go here as precondition
+      Mkmc (Arg _ phi) (Arg _ psi) -> do
+        dnfPhi_0 <- decomposeInterval phi
+        -- :: [ (IntMap Bool, [Term]) ]
+        -- bs :: IntMap Bool is 1 non incositent conjunction within path DNF
+        let dnfPhi = flip map dnfPhi_0 $ \ (dbToB, ts) -> (CSPLIT, dbToB, ts)
+        reportSDoc "tc.conv.forallmixed" 40 $ "dnfPhi  = " <+> prettyTCM dnfPhi
+        canPsi <- asCanBCstr =<< reduce psi
+        dnfPsi <- case canPsi of
+          CanBno -> return []
+          CanByes -> __IMPOSSIBLE__ -- because we felt in Myes case above
+          CanMap dbToDir -> -- ≈ the list of  b∨ clauses
+            (\ base trav cont -> foldM cont base trav) [] (IntMap.toList dbToDir) $ \ done (bvar,fcs) -> do
+            -- (Bsplit :: CorBsplit,
+            --  ? :: IntMap BoolSet   (singleton with key bvar)
+            --  [])  to match ts above.
+            return $ (++) done $ flip map (BoolSet.toList fcs) $ \ fc -> (BSPLIT, IntMap.singleton bvar (fc), [] :: [Term])
+        reportSDoc "tc.conv.forallmixed" 40 $ "dnfPsi  = " <+> prettyTCM dnfPsi
+        return $ dnfPhi ++ dnfPsi
+  reportSDoc "tc.conv.forallmixed" 40 $ "dnfZeta  = " <+> prettyTCM dnfZeta
+  forM dnfZeta $ \ (skind , dirs, ts) -> do -- dirs :: IntMap Bool is 1 conjunctive DNF clause of zeta
+    reportSDoc "tc.conv.forallmixed" 40 $ "Current DNF clause is " <+> prettyTCM (skind, dirs)
+    ifBlockeds skind ts (kb dirs) {- else -} $ \ _ _ -> do
+      let lits = map (second $ boolToInt skind) $ IntMap.toAscList dirs -- lit :: lits then lit = (0, bi0) or (4, i1) for example.
+      ctx <- getContext -- ie Γ in header doc
+      reportSDocDocs "tc.conv.forallmixed" 40
+        (text "In forallMixedFaces, args for substContextN...")
+        [ "ctx    = " <+> prettyTCM ctx
+        , "lits   = " <+> (prettyTCM $ reverse lits) ]
+      (ctx', sigma) <- substContextN ctx lits -- ie Γ', σ in header doc.
+      doubleCheckCtx <- getContext
+      reportSDocDocs "tc.conv.forallmixed" 40
+        (text "In forallMixedFaces, Back from substContextN...")
+        [ "ctx   = " <+> prettyTCM ctx
+        , "doubleCheck ctx = " <+> prettyTCM doubleCheckCtx
+        , addContext ctx' $ "ctx' = " <+> prettyTCM ctx' --non std type theoretic orientation
+        , "P.pretty sigma   = " <+> (return $ P.pretty sigma) ] --std type theoretic orientation
+      resolved <- forM lits (\ (i,t) -> (,) <$> lookupBV i <*> return (applySubst sigma t)) --  :: [(Dom(Name,Type) , Term)], lits adapted for @addBindings@
+      reportSDoc "conv.forallMixed" 40 $ "resolved = " <+> prettyTCM resolved
+      updateContext sigma (const ctx') $
+        addBindings resolved $ do
+          k sigma
+  where
+    -- above, flag = CSPLIT or BSPLIT.
+    -- In former case, this function wakes the current code up if a meta is solved in the path cstr
+    -- It does nothing in the BSPLIT case as we expect no metas there.
+    ifBlockeds flag ts blocked unblocked = do
+      and <- getPrimitiveTerm "primIMin"
+      io  <- primIOne
+      let t = case flag of
+            CSPLIT -> foldr (\ x r -> and `apply` [argN x,argN r]) io ts
+            BSPLIT -> io
+      ifBlocked t blocked unblocked
+
+-- data CanBCstr
+--   = CanBno
+--   | CanMap (IntMap (BoolSet))
+--   | CanByes
+--   deriving (Eq, Show)
 
 
 -- | ≈builds σ : ctx <- ctx' (?direction) where ctx' is obtained from ctx by setting db var xi := biEps.

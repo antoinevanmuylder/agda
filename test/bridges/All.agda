@@ -108,3 +108,17 @@ module _ (i : I) (@tick r : BI) (j : I) (@tick s : BI) where
 
   toRed : I
   toRed = ~ i ∧ i
+
+
+
+
+
+  complex : MCstr
+  complex = i ∧ ~ j ∨ i0 m∨ s =bi0 b∨ s =bi1
+
+-- dnfPhi  =  [(CSPLIT,[(1,False), (3,True)],[])]
+-- dnfPsi  =  [(BSPLIT,[(0,False)],[]), (BSPLIT,[(0,True)],[])]
+-- dnfZeta  =  [(CSPLIT,[(1,False), (3,True)],[]),
+--              (BSPLIT,[(0,False)],[]), (BSPLIT,[(0,True)],[])]
+
+

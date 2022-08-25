@@ -1126,7 +1126,7 @@ checkMSystemCoverage f n t cs = do
             (text "Back from substContextN...")
             [ "ctx   = " <+> prettyTCM ctx
             , addContext ctx' $ "ctx' = " <+> prettyTCM ctx'
-            , prettyTCM sigma ] --the correct way to print sigma, ending in ambient context @ctx@
+            , prettyTCM sigma ] -- I think ~PrettyTCM Substitution~ is broken. better to use P.pretty sigma.
             -- Context's and Substitution's are print in reversed std order when displayed with prettyTCM
 
           -- TODO-antva: the addBindgins and hence resolved may be useless.

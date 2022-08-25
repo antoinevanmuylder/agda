@@ -161,6 +161,11 @@ getTheClause hname = do
   let cs = maybe __IMPOSSIBLE__ id $ mbCs
   return cs
 
+getTheCtx :: String -> TCM Telescope
+getTheCtx hname = do
+  cs <- getTheClause hname
+  return $ clauseTel cs
+
 
 -- | from human name, gets you the term t :: Term
 getTheTerm :: String -> TCM Term
@@ -198,8 +203,9 @@ main = runTCMPrettyErrors $ do
   beInNiceTCState "./All.agda"
   addVerb "antvascript:0"
   
-  testMixedMeet
+  -- testMixedMeet
   -- decIntervalBotTop
+  testMixedForall
   
   endOfMain
 
@@ -521,6 +527,28 @@ decIntervalBotTop = do
     (text "DNF of i0 and i1...")
     [ prettyTCM dnfList0 , prettyTCM dnfList1 ]
   return () --printInTCM
+
+
+testMixedForall :: TCM ()
+testMixedForall = do
+  addVerb "tc.conv.forallmixed:40"
+  complex <- getTheTerm "complex"
+  gamma <- getTheCtx "complex"
+  mno <- primMno
+  myes <- primMyes
+  addContext gamma $ do
+    reportSDoc "antvascript:0" 0 $ text "DNF of complex zeta"
+    _ <- forallMixedFaces complex (\ _ _ _ -> __IMPOSSIBLE__) $ \ sigma -> do
+      return ()
+    newline
+    reportSDoc "antvascript:0" 0 $ text "DNF of mno"  
+    _ <- forallMixedFaces mno (\ _ _ _ -> __IMPOSSIBLE__) $ \ sigma -> do
+      return ()
+    newline
+    reportSDoc "antvascript:0" 0 $ text "DNF of myes"  
+    _ <- forallMixedFaces myes (\ _ _ _ -> __IMPOSSIBLE__) $ \ sigma -> do
+      return ()
+    return ()
 
 {-
 best short at "declaring in .agda, working in .hs"
