@@ -45,7 +45,7 @@ import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Telescope
 import Agda.TypeChecking.Lock
-import Agda.TypeChecking.Primitive.Cubical ( primIntervalType , decomposeInterval' )
+import Agda.TypeChecking.Primitive.Cubical ( primIntervalType , decomposeInterval', TranspOrHComp(..) , requireCubical )
 
 import Agda.Utils.Either
 import Agda.Utils.Functor
@@ -378,7 +378,7 @@ prim_ungel' = do
 -- begin by reduceB' the variable phi. we don't have such a variable anyway
 -- then they reduceB' the principal argument b
 
-
+-- * BCstr primitives
 
 -- next the 'constructors' of BCstr. Typically ψ:BCstr is x1=ε1 ∨ ... ∨ xn=εn
 -- There are also bottom and top constructors in BCstr.
@@ -484,6 +484,8 @@ primBconj' = do
       _ -> return $ NoReduction $ map reduced [ psi1' , psi2'] -- /!\ metas
 
 
+-- BPartial type former  (old. the correct notion is mixed partial elements MPartial)
+
 primBPartial' :: TCM PrimitiveImpl
 primBPartial' = do
   requireBridges ""
@@ -503,6 +505,7 @@ primBPartial' = do
       _ -> __IMPOSSIBLE__
 
 
+-- * MCstr primitives, and MPartial type former
 
 -- Constructors for the type of mixed constraints MCstr.
 -- A Mcstr is a pair (φ : I, ψ : BCstr) up to "top identification":
@@ -684,7 +687,10 @@ hasEmptyMeet zeta1 zeta2 = do
         , "psi2isEmpty         =" <+> prettyTCM psi2isEmpty ]
 
       return $ (notphi1meetsphi2) && (notpsi1meetspsi2) && (phi1isEmpty || psi2isEmpty) && (phi2isEmpty || psi1isEmpty)      
-      
+
+
+-- MPartial type former.
+-- example: (_ : MPartial (i0 ∨ (~ i ∧ j) m∨ (x =bi0) b∨ (x =bi1)) Bool)
 
 primMPartial' :: TCM PrimitiveImpl
 primMPartial' = do
@@ -703,3 +709,77 @@ primMPartial' = do
                              elSSet (pure mholds <@> ζ) --> el' l bA
           redReturn $ Pi (setRelevance Irrelevant $ d { domFinite = True }) b
       _ -> __IMPOSSIBLE__
+
+
+
+-- * reflecting pure path mixed cstrs as path constraint
+
+-- reflectMCstr : {φ : I} -> .(MHolds φ m∨ bno) -> IsOne φ
+primReflectMCstr' :: TCM PrimitiveImpl
+primReflectMCstr' = do
+  requireCubical CErased ""
+  -- reflectMCstr is used to define std Kan op in terms of mixed ones
+  -- hence using them in --cubical only environment is reasonnable.
+  typ <- runNamesT [] $
+    hPi' "φ" primIntervalType $ \ phi ->
+    mpPi' "o" (iota phi) $ \ _ -> --todo: replace phi by phi embedded in MCstr. phi :: NamesT m Term
+    elSSet $ cl isOne <@> phi
+  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 1 $ \ [Arg _ phi , _] -> do
+    yes <- getTerm "" builtinItIsOne --reflectMCstr is a constant function.
+    redReturn yes
+  where
+    isOne = fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinIsOne
+    iota phi = cl primMkmc <@> phi <@> cl primBno
+    
+-- (elSSet $ cl isOne <@> phi)
+-- isOne = fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinIsOne
+
+-- a primitive with the same type than primHComp
+-- by def, it reduces to something using primMHComp via primReflectMCstr.
+primTestPrim' :: TCM PrimitiveImpl
+primTestPrim' = do
+  requireCubical CErased ""
+  t    <- runNamesT [] $
+          hPi' "a" (el $ cl primLevel) $ \ a ->
+          hPi' "A" (sort . tmSort <$> a) $ \ bA ->
+          hPi' "φ" primIntervalType $ \ phi ->
+          nPi' "i" primIntervalType (\ i -> pPi' "o" phi $ \ _ -> el' a bA) -->
+          (el' a bA --> el' a bA)
+  return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 $ \ [l, bA, phi@(Arg infPhi phitm), u@(Arg infU utm), u0] nelims -> do
+    mixhcomp <- getTerm "" builtinMHComp
+    mkmc <- getTerm "" builtinMkmc
+    bno <- getTerm "" builtinBno
+    let iotaPhi :: Term
+        iotaPhi = mkmc `apply` [ phi, argN bno ]
+    liftReflectU <- runNamesT [] $ -- :: Term
+                    lam "i" $ \ i ->
+                    lam "mprf" $ \ mprf -> --write reflectMCstr mprf
+                    cl primReflectMCstr <#> (pure phitm) <@> mprf
+    redReturn $ mixhcomp `apply` [l, bA, Arg infPhi iotaPhi, Arg infU liftReflectU, u0] -- defaultArgInfo
+
+
+-- \extentArgs@[lA, lB, bA, bB,
+--    n0@(Arg n0info n0tm), n1@(Arg n1info n1tm),
+--    nn@(Arg nninfo nntm),
+--    r@(Arg rinfo rtm0), bM] -> do
+
+
+
+-- * Kan operations with mixed constraints.
+
+
+primMHComp' :: TCM PrimitiveImpl
+primMHComp' = do
+  -- requireCubical CErased "" -- ??
+  t    <- runNamesT [] $
+          hPi' "l" (el $ cl primLevel) $ \ l ->
+          hPi' "A" (sort . tmSort <$> l) $ \ bA ->
+          hPi' "ζ" primMCstrType $ \ zeta ->
+          nPi' "i" primIntervalType (\ i -> mpPi' "o" zeta $ \ _ -> el' l bA) -->
+          (el' l bA --> el' l bA)
+  return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 $ \ ts nelims -> do
+    primMTransMHComp DoHComp ts nelims
+  where
+    primMTransMHComp _ _ _ = dummyRedTerm0
+
+

@@ -108,3 +108,5 @@ postulate
   MitHolds : MHolds myes
 {-# BUILTIN MITHOLDS MitHolds #-}
 {-# BUILTIN MPARTIAL MPartial #-} -- MPartial : ∀{ℓ} (ζ : MCstr) (A : Set ℓ) → SSet ℓ ; MPartial ζ A = MHolds ζ → A ; and reduces to .(MHolds ζ) → A
+                                  --"MPartialP : ∀{ℓ} (ζ : MCstr) (A : MPartial ζ (Set ℓ)) → SSet ℓ"  (not present (yet?))
+                                  -- MPartialP ζ A = (prf : .(MHolds ζ)) → A prf
