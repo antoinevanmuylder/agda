@@ -2217,7 +2217,7 @@ forallMixedFaces zeta kb k = do
   reportSDoc "tc.conv.forallmixed" 40 $ "dnfZeta  = " <+> prettyTCM dnfZeta
   forM dnfZeta $ \ (skind , dirs, ts) -> do -- dirs :: IntMap Bool is 1 conjunctive DNF clause of zeta
     reportSDoc "tc.conv.forallmixed" 40 $ "Current DNF clause is " <+> prettyTCM (skind, dirs)
-    ifBlockeds skind ts (kb dirs) {- else -} $ \ _ _ -> do
+    ifBlockeds skind ts (kb dirs) {- else -} $ \ _ _ -> do --currently, if skind = BSPLIT, we never run kb dirs.
       let lits = map (second $ boolToInt skind) $ IntMap.toAscList dirs -- lit :: lits then lit = (0, bi0) or (4, i1) for example.
       ctx <- getContext -- ie Γ in header doc
       reportSDocDocs "tc.conv.forallmixed" 40
@@ -2241,6 +2241,8 @@ forallMixedFaces zeta kb k = do
     -- above, flag = CSPLIT or BSPLIT.
     -- In former case, this function wakes the current code up if a meta is solved in the path cstr
     -- It does nothing in the BSPLIT case as we expect no metas there.
+    ifBlockeds :: MonadConversion m
+               => CorBsplit -> [Term] -> (Blocker -> Term -> m a) -> (NotBlocked -> Term -> m a) -> m a
     ifBlockeds flag ts blocked unblocked = do
       and <- getPrimitiveTerm "primIMin"
       io  <- primIOne
@@ -2248,12 +2250,6 @@ forallMixedFaces zeta kb k = do
             CSPLIT -> foldr (\ x r -> and `apply` [argN x,argN r]) io ts
             BSPLIT -> io
       ifBlocked t blocked unblocked
-
--- data CanBCstr
---   = CanBno
---   | CanMap (IntMap (BoolSet))
---   | CanByes
---   deriving (Eq, Show)
 
 
 -- | ≈builds σ : ctx <- ctx' (?direction) where ctx' is obtained from ctx by setting db var xi := biEps.
@@ -2518,12 +2514,12 @@ compareTermOnMixedFace' k cmp zeta ty u v = do
 
   zeta <- reduce zeta
   _ <- forallMixedFaces zeta postponed
-         $ \ sigma -> k cmp (applySubst sigma ty) (applySubst sigma u) (applySubst sigma v)
+         $ \ sigma -> k cmp (sigma `applySubst`  ty) (sigma `applySubst`  u) (sigma `applySubst`  v)
   return ()
  where
   -- by design of forallMixedFaces,
   -- dirs :: IntMap Bool is a map ((mixed) dbvar ↦ dir) representing a conjunction.
-  -- fow now postponed will not be executed if the split kind of this conjunction is BSPLIT.
+  -- currently postponed is executed only if the split kind of this conjunction is CSPLIT.
   postponed dirs blocker psi = do
     phi <- runNamesT [] $ do
              imin <- cl $ getPrimitiveTerm "primIMin"

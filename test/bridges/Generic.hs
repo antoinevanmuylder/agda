@@ -177,6 +177,12 @@ getTheTerm hname = do
           clauseBody cs
   return $ maybe __IMPOSSIBLE__ id $ mbTm
 
+getTheType :: String -> TCM Type
+getTheType hname = do
+ cs <- (getTheClause hname)
+ return $  maybe __IMPOSSIBLE__ unArg (clauseType cs)
+
+
 -- | tc.conv.comparebdgface:30
 addVerb :: String -> TCM ()
 addVerb verb = do
@@ -205,7 +211,8 @@ main = runTCMPrettyErrors $ do
   
   -- testMixedMeet
   -- decIntervalBotTop
-  testMixedForall
+  -- testMixedForall
+  mpartialJudgEqu3
   
   endOfMain
 
@@ -549,6 +556,53 @@ testMixedForall = do
     _ <- forallMixedFaces myes (\ _ _ _ -> __IMPOSSIBLE__) $ \ sigma -> do
       return ()
     return ()
+
+mpartialJudgEqu1 :: TCM ()
+mpartialJudgEqu1 = do
+  addVerb "tc.conv.forallmixed:40"
+  addVerb "tc.conv.mixedFace:40"
+  
+  ctx <- getTheCtx "mpartial1"
+  typ <- getTheType "mpartial1"
+  mp1 <- getTheTerm "mpartial1"
+  mp2 <- getTheTerm "mpartial2"
+
+  reportSDocDocs "antvascript" 0
+    (text "-----------------------")
+    [ text "MP1 VS MP2" ]
+  addContext ctx $ equalTerm typ mp1 mp2
+
+
+mpartialJudgEqu2 :: TCM ()
+mpartialJudgEqu2 = do
+  addVerb "tc.conv.forallmixed:40"
+  addVerb "tc.conv.mixedFace:40"
+  
+  ctx <- getTheCtx "mmulti1"
+  typ <- getTheType "mmulti1"
+  mp1 <- getTheTerm "mmulti1"
+  mp2 <- getTheTerm "mmulti2"
+
+  reportSDocDocs "antvascript" 0
+    (text "-----------------------")
+    [ text "MMULTI1 VS MMULTI2" ]
+  addContext ctx $ equalTerm typ mp1 mp2
+
+mpartialJudgEqu3 :: TCM ()
+mpartialJudgEqu3 = do
+  addVerb "tc.conv.forallmixed:40"
+  addVerb "tc.conv.mixedFace:40"
+  
+  ctx <- getTheCtx "am1"
+  typ <- getTheType "am1"
+  mp1 <- getTheTerm "am1"
+  mp2 <- getTheTerm "am2"
+
+  reportSDocDocs "antvascript" 0
+    (text "-----------------------")
+    [ text "AM1 VS AM2" ]
+  addContext ctx $ equalTerm typ mp1 mp2
+  
 
 {-
 best short at "declaring in .agda, working in .hs"

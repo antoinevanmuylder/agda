@@ -109,10 +109,6 @@ module _ (i : I) (@tick r : BI) (j : I) (@tick s : BI) where
   toRed : I
   toRed = ~ i ∧ i
 
-
-
-
-
   complex : MCstr
   complex = i ∧ ~ j ∨ i0 m∨ s =bi0 b∨ s =bi1
 
@@ -122,3 +118,59 @@ module _ (i : I) (@tick r : BI) (j : I) (@tick s : BI) where
 --              (BSPLIT,[(0,False)],[]), (BSPLIT,[(0,True)],[])]
 
 
+module _ (smth : Bool) where
+
+
+  mpartial1 : MPartial myes (atyp smth)
+  mpartial1 = λ _ → anelem smth
+
+  mpartial2 : MPartial myes (atyp smth)
+  mpartial2 = λ _ → anelem' smth
+
+  mhey : MPartial myes Bool
+  mhey = λ _ → true
+
+  mhey2 : MPartial myes Bool
+  mhey2 = λ _ → nnot (nnot true)
+
+
+module _ (q : BridgeP (λ _ → Bool) false true) (q' : BridgeP (λ _ → Bool) true false) (@tick x : BI) (smth : Bool) (@tick y : BI) where
+
+  mpremulti1 : MPartial (i0 m∨ x =bi0 b∨ y =bi0 b∨ y =bi1) Bool
+  mpremulti1 (x = bi0) = q y
+  mpremulti1 (y = bi0) = q x
+  mpremulti1 (y = bi1) = true
+
+  mmulti1 : MPartial (i0 m∨ x =bi0 b∨ y =bi0 b∨ y =bi1) Bool
+  mmulti1 = mpremulti1
+
+  -- judgemental equality detects that on y=bi1 multi1 & multi2 differ.
+  mpremulti2 : MPartial (i0 m∨ x =bi0 b∨ y =bi0 b∨ y =bi1) Bool
+  mpremulti2 (x = bi0) = q y
+  mpremulti2 (y = bi0) = q x
+  mpremulti2 (y = bi1) = q' x
+
+  mmulti2 : MPartial (i0 m∨ x =bi0 b∨ y =bi0 b∨ y =bi1) Bool
+  mmulti2 = mpremulti2
+
+module _  (i : I) (@tick r : BI) (p : false ≡ true) (j : I) where
+
+  notp : true ≡ false
+  notp = (λ i → p (~ i))
+
+
+
+  am1pre : MPartial (i ∨ (~ i ∧ j) m∨ r =bi1) Bool
+  am1pre (i = i1) = false
+  am1pre (i = i0) (j = i1) = true
+  am1pre (r = bi1) = p  (~ i)
+
+  am1 = am1pre
+
+  am2pre : MPartial (i ∨ (~ i ∧ j) m∨ r =bi1) Bool
+  am2pre (i = i1) = notp i
+  am2pre (i = i0) (j = i1) = notp i
+  am2pre (r = bi1) = notp i
+
+  am2 = am2pre
+  
