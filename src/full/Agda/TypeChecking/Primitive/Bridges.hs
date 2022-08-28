@@ -386,7 +386,7 @@ prim_ungel' = do
 -- | bottom element in BCstr
 primBno' :: TCM PrimitiveImpl
 primBno' = do
-  requireBridges "in primBno'"
+  requireCubical CErased "" --flag downgrade.
   bcstr <- primBCstr
   return $ PrimImpl (El CstrUniv bcstr) $ primFun __IMPOSSIBLE__ 0 $ \ _ ->
     return $ NoReduction []
@@ -394,7 +394,7 @@ primBno' = do
 -- | top element in BCstr
 primByes' :: TCM PrimitiveImpl
 primByes' = do
-  requireBridges "in primByes'"
+  requireCubical CErased "" -- flag downgrade.
   bcstr <- primBCstr
   return $ PrimImpl (El CstrUniv bcstr) $ primFun __IMPOSSIBLE__ 0 $ \ _ ->
     return $ NoReduction []
@@ -402,7 +402,7 @@ primByes' = do
 -- | primBisone : BI -> BCstr       constraint "r=1" for some bvar r.
 primBisone' :: TCM PrimitiveImpl
 primBisone' = do
-  requireBridges "in primBisone'"
+  requireCubical CErased "" --flag downgrade
   typ <- (primBridgeIntervalType --> primBCstrType)
   return $ PrimImpl typ  $ primFun __IMPOSSIBLE__ 1 $ \args@[ r ] -> do
     bno <- getTerm builtinBisone builtinBno
@@ -417,7 +417,7 @@ primBisone' = do
 -- | primBiszero : BI -> BCstr       constraint "r=0" for some bvar r.
 primBiszero' :: TCM PrimitiveImpl
 primBiszero' = do
-  requireBridges "in primBisone'"
+  requireCubical CErased "" --flag downgrade.
   typ <- (primBridgeIntervalType --> primBCstrType)
   return $ PrimImpl typ  $ primFun __IMPOSSIBLE__ 1 $ \args@[ r ] -> do
     bno <- getTerm builtinBisone builtinBno
@@ -464,7 +464,7 @@ bcstrView t = do
 -- | conjunction of bridge var constraints. primBconj : BCstr -> BCstr -> BCstr
 primBconj' :: TCM PrimitiveImpl
 primBconj' = do
-  requireBridges "in primBconj'"
+  requireCubical CErased "" --flag downgrade.
   typ <- (primBCstrType --> primBCstrType --> primBCstrType)
   return $ PrimImpl typ  $ primFun __IMPOSSIBLE__ 2 $ \args@[ psi1 , psi2 ] -> do
     bno <- getTerm builtinBconj builtinBno
@@ -515,7 +515,7 @@ primBPartial' = do
 -- | bottom element in MCstr
 primMno' :: TCM PrimitiveImpl
 primMno' = do
-  requireBridges "in primMno'"
+  requireCubical CErased "" --flag downgrade
   mcstr <- primMCstr
   return $ PrimImpl (El CstrUniv mcstr) $ primFun __IMPOSSIBLE__ 0 $ \ _ ->
     return $ NoReduction []
@@ -523,7 +523,7 @@ primMno' = do
 -- | top element in MCstr
 primMyes' :: TCM PrimitiveImpl
 primMyes' = do
-  requireBridges "in primMyes'"
+  requireCubical CErased "" --flag downgrade.
   mcstr <- primMCstr
   return $ PrimImpl (El CstrUniv mcstr) $ primFun __IMPOSSIBLE__ 0 $ \ _ ->
     return $ NoReduction []
@@ -537,7 +537,7 @@ primMyes' = do
 --   corresponds to the computational behaviour of this union of subcubes.
 primMkmc' :: TCM PrimitiveImpl
 primMkmc' = do
-  requireBridges "in primMkmc'"
+  requireCubical CErased "" -- flag downgrade
   mcstr <- primMCstr
   -- t <- runNamesT [] $
   --       nPi' "φ" primIntervalType $ \ _ ->
@@ -694,7 +694,7 @@ hasEmptyMeet zeta1 zeta2 = do
 
 primMPartial' :: TCM PrimitiveImpl
 primMPartial' = do
-  requireBridges ""
+  requireCubical CErased "" --flag downgrade
   t <- runNamesT [] $
        hPi' "l" (el $ cl primLevel) (\ l ->
         nPi' "ζ" primMCstrType $ \ _ ->
@@ -724,9 +724,8 @@ primReflectMCstr' = do
     hPi' "φ" primIntervalType $ \ phi ->
     mpPi' "o" (iota phi) $ \ _ -> --todo: replace phi by phi embedded in MCstr. phi :: NamesT m Term
     elSSet $ cl isOne <@> phi
-  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 1 $ \ [Arg _ phi , _] -> do
-    yes <- getTerm "" builtinItIsOne --reflectMCstr is a constant function.
-    redReturn yes
+  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 2 $ \ args -> do
+    return $ NoReduction $ map notReduced args
   where
     isOne = fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinIsOne
     iota phi = cl primMkmc <@> phi <@> cl primBno
@@ -749,12 +748,14 @@ primTestPrim' = do
     mixhcomp <- getTerm "" builtinMHComp
     mkmc <- getTerm "" builtinMkmc
     bno <- getTerm "" builtinBno
+    reflct <- getTerm "" builtinReflectMCstr
     let iotaPhi :: Term
-        iotaPhi = mkmc `apply` [ phi, argN bno ]
+        iotaPhi = mkmc `apply` [ argN phitm, argN bno ]
     liftReflectU <- runNamesT [] $ -- :: Term
                     lam "i" $ \ i ->
                     lam "mprf" $ \ mprf -> --write reflectMCstr mprf
-                    cl primReflectMCstr <#> (pure phitm) <@> mprf
+                    -- i:I, mprf:MHolds (i m∨ bno) ⊢ u i (reflect {phi} mprf)
+                    (pure $ raise 2 utm) <@> i <@> ( (pure reflct) <#> (pure $ raise 2 phitm) <@> mprf )
     redReturn $ mixhcomp `apply` [l, bA, Arg infPhi iotaPhi, Arg infU liftReflectU, u0] -- defaultArgInfo
 
 
@@ -767,10 +768,16 @@ primTestPrim' = do
 
 -- * Kan operations with mixed constraints.
 
-
+-- | primMHComp : ∀ {ℓ} {A : Set ℓ} {ζ : MCstr} (u : ∀ i → MPartial ζ A) (a0 : A) → A
+--   This primitive only @requireCubical@ as std cubical Kan ops should ultimatetly
+--   be defined in terms of
+--   the mixed versions implemented here (such as the current function).
+--   In order to keep the preserve --cubical logical power,
+--   this primitive has to check that, if --bridges is disabled, then its zeta argument is
+--   a pure-path constraint (ie zeta = phi m∨ psi, and psi = bno).
 primMHComp' :: TCM PrimitiveImpl
 primMHComp' = do
-  -- requireCubical CErased "" -- ??
+  requireCubical CErased "" -- flag downgrade.
   t    <- runNamesT [] $
           hPi' "l" (el $ cl primLevel) $ \ l ->
           hPi' "A" (sort . tmSort <$> l) $ \ bA ->
@@ -778,7 +785,8 @@ primMHComp' = do
           nPi' "i" primIntervalType (\ i -> mpPi' "o" zeta $ \ _ -> el' l bA) -->
           (el' l bA --> el' l bA)
   return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 $ \ ts nelims -> do
-    primMTransMHComp DoHComp ts nelims
+    return $ NoReduction $ map notReduced ts
+    -- primMTransMHComp DoHComp ts nelims
   where
     primMTransMHComp _ _ _ = dummyRedTerm0
 
