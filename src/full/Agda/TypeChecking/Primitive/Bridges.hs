@@ -768,6 +768,9 @@ primTestPrim' = do
 
 -- * Kan operations with mixed constraints.
 
+-- such mixed operations requireCubical (instead of requireBridges)
+-- But they check that if --bridges is disabled then the input mixed constraint is pure-path.
+
 -- | primMHComp : ∀ {ℓ} {A : Set ℓ} {ζ : MCstr} (u : ∀ i → MPartial ζ A) (a0 : A) → A
 --   This primitive only @requireCubical@ as std cubical Kan ops should ultimatetly
 --   be defined in terms of
@@ -778,16 +781,35 @@ primTestPrim' = do
 primMHComp' :: TCM PrimitiveImpl
 primMHComp' = do
   requireCubical CErased "" -- flag downgrade.
+  bridgesEnabled <- optBridges <$> pragmaOptions  
   t    <- runNamesT [] $
           hPi' "l" (el $ cl primLevel) $ \ l ->
           hPi' "A" (sort . tmSort <$> l) $ \ bA ->
           hPi' "ζ" primMCstrType $ \ zeta ->
           nPi' "i" primIntervalType (\ i -> mpPi' "o" zeta $ \ _ -> el' l bA) -->
           (el' l bA --> el' l bA)
-  return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 $ \ ts nelims -> do
-    return $ NoReduction $ map notReduced ts
+  return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 $ \ ts@[l, bA, zeta, u, a0] nelims -> do
+    -- we have to check that (no --bridges) -> zeta is path pure.
+    -- then we reduce iff the above implication is true.
+    -- TODO-antva: it would be cleaner (and sound-er?) to raise
+    -- an error if zeta is not pure but --bridges is disabled.
+    -- Unfortunately, ReduceM can not raise tc errors.
+    -- solution: replace the above primMCstrType type with something
+    -- dynamic wrt --bridges? {zeta:MCstr s.t. zeta path pure}
+    bridges <- optBridges <$> pragmaOptions
+    mbno <- getPrimitiveName' builtinBno
+    pathPure <- do
+      viewZeta <- mcstrView (unArg zeta)
+      case viewZeta of
+        Mno -> return True
+        Myes -> return True
+        OtherMCstr _ -> return True --TODO-antva metas ..
+        Mkmc (Arg _ phi) (Arg _ psi@(Def q []))
+          | Just q == mbno  -> return True
+        _ -> return False
+    case (bridges) || pathPure of
+      False -> return $ NoReduction $ map notReduced ts
+      True -> primMTransMHComp DoHComp ts nelims
     -- primMTransMHComp DoHComp ts nelims
   where
     primMTransMHComp _ _ _ = dummyRedTerm0
-
-
