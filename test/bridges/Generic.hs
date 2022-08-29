@@ -206,13 +206,22 @@ addVerb verb = do
 --   seems that @Internal.Term@s resulting from tc can be inspected via stPostScopeState
 main :: IO ()
 main = runTCMPrettyErrors $ do
-  beInNiceTCState "./All.agda"
+  beInNiceTCState "./All2.agda"
   addVerb "antvascript:0"
+
+  cub <- optCubical <$> pragmaOptions
+  reportSDoc "antvascript" 0 $ return $ P.text $ show cub
+
+  mgel <- getPrimitiveName' builtinGel  mglue <- getPrimitiveName' builtinGlue
   
+  reportSDoc "antvascript" 0 $ return $ P.pretty mgel
+  reportSDoc "antvascript" 0 $ return $ P.pretty mglue
+  
+  reportSDoc "antvascript" 0 $ return $ P.text "coucou"
   -- testMixedMeet
   -- decIntervalBotTop
   -- testMixedForall
-  mpartialJudgEqu3
+  -- mpartialJudgEqu3
   
   endOfMain
 

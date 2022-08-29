@@ -859,6 +859,7 @@ primMTransMHComp cmd ts nelims = do
                               (:[]) <$> case vZeta of
                                           Mno -> return (notReduced u)
                                             -- TODO-antva: in cubical they replace the u adjustement
+                                            -- for a "nowhere" (phi = IZero) constraint
                                             -- by a canonical one: an adjustment built by eliminating
                                             -- the inconsistent constraint IsOne i0
                                           
@@ -871,24 +872,28 @@ primMTransMHComp cmd ts nelims = do
                      Nothing -> return []
              return $ NoReduction $ [notReduced (famThing l), reduced sc, reduced sphi] ++ u' ++ [notReduced u0]
        sbA <- reduceB' bA
-       t <- case unArg <$> ignoreBlocking sbA of
+       t <- case unArg <$> ignoreBlocking sbA of -- return type is (Maybe $ Blocked $ FamilyOrNot Term)
               IsFam (Lam _info t) -> Just . fmap IsFam <$> reduceB' (absBody t)
               IsFam _             -> return Nothing
               IsNot t             -> return . Just . fmap IsNot $ (t <$ sbA)
        case t of -- primMTransp, primMHComp reduce by casing on their type (line) argument.
          Nothing -> fallback' (famThing <$> sbA)
-         Just st  -> do
+         Just st  -> do --st :: Blocked $ FamilyOrNot Term
                let
                    fallback = fallback' (fmap famThing $ st *> sbA)
-                   t = ignoreBlocking st
-               mHComp <- getPrimitiveName' builtinHComp
+                   t = ignoreBlocking st -- t :: FamilyOrNot Term.
+               mMHComp <- getPrimitiveName' builtinMHComp --not Nothing in --cubical.
                mGlue <- getPrimitiveName' builtinGlue
+               mGel <- getPrimitiveName' builtinGel  --Nothing in --cubical.
                mId   <- getBuiltinName' builtinId
-               pathV <- pathView'
+               pathV <- pathView' --TODO-antva. why do we need this, do we need more (wrt bridges)
+               
                case famThing t of
                  MetaV m _ -> fallback' (fmap famThing $ blocked_ m *> sbA)
                  -- absName t instead of "i"
-                 Pi a b | nelims > 0  -> maybe fallback redReturn =<< compPi cmd "i" ((a,b) <$ t) (ignoreBlocking sphi) u u0
+                 Pi a b | nelims > 0  -> maybe fallback redReturn =<< compPi cmd "i" ((a,b) <$ t) (ignoreBlocking sZeta) u u0
+                          -- (a,b) <$ t :: FamOrNot (Dom Ty, Abs Ty). basically (a,b) with the family label of t.
+                          -- ignoreBlocking sZeta  :: Arg Tm, u : Maybe (Arg Term), u0 :: Arg Term.
                         | otherwise -> fallback
 
                  Sort (Type l) | DoTransp <- cmd -> compSort cmd fallback phi u u0 (l <$ t)
@@ -935,10 +940,13 @@ primMTransMHComp cmd ts nelims = do
       redReturn $ unArg u0
     -- compSort DoHComp fallback phi (Just u) u0 (IsNot l) = -- hcomp for Set is a whnf, handled above.
     compSort _ fallback phi u u0 _ = __IMPOSSIBLE__
-    compPi :: TranspOrHComp -> ArgName -> FamilyOrNot (Dom Type, Abs Type) -- Γ , i : I
-            -> Arg Term -- Γ
-            -> Maybe (Arg Term) -- Γ
-            -> Arg Term -- Γ
+    compPi :: TranspOrHComp -> ArgName
+            -> FamilyOrNot (Dom Type, Abs Type)
+            -- ^ were reducing mixed transp or mixed hcomp on a Pi with those args.
+            --   cmd = DoTransp, then domain and cod of Pi depend on a path var
+            -> Arg Term -- ^ zeta:MCstr argument of mix transp/hocom
+            -> Maybe (Arg Term) -- ^ if cmd = DoHComp, an adjustement u
+            -> Arg Term -- ^ pcpl argument u0
             -> ReduceM (Maybe Term)
     compPi cmd t ab phi u u0 = do
      let getTermLocal = getTerm $ cmdToName cmd ++ " for function types"
