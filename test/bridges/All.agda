@@ -174,3 +174,15 @@ module _  (i : I) (@tick r : BI) (p : false ≡ true) (j : I) where
 
   am2 = am2pre
   
+
+
+-- module _ (ℓ : Level) (A : Type ℓ) (φ : I) (u : ∀ i → Partial φ A) (u0 : A) (b : Bool)  where
+
+  -- toreduce : A
+  -- toreduce = hcomp u u0
+
+
+module _ {ℓA ℓB} (φ ψ : I) (A : Type ℓA) (T : Partial φ (Type ℓB)) (e : PartialP φ (λ o → T o ≃ A))  (u : ∀ (i : I) → Partial ψ (primGlue A T e)) (u0 : primGlue A T e) where
+
+  anchor : Bool
+  anchor = true

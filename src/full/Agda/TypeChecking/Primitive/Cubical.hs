@@ -20,11 +20,11 @@ import qualified Data.IntMap as IntMap
 import qualified Data.List as List
 import Data.Foldable hiding (null)
 
-import Agda.Interaction.Options ( optCubical )
-
 import Agda.Syntax.Common
 import Agda.Syntax.Internal
 import Agda.Syntax.Internal.Pattern
+
+import Agda.Interaction.Options ( optBridges )
 
 import Agda.TypeChecking.Names
 import Agda.TypeChecking.Primitive.Base
@@ -35,6 +35,7 @@ import Agda.TypeChecking.Substitute
 import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Telescope
+-- import Agda.TypeChecking.Primitive.Bridges ( primMHComp' )
 
 import Agda.Utils.Either
 import Agda.Utils.Function
@@ -52,27 +53,8 @@ import Agda.Utils.BoolSet (BoolSet)
 import qualified Agda.Utils.Pretty as P
 import qualified Agda.Utils.BoolSet as BoolSet
 
--- | Checks that the correct variant of Cubical Agda is activated.
--- Note that @--erased-cubical@ \"counts as\" @--cubical@ in erased
--- contexts.
 
-requireCubical
-  :: Cubical -- ^ Which variant of Cubical Agda is required?
-  -> String -> TCM ()
-requireCubical wanted s = do
-  cubical         <- optCubical <$> pragmaOptions
-  inErasedContext <- hasQuantity0 <$> getEnv
-  case cubical of
-    Just CFull -> return ()
-    Just CErased | wanted == CErased || inErasedContext -> return ()
-    _ -> typeError $ GenericError $ "Missing option " ++ opt ++ s
-  where
-  opt = case wanted of
-    CFull   -> "--cubical"
-    CErased -> "--cubical or --erased-cubical"
 
-primIntervalType :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m) => m Type
-primIntervalType = El intervalSort <$> primInterval
 
 primINeg' :: TCM PrimitiveImpl
 primINeg' = do
@@ -438,8 +420,26 @@ primHComp' = do
           hPi' "φ" primIntervalType $ \ phi ->
           nPi' "i" primIntervalType (\ i -> pPi' "o" phi $ \ _ -> el' a bA) -->
           (el' a bA --> el' a bA)
-  return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 $ \ ts nelims -> do
-    primTransHComp DoHComp ts nelims
+  return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 $ \ ts@[l, bA, phi@(Arg infPhi phitm), u@(Arg infU utm), u0] nelims -> do
+    bridges <- optBridges <$> pragmaOptions
+    case bridges of
+      False ->  do
+        reportSDoc "tc.prim.hcomp" 20 $ text "Reading primHComp' cubical reduction def"
+        primTransHComp DoHComp ts nelims      
+      True -> do -- primMHComp {ℓ} {A} {φ b∨ bno} (λ i o → u i (reflct {φ} o)) u0
+        reportSDoc "tc.prim.hcomp" 20 $ text "Reading primHComp' bridges reduction def"
+        mixhcomp <- getTerm "" builtinMHComp
+        mkmc <- getTerm "" builtinMkmc
+        bno <- getTerm "" builtinBno
+        reflct <- getTerm "" builtinReflectMCstr
+        let iotaPhi :: Term
+            iotaPhi = mkmc `apply` [ argN phitm , argN bno ]
+        liftReflectU <- runNamesT [] $ -- :: Term
+                        lam "i" $ \ i ->
+                        lam "mprf" $ \ mprf -> --write reflectMCstr mprf
+                        -- i:I, mprf:MHolds (i m∨ bno) ⊢ u i (reflect {phi} mprf)
+                        (pure $ raise 2 utm) <@> i <@> ( (pure reflct) <#> (pure $ raise 2 phitm) <@> mprf )
+        redReturn $ mixhcomp `apply` [l, bA, Arg infPhi iotaPhi, Arg infU liftReflectU, u0] -- defaultArgInfo
 
 data TranspOrHComp = DoTransp | DoHComp deriving (Eq,Show)
 
@@ -1796,46 +1796,6 @@ primFaceForall' = do
         [(m, [_])] | null m -> Nothing
         v -> r
 
--- | Basically gives t:I in DNF
---   [ .. (bm_i, ts_i) .. ] <- decomposeInterval phi where phi = phi1 ∨ phi2 ...
---   then:
---   bm_i is describes a conjunction phi_i
---   ts is used to store blocked terms (?)
--- 
---   EX1: xyz ⊢ ~ x ∨ (y ∧ ~ z) ∨ i1
---        [  ([(2,False)],[])  , ([(0,False), (1,True)],[])  , ([],[])  ]
---   EX2: xyz ⊢ x ∧ (y ∨ z)
---        [  ([(1,True), (2,True)],[])  , ([(0,True), (2,True)],[])  ]
---        because x ∧ (y ∨ z) = (x ∧ y) ∨ (x ∧ z)
-decomposeInterval :: HasBuiltins m => Term -> m [(IntMap Bool, [Term])]
-decomposeInterval t = do
-  decomposeInterval' t <&> \ xs ->
-    [ (bm, ts)
-    | (bsm :: IntMap BoolSet, ts) <- xs
-    , bm <- maybeToList $ traverse BoolSet.toSingleton bsm
-        -- discard inconsistent mappings
-    ]
-
-decomposeInterval' :: HasBuiltins m => Term -> m [(IntMap BoolSet, [Term])]
-decomposeInterval' t = do
-     view   <- intervalView'
-     unview <- intervalUnview'
-     let f :: IntervalView -> [[Either (Int,Bool) Term]]
-         -- TODO handle primIMinDep
-         -- TODO? handle forall
-         f IZero = mzero -- []
-         f IOne  = return [] -- [[]]
-         f (IMin x y) = do xs <- (f . view . unArg) x; ys <- (f . view . unArg) y; return (xs ++ ys)
-         f (IMax x y) = msum $ map (f . view . unArg) [x,y]
-         f (INeg x)   = map (either (\ (x,y) -> Left (x,not y)) (Right . unview . INeg . argN)) <$> (f . view . unArg) x
-         f (OTerm (Var i [])) = return [Left (i,True)]
-         f (OTerm t)          = return [Right t]
-         v = view t
-     return [ (bsm,ts)
-            | xs <- f v
-            , let (bs,ts) = partitionEithers xs
-            , let bsm     = IntMap.fromListWith BoolSet.union $ map (second BoolSet.singleton) bs
-            ]
 
 
 -- | Tries to @primTransp@ a whole telescope of arguments, following the rule for Σ types.

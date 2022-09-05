@@ -21,6 +21,7 @@ import Agda.TypeChecking.Primitive
 import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Conversion
+import Agda.TypeChecking.Substitute
 
 import Agda.Interaction.Options
 -- import Agda.Interaction.Options.Base
@@ -208,11 +209,14 @@ main :: IO ()
 main = runTCMPrettyErrors $ do
   beInNiceTCState "./All.agda"
   addVerb "antvascript:0"
+
   
+  hocomGlue
+
   -- testMixedMeet
   -- decIntervalBotTop
   -- testMixedForall
-  mpartialJudgEqu3
+  -- mpartialJudgEqu3
   
   endOfMain
 
@@ -602,6 +606,35 @@ mpartialJudgEqu3 = do
     (text "-----------------------")
     [ text "AM1 VS AM2" ]
   addContext ctx $ equalTerm typ mp1 mp2
+
+
+hocomGlue :: TCM ()
+hocomGlue = do
+  ctx <- getTheCtx "anchor"
+  -- reportSDoc "antvascript" 0 $ prettyTCM ctx
+  addContext ctx $ do
+    args <- getContextArgs
+    -- [{_}, {_}, φ, ψ, A, T, e, u, u0]
+    -- [l=lB,bA= Gel A T e,phi,u,u0 : Gel A T e]
+    pgel <- primGel
+    let
+      give n = (args Prelude.!! n)
+      l = args Prelude.!! 1
+      bA = pgel `apply ` [give 4, give 5, give 6]
+      argsForHcom = [give 1, argN bA , give 2 , give 7 , give 8]
+
+    -- :: Reduced MaybeReducedArgs Term
+    reportSDoc "antvascript" 0 $ prettyTCM argsForHcom
+    thingy <- liftReduce  $  primTransHComp DoHComp argsForHcom 5
+    case thingy of
+      NoReduction tm -> reportSDocDocs "antvascript" 0
+        (text "noreduction") [ prettyTCM tm ]
+      YesReduction _ tm -> reportSDocDocs "antvascript" 0
+        (text "yesreduction") [ prettyTCM tm ]      
+    return ()
+
+  -- how to make an [Arg Term] 
+  -- primTransHComp DoHComp (_ : Arg Term)
   
 
 {-

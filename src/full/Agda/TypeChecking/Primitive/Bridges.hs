@@ -45,7 +45,7 @@ import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Telescope
 import Agda.TypeChecking.Lock
-import Agda.TypeChecking.Primitive.Cubical ( primIntervalType , decomposeInterval')
+-- import Agda.TypeChecking.Primitive.Cubical ( primIntervalType , decomposeInterval' , requireCubical, primHComp')
 
 import Agda.Utils.Either
 import Agda.Utils.Functor
@@ -738,26 +738,30 @@ primReflectMCstr' = do
 -- by def, it reduces to something using primMHComp via primReflectMCstr.
 primTestPrim' :: TCM PrimitiveImpl
 primTestPrim' = do
-  requireBridges "in primTestPrim'"
+  requireCubical CErased ""
   t    <- runNamesT [] $
           hPi' "a" (el $ cl primLevel) $ \ a ->
           hPi' "A" (sort . tmSort <$> a) $ \ bA ->
           hPi' "φ" primIntervalType $ \ phi ->
           nPi' "i" primIntervalType (\ i -> pPi' "o" phi $ \ _ -> el' a bA) -->
           (el' a bA --> el' a bA)
-  return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 $ \ [l, bA, phi@(Arg infPhi phitm), u@(Arg infU utm), u0] nelims -> do
-    mixhcomp <- getTerm "" builtinMHComp
-    mkmc <- getTerm "" builtinMkmc
-    bno <- getTerm "" builtinBno
-    reflct <- getTerm "" builtinReflectMCstr
-    let iotaPhi :: Term
-        iotaPhi = mkmc `apply` [ argN phitm , argN bno ]
-    liftReflectU <- runNamesT [] $ -- :: Term
-                    lam "i" $ \ i ->
-                    lam "mprf" $ \ mprf -> --write reflectMCstr mprf
-                    -- i:I, mprf:MHolds (i m∨ bno) ⊢ u i (reflect {phi} mprf)
-                    (pure $ raise 2 utm) <@> i <@> ( (pure reflct) <#> (pure $ raise 2 phitm) <@> mprf )
-    redReturn $ mixhcomp `apply` [l, bA, Arg infPhi iotaPhi, Arg infU liftReflectU, u0] -- defaultArgInfo
+  bridges <- optBridges <$> pragmaOptions
+  case bridges of
+    False -> __IMPOSSIBLE__ -- primHComp'
+    True -> -- primMHComp {ℓ} {A} {φ b∨ bno} (λ i o → u i (reflct {φ} o)) u0
+      return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 $ \ [l, bA, phi@(Arg infPhi phitm), u@(Arg infU utm), u0] nelims -> do
+        mixhcomp <- getTerm "" builtinMHComp
+        mkmc <- getTerm "" builtinMkmc
+        bno <- getTerm "" builtinBno
+        reflct <- getTerm "" builtinReflectMCstr
+        let iotaPhi :: Term
+            iotaPhi = mkmc `apply` [ argN phitm , argN bno ]
+        liftReflectU <- runNamesT [] $ -- :: Term
+                        lam "i" $ \ i ->
+                        lam "mprf" $ \ mprf -> --write reflectMCstr mprf
+                        -- i:I, mprf:MHolds (i m∨ bno) ⊢ u i (reflect {phi} mprf)
+                        (pure $ raise 2 utm) <@> i <@> ( (pure reflct) <#> (pure $ raise 2 phitm) <@> mprf )
+        redReturn $ mixhcomp `apply` [l, bA, Arg infPhi iotaPhi, Arg infU liftReflectU, u0] -- defaultArgInfo
 
 
 -- \extentArgs@[lA, lB, bA, bB,
@@ -769,7 +773,7 @@ primTestPrim' = do
 
 -- * Kan operations with mixed constraints.
 
-
+-- primMHComp : ∀ {ℓ} {A : Type ℓ} {ζ : MCstr} (u : ∀ i → MPartial ζ A) (u0 : A) → A
 primMHComp' :: TCM PrimitiveImpl
 primMHComp' = do
   requireBridges "in primMHComp'"
@@ -780,6 +784,6 @@ primMHComp' = do
           nPi' "i" primIntervalType (\ i -> mpPi' "o" zeta $ \ _ -> el' l bA) -->
           (el' l bA --> el' l bA)
   return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 $ \ ts nelims -> do
-    dummyRedTerm0
+    return $ NoReduction $ map notReduced ts
 
 
