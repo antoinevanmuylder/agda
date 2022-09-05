@@ -29,7 +29,7 @@ builtinNat, builtinSuc, builtinZero, builtinNatPlus, builtinNatMinus,
   builtinByes, builtinBno, builtinBisone, builtinBiszero, builtinBconj,
   builtinBHolds, builtinBitHolds, builtinBPartial,
   builtinMCstr, builtinMno, builtinMyes, builtinMkmc, builtinMHolds, builtinMitHolds, builtinMPartial,
-  builtinMComp, builtinMTrans, builtinMHComp, builtinTestPrim, builtinReflectMCstr,
+  builtinMComp, builtinMHComp, builtinTestPrim, builtinReflectMCstr,
   builtinSizeUniv, builtinSize, builtinSizeLt,
   builtinSizeSuc, builtinSizeInf, builtinSizeMax,
   builtinInf, builtinSharp, builtinFlat,
@@ -177,7 +177,6 @@ builtinMHolds                            = "MHOLDS"
 builtinMitHolds                          = "MITHOLDS"
 builtinMPartial                          = "MPARTIAL"
 builtinMComp                             = "primMComp"
-builtinMTrans                            = "primMTransp"
 builtinMHComp                            = "primMHComp"
 builtinTestPrim                          = "primTestPrim"
 builtinReflectMCstr                      = "primReflectMCstr"

@@ -45,7 +45,7 @@ import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Telescope
 import Agda.TypeChecking.Lock
-import Agda.TypeChecking.Primitive.Cubical ( primIntervalType , decomposeInterval', TranspOrHComp(..) , requireCubical )
+import Agda.TypeChecking.Primitive.Cubical ( primIntervalType , decomposeInterval')
 
 import Agda.Utils.Either
 import Agda.Utils.Functor
@@ -717,7 +717,7 @@ primMPartial' = do
 -- reflectMCstr : {φ : I} -> .(MHolds φ m∨ bno) -> IsOne φ
 primReflectMCstr' :: TCM PrimitiveImpl
 primReflectMCstr' = do
-  requireCubical CErased ""
+  requireBridges "in primReflectMCstr'"
   -- reflectMCstr is used to define std Kan op in terms of mixed ones
   -- hence using them in --cubical only environment is reasonnable.
   typ <- runNamesT [] $
@@ -738,7 +738,7 @@ primReflectMCstr' = do
 -- by def, it reduces to something using primMHComp via primReflectMCstr.
 primTestPrim' :: TCM PrimitiveImpl
 primTestPrim' = do
-  requireCubical CErased ""
+  requireBridges "in primTestPrim'"
   t    <- runNamesT [] $
           hPi' "a" (el $ cl primLevel) $ \ a ->
           hPi' "A" (sort . tmSort <$> a) $ \ bA ->
@@ -749,12 +749,14 @@ primTestPrim' = do
     mixhcomp <- getTerm "" builtinMHComp
     mkmc <- getTerm "" builtinMkmc
     bno <- getTerm "" builtinBno
+    reflct <- getTerm "" builtinReflectMCstr
     let iotaPhi :: Term
-        iotaPhi = mkmc `apply` [ phi, argN bno ]
+        iotaPhi = mkmc `apply` [ argN phitm , argN bno ]
     liftReflectU <- runNamesT [] $ -- :: Term
                     lam "i" $ \ i ->
                     lam "mprf" $ \ mprf -> --write reflectMCstr mprf
-                    cl primReflectMCstr <#> (pure phitm) <@> mprf
+                    -- i:I, mprf:MHolds (i m∨ bno) ⊢ u i (reflect {phi} mprf)
+                    (pure $ raise 2 utm) <@> i <@> ( (pure reflct) <#> (pure $ raise 2 phitm) <@> mprf )
     redReturn $ mixhcomp `apply` [l, bA, Arg infPhi iotaPhi, Arg infU liftReflectU, u0] -- defaultArgInfo
 
 
@@ -770,7 +772,7 @@ primTestPrim' = do
 
 primMHComp' :: TCM PrimitiveImpl
 primMHComp' = do
-  -- requireCubical CErased "" -- ??
+  requireBridges "in primMHComp'"
   t    <- runNamesT [] $
           hPi' "l" (el $ cl primLevel) $ \ l ->
           hPi' "A" (sort . tmSort <$> l) $ \ bA ->
@@ -778,8 +780,6 @@ primMHComp' = do
           nPi' "i" primIntervalType (\ i -> mpPi' "o" zeta $ \ _ -> el' l bA) -->
           (el' l bA --> el' l bA)
   return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 $ \ ts nelims -> do
-    primMTransMHComp DoHComp ts nelims
-  where
-    primMTransMHComp _ _ _ = dummyRedTerm0
+    dummyRedTerm0
 
 
