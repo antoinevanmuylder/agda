@@ -7,16 +7,6 @@ open import Agda.Builtin.Bool
 open import Agda.Builtin.Nat
 
 
-
-primitive
-  -- a primitive with the same type than primHComp.
-  primTestPrim : ∀ {ℓ} {A : Type ℓ} {φ : I} (u : ∀ i → Partial φ A) (a0 : A) → A
-  -- a primitive guaranteeing that the cubical cofib logic embeds into the bicubical logic.
-  primReflectMCstr : ∀ {φ : I} → .(MHolds (φ m∨ bno)) → (IsOne φ)
-  -- mixed homogeneous composition
-  primMHComp : ∀ {ℓ} {A : Type ℓ} {ζ : MCstr} (u : ∀ i → MPartial ζ A) (a0 : A) → A
-
-
 module decomposeInterval (x y z : I) where
   
   toDec : I
@@ -184,9 +174,3 @@ module _  (i : I) (@tick r : BI) (p : false ≡ true) (j : I) where
 
   am2 = am2pre
   
-
-
-module _ (ℓ : Level) (A : Type ℓ) (φ : I) (u : ∀ i → Partial φ A) (a0 : A) (b : Bool)  where
-
-  toreduce : A
-  toreduce = primTestPrim u a0

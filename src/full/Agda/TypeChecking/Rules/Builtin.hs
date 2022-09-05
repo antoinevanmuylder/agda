@@ -221,14 +221,14 @@ coreBuiltins =
                                                                fiber
                                                              ))
                                                               (const $ const $ return ()))
-  -- some primitives/builtins added by the bridges impl. can be used in --cubical
-  -- this flag downgrade --bridges -> --cubical exists because ultimately, cubical Kan operations should
-  -- be defined in terms of mixed Kan operations.
-  -- TODO-antva: remove comment
-  , (builtinBridgeInterval     |-> BuiltinData (requireCubical CErased "" >> (return $ sort LockUniv)) --flag downgrade
+    
+  , (builtinBridgeInterval     |-> BuiltinData (requireBridges "" >> (return $ sort LockUniv))
                                                [builtinBIZero,builtinBIOne])
-  , (builtinBIZero                            |-> (BuiltinDataCons $ requireCubical CErased "" >> primBridgeIntervalType)) --flag downgrade
-  , (builtinBIOne                             |-> (BuiltinDataCons $ requireCubical CErased "" >> primBridgeIntervalType)) --flag downgrade
+    
+  , (builtinBIZero                            |-> BuiltinDataCons primBridgeIntervalType)
+  , (builtinBIOne                             |-> BuiltinDataCons primBridgeIntervalType)
+  
+    
   , (builtinBridgeP                           |-> builtinPostulate ( (>>) (requireBridges "") $ runNamesT [] $
                                                   hPi' "l" (el primLevel) $ \l -> -- {l:Level} ;  l: NameT m Term
                                                   nPi' "A" (lPi' "x" primBridgeIntervalType $ \x -> (sort . tmSort <$> l)) $ \bA -> --A : (@tick x : BI) -> Set l
@@ -236,14 +236,14 @@ coreBuiltins =
                                                    ( el' l (bA <@> primBIOne) ) -->
                                                    (sort . tmSort <$> l) ))
   , (builtinCstrUniv                          |-> BuiltinSort "primCstrUniv")
-  , (builtinBCstr                             |-> BuiltinPostulate Relevant (requireCubical CErased "" >> (return $ sort CstrUniv))) --flag downgrade
-  , (builtinBHolds                            |-> BuiltinPostulate Relevant (requireCubical CErased "" >> (tbcstr --> return (ssort $ ClosedLevel 0)))) --flag downgrade
-  , (builtinBitHolds                          |-> BuiltinPostulate Relevant (requireCubical CErased "" >> (elSSet $ primBHolds <@> primByes)))
+  , (builtinBCstr                             |-> BuiltinPostulate Relevant (requireBridges "" >> (return $ sort CstrUniv)))
+  , (builtinBHolds                            |-> BuiltinPostulate Relevant (requireBridges "" >> (tbcstr --> return (ssort $ ClosedLevel 0))))
+  , (builtinBitHolds                          |-> BuiltinPostulate Relevant (requireBridges "" >> (elSSet $ primBHolds <@> primByes)))
   , (builtinBPartial                          |-> BuiltinPrim "primBPartial" (const $ return ()))
-  , (builtinMCstr                             |-> BuiltinPostulate Relevant (requireCubical CErased "" >> (return $ sort CstrUniv))) --flag downgrade
-  , (builtinMHolds                            |-> BuiltinPostulate Relevant (requireCubical CErased "" >> (tmcstr --> return (ssort $ ClosedLevel 0)))) --flag downgrade
-  , (builtinMitHolds                          |-> BuiltinPostulate Relevant (requireCubical CErased "" >> (elSSet $ primMHolds <@> primMyes))) --flag downgrade
-  , (builtinMPartial                          |-> BuiltinPrim "primMPartial" (const $ return ())) --flag downgrade in primMPartial'
+  , (builtinMCstr                             |-> BuiltinPostulate Relevant (requireBridges "" >> (return $ sort CstrUniv)))
+  , (builtinMHolds                            |-> BuiltinPostulate Relevant (requireBridges "" >> (tmcstr --> return (ssort $ ClosedLevel 0))))
+  , (builtinMitHolds                          |-> BuiltinPostulate Relevant (requireBridges "" >> (elSSet $ primMHolds <@> primMyes)))
+  , (builtinMPartial                          |-> BuiltinPrim "primMPartial" (const $ return ()))
 
   , (builtinAgdaSort                         |-> BuiltinData tset
                                                    [ builtinAgdaSortSet, builtinAgdaSortLit
