@@ -724,7 +724,7 @@ primReflectMCstr' = do
     hPi' "φ" primIntervalType $ \ phi ->
     mpPi' "o" (iota phi) $ \ _ -> --todo: replace phi by phi embedded in MCstr. phi :: NamesT m Term
     elSSet $ cl isOne <@> phi
-  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 1 $ \ [Arg _ phi , _] -> do
+  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 2 $ \ [Arg _ phi , _] -> do
     yes <- getTerm "" builtinItIsOne --reflectMCstr is a constant function.
     redReturn yes
   where
@@ -783,7 +783,17 @@ primMHComp' = do
           hPi' "ζ" primMCstrType $ \ zeta ->
           nPi' "i" primIntervalType (\ i -> mpPi' "o" zeta $ \ _ -> el' l bA) -->
           (el' l bA --> el' l bA)
-  return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 $ \ ts nelims -> do
-    return $ NoReduction $ map notReduced ts
+  return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 $ \ ts@[l, bA, zeta@(Arg infZeta zetatm), u@(Arg infU utm), u0] nelims -> do
+    -- return $ NoReduction $ map notReduced ts
+  sZeta <- reduceB' zeta
+  vZeta <- mcstrView $ unArg $ ignoreBlocking sZeta
+  let clP s = getTerm (builtinMHComp) s
 
+  case vZeta of
+    Myes -> do -- adjusting u0 everywhere.
+      ret <- runNamesT [] $ do
+               u <- open (unArg u)
+               u <@> clP builtinIOne <..> clP builtinMitHolds
+      redReturn ret
+    _ -> return $ NoReduction $ map notReduced ts
 
