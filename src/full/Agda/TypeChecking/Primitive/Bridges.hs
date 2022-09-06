@@ -783,8 +783,15 @@ primMHComp' = do
           hPi' "ζ" primMCstrType $ \ zeta ->
           nPi' "i" primIntervalType (\ i -> mpPi' "o" zeta $ \ _ -> el' l bA) -->
           (el' l bA --> el' l bA)
+  -- nelims = # of additional elims (ie after u0)
   return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 $ \ ts@[l, bA, zeta@(Arg infZeta zetatm), u@(Arg infU utm), u0] nelims -> do
-    -- return $ NoReduction $ map notReduced ts
+  reportSDocDocs "tc.prim.mhcomp" 40
+    (text "reducing in primMHComp with args...")
+    [ "l    = " <+> prettyTCM (unArg l)
+    , "A    = " <+> prettyTCM (unArg bA)
+    , "zeta = " <+> prettyTCM (unArg zeta)
+    , "u    = " <+> prettyTCM (unArg u)
+    , "u0   = " <+> prettyTCM (unArg u0) ]
   sZeta <- reduceB' zeta
   vZeta <- mcstrView $ unArg $ ignoreBlocking sZeta
   let clP s = getTerm (builtinMHComp) s
@@ -799,23 +806,84 @@ primMHComp' = do
       let fallback' :: (Blocked (Arg Term)) -> ReduceM (Reduced MaybeReducedArgs Term)
           fallback' btyp = do
             u' <- case vZeta of
-                    --TODO-antva: a nowhere defined adjustement u reduces to canonical u'
                     -- expect ReduceM (MaybeReduced (Arg Term))
+                    Mno -> __IMPOSSIBLE__    --TODO-antva: a nowhere defined adjustement u reduces to canonical u'
                     -- Mno -> fmap (reduced . notBlocked . argN) . runNamesT [] $ do
                     --   [l,typ] <- mapM (open . unArg) [l, ignoreBlocking btyp] 
                     --   lam "i" $ \ i -> clP builtinIsOneEmpty <#> l
                     --                          <#> ilam "o" (\ _ -> typ)
                     _     -> return (notReduced u)
             return $ NoReduction $ [notReduced l , reduced btyp , reduced sZeta] ++ [ u' ] ++ [notReduced u0]
-      sbA <- reduceB' bA
-      -- _t <- case unArg <$> ignoreBlocking sbA of --  t :: Maybe $ FamilyOrNot $ Blocked Term??
-      --         IsFam (Lam _info t) -> Just . fmap IsFam <$> reduceB' (absBody t)
-      --         IsFam _             -> return Nothing
-      --         IsNot t             -> return . Just . fmap IsNot $ (t <$ sbA) -- t : Term, (t <$ sbA) :: Blocked Term
-      mHComp <- getPrimitiveName' builtinHComp
-      mGlue <- getPrimitiveName' builtinGlue
-      mId   <- getBuiltinName' builtinId
-      pathV <- pathView'
+      sbA <- reduceB' bA -- :: Blocked (Arg Term)
+      let fallback = fallback' (sbA)
+          t = ignoreBlocking sbA
+      mHComp <- getPrimitiveName' builtinMHComp
+      -- mGlue <- getPrimitiveName' builtinGlue
+      -- mId   <- getBuiltinName' builtinId
+      -- pathV <- pathView'
       case (unArg $ ignoreBlocking sbA) of
-        MetaV m _ -> fallback' (blocked_ m *> sbA)
+        MetaV m _ -> do
+          reportSLn "tc.prim.mhcomp" 40 $ "in primMHComp, matched type has meta"
+          fallback' (blocked_ m *> sbA)
+        Pi a b
+          | nelims > 0  -> do
+              reportSLn "tc.prim.mhcomp" 40 $ "in primMHComp, type matched Pi and nelims > 0"
+              maybe fallback redReturn =<< mhcompPi (a,b) (ignoreBlocking sZeta) u u0
+          | otherwise -> do
+              reportSLn "tc.prim.mhcomp" 40 $ "in primMHComp, type matched Pi and nelims == 0"
+              fallback        
         _ -> return $ NoReduction $ map notReduced ts
+
+
+mhcompPi :: (Dom Type, Abs Type)
+         -- ^ Γ ⊢ a, b. dom and cod of the Pi type at hand.
+         -> Arg Term
+         -- ^ Γ ⊢ ζ : MCstr
+         -> Arg Term
+         -- ^ Γ ⊢ u : (i:I) -> MPartial ζ (Pi a b)
+         -> Arg Term
+         -- ^ Γ ⊢ u0 : Pi a b
+         -> ReduceM (Maybe Term)
+mhcompPi {- cmd t -} ab zeta u u0 = do
+ reportSLn "tc.prim.mhcomp" 40 $ "in primMHComp, reduction for Pi type fired."
+ let getTermLocal = getTerm $ builtinMHComp ++ " for function types"
+ -- tTrans <- getTermLocal builtinTrans
+ tMHComp <- getTermLocal builtinMHComp
+ -- tINeg <- getTermLocal builtinINeg
+ -- tIMax <- getTermLocal builtinIMax
+ -- iz    <- getTermLocal builtinIZero
+ let
+   toLevel' t = do
+     s <- reduce $ getSort t
+     case s of
+       (Type l) -> return (Just l)
+       _        -> return Nothing
+   toLevel t = fromMaybe __IMPOSSIBLE__ <$> toLevel' t
+ -- make sure the codomain has a level.
+ caseMaybeM (toLevel' . absBody . snd $ ab) (return Nothing) $ \ _ -> do
+ runNamesT [] $ do
+  keepGoing <- do
+    s <- reduce $ getSort (fst ab)
+    case s of
+      Type lx -> return True
+      LockUniv -> return True
+      IntervalUniv -> do
+        a' <- reduceB $ unDom (fst ab)
+        mInterval <- getBuiltinName' builtinInterval
+        case unEl $ ignoreBlocking a' of
+          Def q [] | Just q == mInterval -> return True
+          _ -> return False
+      _ -> return False
+  case keepGoing of
+    False -> return Nothing
+    True -> Just <$> do --expct NamesT ReduceM Term
+      [zeta, u , u0] <- mapM (open . unArg) [zeta, u, u0]
+      let a = fst ab
+          b = snd ab          
+      glam (getArgInfo a) (absName b) $ \ x -> do --x : A
+        bT <- (raise 1 b `absApp`) <$> x
+        pure tMHComp <#> (Level <$> toLevel bT)
+                    <#> pure (unEl                      $ bT)
+                    <#> zeta
+                    <@> lam "i" (\ i -> ilam "o" $ \ o -> gApply (getHiding a) (u <@> i <..> o) x)
+                    <@> (gApply (getHiding a) u0 x)
