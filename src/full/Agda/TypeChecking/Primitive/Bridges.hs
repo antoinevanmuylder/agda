@@ -45,7 +45,7 @@ import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Telescope
 import Agda.TypeChecking.Lock
--- import Agda.TypeChecking.Primitive.Cubical ( primIntervalType , decomposeInterval' , requireCubical, primHComp')
+import Agda.TypeChecking.Primitive.Cubical ( headStop , TermPosition(..) ) --TODO-antva move to Primitive.Base, maybe.
 
 import Agda.Utils.Either
 import Agda.Utils.Functor
@@ -818,7 +818,7 @@ primMHComp' = do
       let fallback = fallback' (sbA)
           t = ignoreBlocking sbA
       mHComp <- getPrimitiveName' builtinMHComp
-      -- mGlue <- getPrimitiveName' builtinGlue
+      mGlue <- getPrimitiveName' builtinGlue
       -- mId   <- getBuiltinName' builtinId
       -- pathV <- pathView'
       case (unArg $ ignoreBlocking sbA) of
@@ -831,7 +831,10 @@ primMHComp' = do
               maybe fallback redReturn =<< mhcompPi (a,b) (ignoreBlocking sZeta) u u0
           | otherwise -> do
               reportSLn "tc.prim.mhcomp" 40 $ "in primMHComp, type matched Pi and nelims == 0"
-              fallback        
+              fallback
+        -- Glue {ℓA ℓB} (A : Set ℓA) {φ' : I} (T : Partial φ' (Set ℓB)) (e: PartialP φ' (λ o → T o ≃ A)) : Set ℓB
+        Def q [Apply la, Apply lb, Apply bA, Apply phi', Apply bT, Apply e] | Just q == mGlue -> do
+          maybe fallback redReturn =<< mhcompGlue zeta u u0 (la, lb, bA, phi', bT, e) Head
         _ -> return $ NoReduction $ map notReduced ts
 
 
@@ -887,3 +890,56 @@ mhcompPi {- cmd t -} ab zeta u u0 = do
                     <#> zeta
                     <@> lam "i" (\ i -> ilam "o" $ \ o -> gApply (getHiding a) (u <@> i <..> o) x)
                     <@> (gApply (getHiding a) u0 x)
+
+-- | used for reduction of
+--   mhocom {} {Glue A {φ : I} T e} {ψ : MCstr} u u0
+mhcompGlue :: PureTCM m =>
+           Arg Term
+           -- ^ ψ : MCstr, comes from primMHComp call.
+           -> Arg Term
+           -- ^ u : ∀ i → MPartial ψ (Glue A T e)
+           -> Arg Term
+           -- ^ u0 : Glue A T e
+           -> (Arg Term, Arg Term, Arg Term, Arg Term, Arg Term, Arg Term)
+           -- ^ glue args: {ℓA ℓB} (A : Type ℓA) {phi : I} (T : Partial φ (Type ℓB)) (e : PartialP φ (o ↦ T o ≃ A))
+           -> TermPosition
+           -> m (Maybe Term)
+mhcompGlue psi u u0 glueArgs@(la, lb, bA, phi, bT, e) tpos = do
+  return $ Nothing
+  -- let getTermLocal = getTerm $ (builtinMHComp ++ " for " ++ builtinGlue)
+  -- tPOr <- getTermLocal "primPOr"
+  -- tIMax <- getTermLocal builtinIMax
+  -- tIMin <- getTermLocal builtinIMin
+  -- tINeg <- getTermLocal builtinINeg
+  -- tHComp <- getTermLocal builtinHComp
+  -- tEFun  <- getTermLocal builtinEquivFun
+  -- tglue   <- getTermLocal builtin_glue
+  -- tunglue <- getTermLocal builtin_unglue
+  -- io      <- getTermLocal builtinIOne
+  -- tItIsOne <- getTermLocal builtinItIsOne
+  -- view <- intervalView'
+  -- runNamesT [] $ do
+  --   [psi, u, u0] <- mapM (open . unArg) [psi, u, u0]
+  --   [la, lb, bA, phi, bT, e] <- mapM (open . unArg) [la, lb, bA, phi, bT, e]
+  --   -- headStop tpos phi <-> tpos == Head and φ != i1.
+  --   ifM (headStop tpos phi) (return Nothing) $ Just <$> do
+  --   let
+  --     hfill la bA phi u u0 i = pure tHComp <#> la
+  --                                          <#> bA
+  --                                          <#> (pure tIMax <@> phi <@> (pure tINeg <@> i))
+  --                                          <@> lam "j" (\ j -> pure tPOr <#> la <@> phi <@> (pure tINeg <@> i) <@> ilam "o" (\ a -> bA)
+  --                                                <@> ilam "o" (\ o -> u <@> (pure tIMin <@> i <@> j) <..> o)
+  --                                                <@> ilam "o" (\ _ -> u0))
+  --                                          <@> u0
+  --     tf i o = hfill lb (bT <..> o) psi u u0 i
+  --     unglue g = pure tunglue <#> la <#> lb <#> bA <#> phi <#> bT <#> e <@> g
+  --     a1 = pure tHComp <#> la <#> bA <#> (pure tIMax <@> psi <@> phi)
+  --                      <@> lam "i" (\ i -> pure tPOr <#> la <@> psi <@> phi <@> ilam "_" (\ _ -> bA)
+  --                            <@> ilam "o" (\ o -> unglue (u <@> i <..> o))
+  --                            <@> ilam "o" (\ o -> pure tEFun <#> lb <#> la <#> (bT <..> o) <#> bA <@> (e <..> o) <@> tf i o))
+  --                      <@> (unglue u0)
+  --     t1 = tf (pure io)
+  --   -- pure tglue <#> la <#> lb <#> bA <#> phi <#> bT <#> e <@> (ilam "o" $ \ o -> t1 o) <@> a1
+  --   case tpos of
+  --     Head -> t1 (pure tItIsOne)
+  --     Eliminated -> a1  
