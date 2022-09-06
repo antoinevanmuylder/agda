@@ -795,5 +795,27 @@ primMHComp' = do
                u <- open (unArg u)
                u <@> clP builtinIOne <..> clP builtinMitHolds
       redReturn ret
-    _ -> return $ NoReduction $ map notReduced ts
-
+    _ -> do
+      let fallback' :: (Blocked (Arg Term)) -> ReduceM (Reduced MaybeReducedArgs Term)
+          fallback' btyp = do
+            u' <- case vZeta of
+                    --TODO-antva: a nowhere defined adjustement u reduces to canonical u'
+                    -- expect ReduceM (MaybeReduced (Arg Term))
+                    -- Mno -> fmap (reduced . notBlocked . argN) . runNamesT [] $ do
+                    --   [l,typ] <- mapM (open . unArg) [l, ignoreBlocking btyp] 
+                    --   lam "i" $ \ i -> clP builtinIsOneEmpty <#> l
+                    --                          <#> ilam "o" (\ _ -> typ)
+                    _     -> return (notReduced u)
+            return $ NoReduction $ [notReduced l , reduced btyp , reduced sZeta] ++ [ u' ] ++ [notReduced u0]
+      sbA <- reduceB' bA
+      -- _t <- case unArg <$> ignoreBlocking sbA of --  t :: Maybe $ FamilyOrNot $ Blocked Term??
+      --         IsFam (Lam _info t) -> Just . fmap IsFam <$> reduceB' (absBody t)
+      --         IsFam _             -> return Nothing
+      --         IsNot t             -> return . Just . fmap IsNot $ (t <$ sbA) -- t : Term, (t <$ sbA) :: Blocked Term
+      mHComp <- getPrimitiveName' builtinHComp
+      mGlue <- getPrimitiveName' builtinGlue
+      mId   <- getBuiltinName' builtinId
+      pathV <- pathView'
+      case (unArg $ ignoreBlocking sbA) of
+        MetaV m _ -> fallback' (blocked_ m *> sbA)
+        _ -> return $ NoReduction $ map notReduced ts
