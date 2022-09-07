@@ -25,6 +25,8 @@ import Agda.Syntax.Literal
 import Agda.Syntax.Builtin
 import Agda.Syntax.Internal as I
 import Agda.TypeChecking.Monad.Base
+import Agda.TypeChecking.Monad.Debug
+import Agda.Utils.Pretty as P
 -- import Agda.TypeChecking.Functions  -- LEADS TO IMPORT CYCLE
 import Agda.TypeChecking.Substitute
 
@@ -88,6 +90,7 @@ setBuiltinThings b = stLocalBuiltins `setTCLens` b
 
 bindBuiltinName :: String -> Term -> TCM ()
 bindBuiltinName b x = do
+  reportSDoc "tc.prim" 20 $ return $ "binding (?)builtin" <+> (P.text b)  
   builtin <- getBuiltinThing b
   case builtin of
     Just (Builtin y) -> typeError $ DuplicateBuiltinBinding b y x
@@ -97,6 +100,7 @@ bindBuiltinName b x = do
 
 bindPrimitive :: String -> PrimFun -> TCM ()
 bindPrimitive b pf = do
+  reportSDoc "tc.prim" 20 $ return $ "binding (?)primitive" <+> (P.text b)
   builtin <- getBuiltinThing b
   case builtin of
     Just (Builtin _) -> typeError $ NoSuchPrimitiveFunction b
@@ -141,8 +145,8 @@ getPrimitive' x = (getPrim =<<) <$> getBuiltinThing x
 
 getPrimitive :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m)
              => String -> m PrimFun
-getPrimitive x =
-  fromMaybeM (typeError $ NoSuchPrimitiveFunction x) $ getPrimitive' x
+getPrimitive x = do
+  fromMaybeM (typeError $ GenericError $ "there is no primitive function called " ++ x ++ " (< getPrimitive)") $ getPrimitive' x -- NoSuchPrimitiveFunction x
 
 getPrimitiveTerm :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m)
                  => String -> m Term

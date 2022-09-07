@@ -994,7 +994,7 @@ primitiveFunctions = localTCStateSavingWarnings <$> Map.fromListWith __IMPOSSIBL
   , builtinReflectMCstr   |-> primReflectMCstr'
   -- , builtinTestPrim       |-> primTestPrim'
   , builtinEmbd           |-> primEmbd'
-  , builtinMixedOr        |-> primMixedOr'
+  , "primMixedOr"         |-> primMixedOr'
   , "primMPartialP"       |-> primMPartialP'
   , builtinMPOr           |-> primMPOr'
   ]

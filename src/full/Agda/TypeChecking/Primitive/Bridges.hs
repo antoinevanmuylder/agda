@@ -836,12 +836,12 @@ primMPOr' = do
   requireBridges "in primMPOr'"
   t    <- runNamesT [] $
           hPi' "a" (el $ cl primLevel)    $ \ a  ->
-          nPi' "ζ1" primIntervalType $ \ z1  ->
-          nPi' "ζ2" primIntervalType $ \ z2  ->
+          nPi' "ζ1" primMCstrType $ \ z1  ->
+          nPi' "ζ2" primMCstrType $ \ z2  ->
           hPi' "A" (mpPi' "o" (cl primMixedOr <@> z1 <@> z2) $ \o -> el' (cl primLevelSuc <@> a) (Sort . tmSort <$> a)) $ \ bA ->
           ((mpPi' "o1" z1 $ \ o1 -> el' a $ bA <..> (cl primMHolds1 <@> z1 <@> z2 <@> o1))) -->
           ((mpPi' "o2" z2 $ \ o2 -> el' a $ bA <..> (cl primMHolds2 <@> z1 <@> z2 <@> o2))) -->
-          pPi' "o" (cl primMixedOr <@> z1 <@> z2) (\ o -> el' a $ bA <..> o)
+          mpPi' "o" (cl primMixedOr <@> z1 <@> z2) (\ o -> el' a $ bA <..> o)
   return $ PrimImpl t $ primFun __IMPOSSIBLE__ 6 $ \ ts@[l,z1,z2,a,u,v] -> do
     sz1 <- reduceB' z1
     vz1 <- mcstrView $ unArg $ ignoreBlocking sz1
@@ -893,11 +893,11 @@ primMHComp' = do
           fallback' btyp = do
             u' <- case vZeta of
                     -- expect ReduceM (MaybeReduced (Arg Term))
-                    Mno -> __IMPOSSIBLE__    --TODO-antva: a nowhere defined adjustement u reduces to canonical u'
-                    -- Mno -> fmap (reduced . notBlocked . argN) . runNamesT [] $ do
-                    --   [l,typ] <- mapM (open . unArg) [l, ignoreBlocking btyp] 
-                    --   lam "i" $ \ i -> clP builtinIsOneEmpty <#> l
-                    --                          <#> ilam "o" (\ _ -> typ)
+                    -- a nowhere defined adjustement u reduces to canonical u'
+                    Mno -> fmap (reduced . notBlocked . argN) . runNamesT [] $ do
+                      [l,typ] <- mapM (open . unArg) [l, ignoreBlocking btyp] 
+                      lam "i" $ \ i -> clP builtinMHoldsEmpty <#> l
+                                             <#> ilam "o" (\ _ -> typ)
                     _     -> return (notReduced u)
             return $ NoReduction $ [notReduced l , reduced btyp , reduced sZeta] ++ [ u' ] ++ [notReduced u0]
       sbA <- reduceB' bA -- :: Blocked (Arg Term)
@@ -991,44 +991,49 @@ mhcompGlue :: PureTCM m =>
            -> TermPosition
            -> m (Maybe Term)
 mhcompGlue psi u u0 glueArgs@(la, lb, bA, phi, bT, e) tpos = do
-  return $ Nothing
-  -- let getTermLocal = getTerm $ (builtinMHComp ++ " for " ++ builtinGlue)
-  -- tPOr <- getTermLocal "primPOr"
-  -- tIMax <- getTermLocal builtinIMax
-  -- tIMin <- getTermLocal builtinIMin
-  -- tINeg <- getTermLocal builtinINeg
-  -- tHComp <- getTermLocal builtinHComp
-  -- tEFun  <- getTermLocal builtinEquivFun
-  -- tglue   <- getTermLocal builtin_glue
-  -- tunglue <- getTermLocal builtin_unglue
-  -- io      <- getTermLocal builtinIOne
-  -- tItIsOne <- getTermLocal builtinItIsOne
-  -- view <- intervalView'
-  -- runNamesT [] $ do
-  --   [psi, u, u0] <- mapM (open . unArg) [psi, u, u0]
-  --   [la, lb, bA, phi, bT, e] <- mapM (open . unArg) [la, lb, bA, phi, bT, e]
-  --   -- headStop tpos phi <-> tpos == Head and φ != i1.
-  --   ifM (headStop tpos phi) (return Nothing) $ Just <$> do
-  --   let
-  --     hfill la bA phi u u0 i = pure tHComp <#> la
-  --                                          <#> bA
-  --                                          <#> (pure tIMax <@> phi <@> (pure tINeg <@> i))
-  --                                          <@> lam "j" (\ j -> pure tPOr <#> la <@> phi <@> (pure tINeg <@> i) <@> ilam "o" (\ a -> bA)
-  --                                                <@> ilam "o" (\ o -> u <@> (pure tIMin <@> i <@> j) <..> o)
-  --                                                <@> ilam "o" (\ _ -> u0))
-  --                                          <@> u0
-  --     tf i o = hfill lb (bT <..> o) psi u u0 i
-  --     unglue g = pure tunglue <#> la <#> lb <#> bA <#> phi <#> bT <#> e <@> g
-  --     a1 = pure tHComp <#> la <#> bA <#> (pure tIMax <@> psi <@> phi)
-  --                      <@> lam "i" (\ i -> pure tPOr <#> la <@> psi <@> phi <@> ilam "_" (\ _ -> bA)
-  --                            <@> ilam "o" (\ o -> unglue (u <@> i <..> o))
-  --                            <@> ilam "o" (\ o -> pure tEFun <#> lb <#> la <#> (bT <..> o) <#> bA <@> (e <..> o) <@> tf i o))
-  --                      <@> (unglue u0)
-  --     t1 = tf (pure io)
-  --   -- pure tglue <#> la <#> lb <#> bA <#> phi <#> bT <#> e <@> (ilam "o" $ \ o -> t1 o) <@> a1
-  --   case tpos of
-  --     Head -> t1 (pure tItIsOne)
-  --     Eliminated -> a1  
+  reportSLn "tc.prim.mhcomp" 40 $ "mhcompGlue was fired"
+  let getTermLocal = getTerm $ (builtinMHComp ++ " for " ++ builtinGlue)
+  tMPOr <- getTermLocal "primMPOr"
+  tEmbd <- getTermLocal "primEmbd"
+  tMixedOr <- getTermLocal "primMixedOr"
+  tIMax <- getTermLocal builtinIMax
+  tIMin <- getTermLocal builtinIMin
+  tINeg <- getTermLocal builtinINeg
+  tMHComp <- getTermLocal builtinMHComp
+  tEFun  <- getTermLocal builtinEquivFun
+  tglue   <- getTermLocal builtin_glue
+  tunglue <- getTermLocal builtin_unglue
+  io      <- getTermLocal builtinIOne
+  tItIsOne <- getTermLocal builtinItIsOne
+  view <- intervalView'
+  runNamesT [] $ do
+    [psi, u, u0] <- mapM (open . unArg) [psi, u, u0]                         -- psi = ambient MCstr, from mhocom call.
+    [la, lb, bA, phi, bT, e] <- mapM (open . unArg) [la, lb, bA, phi, bT, e] -- phi = path cstr :I from Glue call.
+    -- headStop tpos phi <-> tpos == Head and φ != i1.
+    -- ?we keep going with φ!= 1 only in prim_unglue
+    ifM (headStop tpos phi) (return Nothing) $ Just <$> do
+    let
+      -- la:Lvl, A:Ty l, phi:MCstr, u: ∀ i → MPartial psi A, u0 : A, i:I
+      hfill la bA phi u u0 i = pure tMHComp <#> la
+                                           <#> bA
+                                           <#> (pure tMixedOr <@> phi <@> (pure tEmbd <@> (pure tINeg <@> i)))
+                                           <@> lam "j" (\ j -> pure tMPOr <#> la <@> phi <@> (pure tEmbd <@> (pure tINeg <@> i)) <@> ilam "o" (\ a -> bA)
+                                                 <@> ilam "o" (\ o -> u <@> (pure tIMin <@> i <@> j) <..> o)
+                                                 <@> ilam "o" (\ _ -> u0))
+                                           <@> u0
+      -- i:I, o:.(IsOne phi)
+      tf i o = hfill lb (bT <..> o) psi u u0 i
+      unglue g = pure tunglue <#> la <#> lb <#> bA <#> phi <#> bT <#> e <@> g
+      a1 = pure tMHComp <#> la <#> bA <#> (pure tMixedOr <@> psi <@> (pure tEmbd <@> phi))
+                       <@> lam "i" (\ i -> pure tMPOr <#> la <@> psi <@> (pure tEmbd <@> phi) <@> ilam "_" (\ _ -> bA)
+                             <@> ilam "o" (\ o -> unglue (u <@> i <..> o))
+                             <@> ilam "o" (\ o -> pure tEFun <#> lb <#> la <#> (bT <..> o) <#> bA <@> (e <..> o) <@> tf i o))
+                       <@> (unglue u0)
+      t1 = tf (pure io)
+    -- pure tglue <#> la <#> lb <#> bA <#> phi <#> bT <#> e <@> (ilam "o" $ \ o -> t1 o) <@> a1
+    case tpos of
+      Head -> t1 (pure tItIsOne)
+      Eliminated -> a1  
 
 
 
