@@ -206,7 +206,9 @@ primInteger, primIntegerPos, primIntegerNegSuc,
     primBno, primByes, primBiszero, primBisone, primBConj,
     primBHolds, primBitHolds, primBPartial,
     primMCstr, primMno, primMyes, primMkmc, primMHolds, primMitHolds, primMPartial,
+    primEmbd, primMixedOr, primMPartialP, primMHoldsEmpty, primMHolds1, primMHolds2, primMPOr,
     primMHComp, primMComp, primTestPrim, primReflectMCstr,
+    
     primNatPlus, primNatMinus, primNatTimes, primNatDivSucAux, primNatModSucAux,
     primNatEquality, primNatLess,
     -- Machine words
@@ -338,6 +340,13 @@ primMHComp                            = getPrimitiveTerm "primMHComp"
 primMComp                             = getPrimitiveTerm "primMComp"
 primTestPrim                          = getPrimitiveTerm "primTestPrim"
 primReflectMCstr                      = getPrimitiveTerm "primReflectMCstr"
+primEmbd                              = getPrimitiveTerm builtinEmbd
+primMixedOr                           = getPrimitiveTerm builtinMixedOr
+primMPartialP                         = getPrimitiveTerm "primMPartialP"
+primMHoldsEmpty                       = getBuiltin builtinMHoldsEmpty
+primMHolds1                           = getBuiltin builtinMHolds1
+primMHolds2                           = getBuiltin builtinMHolds2
+primMPOr                              = getPrimitiveTerm builtinMPOr
 primNat                               = getBuiltin builtinNat
 primSuc                               = getBuiltin builtinSuc
 primZero                              = getBuiltin builtinZero

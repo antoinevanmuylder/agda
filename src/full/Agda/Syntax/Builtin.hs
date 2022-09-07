@@ -30,6 +30,7 @@ builtinNat, builtinSuc, builtinZero, builtinNatPlus, builtinNatMinus,
   builtinBHolds, builtinBitHolds, builtinBPartial,
   builtinMCstr, builtinMno, builtinMyes, builtinMkmc, builtinMHolds, builtinMitHolds, builtinMPartial,
   builtinMComp, builtinMHComp, builtinTestPrim, builtinReflectMCstr,
+  builtinEmbd, builtinMixedOr, builtinMPartialP, builtinMHoldsEmpty, builtinMHolds1, builtinMHolds2, builtinMPOr,
   builtinSizeUniv, builtinSize, builtinSizeLt,
   builtinSizeSuc, builtinSizeInf, builtinSizeMax,
   builtinInf, builtinSharp, builtinFlat,
@@ -180,6 +181,13 @@ builtinMComp                             = "primMComp"
 builtinMHComp                            = "primMHComp"
 builtinTestPrim                          = "primTestPrim"
 builtinReflectMCstr                      = "primReflectMCstr"
+builtinEmbd                              = "primEmbd" 
+builtinMixedOr                           = "primMixedOr"
+builtinMPartialP                         = "MPARTIALP"
+builtinMHoldsEmpty                       = "MHOLDSEMPTY"
+builtinMHolds1                           = "MHOLDS1"
+builtinMHolds2                           = "MHOLDS2"
+builtinMPOr                              = "primMPOr"
 builtinSizeUniv                          = "SIZEUNIV"
 builtinSize                              = "SIZE"
 builtinSizeLt                            = "SIZELT"
@@ -359,7 +367,8 @@ builtinsNoDef =
   , builtinBPartial 
   , builtinMCstr
   , builtinMHolds
-  , builtinMPartial -- .. until here (included). what about BitHolds, MitHolds?
+  , builtinMPartial
+  , builtinMPartialP -- .. until here (included). what about BitHolds, MitHolds?
   , builtinSet
   , builtinProp
   , builtinSetOmega

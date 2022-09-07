@@ -993,6 +993,10 @@ primitiveFunctions = localTCStateSavingWarnings <$> Map.fromListWith __IMPOSSIBL
   , builtinMHComp         |-> primMHComp'
   , builtinReflectMCstr   |-> primReflectMCstr'
   -- , builtinTestPrim       |-> primTestPrim'
+  , builtinEmbd           |-> primEmbd'
+  , builtinMixedOr        |-> primMixedOr'
+  , "primMPartialP"       |-> primMPartialP'
+  , builtinMPOr           |-> primMPOr'
   ]
   where
     (|->) = (,)

@@ -244,6 +244,23 @@ coreBuiltins =
   , (builtinMHolds                            |-> BuiltinPostulate Relevant (requireBridges "" >> (tmcstr --> return (ssort $ ClosedLevel 0))))
   , (builtinMitHolds                          |-> BuiltinPostulate Relevant (requireBridges "" >> (elSSet $ primMHolds <@> primMyes)))
   , (builtinMPartial                          |-> BuiltinPrim "primMPartial" (const $ return ()))
+  , (builtinMPartialP                         |-> BuiltinPrim "primMPartialP" (const $ return ()))
+  , (builtinMHoldsEmpty                       |-> BuiltinPostulate Relevant (runNamesT [] $
+                                                                   hPi' "l" (el $ cl primLevel) $ \ l ->
+                                                                   hPi' "A" (mpPi' "o" (cl primMno) $ \ _ ->
+                                                                                  el' (cl primLevelSuc <@> l) (Sort . tmSort <$> l)) $ \ bA ->
+                                                                   mpPi' "o" (cl primMno) (\ o ->
+                                                                        el' l $ gApply' (setRelevance Irrelevant defaultArgInfo) bA o)) )
+  , (builtinMHolds1                           |-> BuiltinPostulate Relevant (runNamesT [] $
+                                                                   nPi' "ζ1" (cl tmcstr) $ \ z1 ->
+                                                                   nPi' "ζ2" (cl tmcstr) $ \ z2 ->
+                                                                   nPi' "o1" (elSSet $ cl primMHolds <@> z1) $ \ o1 ->
+                                                                   (elSSet $ cl primMHolds <@> (cl primMixedOr <@> z1 <@> z2))))
+  , (builtinMHolds2                           |-> BuiltinPostulate Relevant (runNamesT [] $
+                                                                   nPi' "ζ1" (cl tmcstr) $ \ z1 ->
+                                                                   nPi' "ζ2" (cl tmcstr) $ \ z2 ->
+                                                                   nPi' "o2" (elSSet $ cl primMHolds <@> z2) $ \ o2 ->
+                                                                   (elSSet $ cl primMHolds <@> (cl primMixedOr <@> z1 <@> z2))))
 
   , (builtinAgdaSort                         |-> BuiltinData tset
                                                    [ builtinAgdaSortSet, builtinAgdaSortLit

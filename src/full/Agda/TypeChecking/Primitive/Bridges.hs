@@ -769,6 +769,92 @@ primTestPrim' = do
 --    nn@(Arg nninfo nntm),
 --    r@(Arg rinfo rtm0), bM] -> do
 
+-- * auxiliary primitives for mix Kan ops.
+--   primEmbd, primMixedOr, primMPartialP primMPOr
+
+-- | I -> MCstr : φ maps to (φ m∨ bno)
+primEmbd' :: TCM PrimitiveImpl
+primEmbd' = do
+  requireBridges "in primEmbd'"
+  typ <- (primIntervalType --> primMCstrType)
+  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 1 $ \ [ aphi ] -> do
+    mkmc <- getTerm "in primEmbd'" builtinMkmc
+    bno <- getTerm "in primEmbd'" builtinBno
+    redReturn $ mkmc `apply` [ aphi , argN bno ]
+
+-- | MCstr -> MCstr -> MCstr : ζ1 ζ2 map to ζ1 ∨∨ ζ2
+--   (disjunction in both the path and the bdg components)
+primMixedOr' :: TCM PrimitiveImpl
+primMixedOr' = do
+  requireBridges "in primMixedOr'"
+  typ <- (primMCstrType --> primMCstrType --> primMCstrType)
+  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 2 $ \ [ azeta1 , azeta2 ] -> do
+    myes <- getTerm "in primMixedOr'" builtinMyes
+    mkmc <- getTerm "in primMixedOr'" builtinMkmc
+    cor <- getTerm "in primMixedOr'" builtinIMax
+    bor <- getTerm "in primMixedOr'" builtinBconj
+    szeta1 <- reduceB azeta1
+    szeta2 <- reduceB azeta2
+    case (szeta1 , szeta2) of
+      (Blocked{} , _) -> return $ NoReduction $ map reduced [ szeta1 , szeta2 ]
+      (_ , Blocked{}) -> return $ NoReduction $ map reduced [ szeta1 , szeta2 ]
+      (_, _) -> do
+        vzeta1 <- mcstrView $ unArg $ ignoreBlocking szeta1
+        vzeta2 <- mcstrView $ unArg $ ignoreBlocking szeta2
+        case (vzeta1 , vzeta2) of
+          (Mno, _) -> redReturn $ unArg $ ignoreBlocking szeta2
+          (_, Mno) -> redReturn $ unArg $ ignoreBlocking szeta1
+          (Myes, _) -> redReturn $ myes
+          (_, Myes) -> redReturn $ myes
+          (Mkmc aphi1 apsi1, Mkmc aphi2 apsi2) -> do
+            res <- reduce $ mkmc `apply` [ argN $ cor `apply` [aphi1 , aphi2] , argN $ bor `apply` [apsi1, apsi2] ]
+            redReturn $ res
+          _ -> return $ NoReduction $ map reduced [ szeta1 , szeta2 ]
+
+-- | MPartialP : ∀ {ℓ} (ζ : MCstr) ≈(A : MPartial ζ (Type ℓ)) → Type ℓ
+primMPartialP' :: TCM PrimitiveImpl
+primMPartialP' = do
+  requireBridges "in primPartialP'"
+  t <- runNamesT [] $
+       hPi' "l" (el $ cl primLevel) (\ l ->
+        nPi' "ζ" primMCstrType $ \ zeta ->
+        nPi' "A" (mpPi' "o" zeta $ \ _ -> el' (cl primLevelSuc <@> l) (Sort . tmSort <$> l)) $ \ bA ->
+        (sort . tmSSort <$> l))
+  let toFinitePi :: Type -> Term
+      toFinitePi (El _ (Pi d b)) = Pi (setRelevance Irrelevant $ d { domFinite = True }) b
+      toFinitePi _               = __IMPOSSIBLE__
+  v <- runNamesT [] $
+        lam "l" $ \ l ->
+        lam "ζ" $ \ zeta ->
+        lam "A" $ \ a ->
+        toFinitePi <$> nPi' "p" (elSSet $ cl primMHolds <@> zeta) (\ p -> el' l (a <@> p))
+  return $ PrimImpl t $ primFun __IMPOSSIBLE__ 0 $ \ _ -> redReturn v
+
+
+primMPOr' :: TCM PrimitiveImpl
+primMPOr' = do
+  requireBridges "in primMPOr'"
+  t    <- runNamesT [] $
+          hPi' "a" (el $ cl primLevel)    $ \ a  ->
+          nPi' "ζ1" primIntervalType $ \ z1  ->
+          nPi' "ζ2" primIntervalType $ \ z2  ->
+          hPi' "A" (mpPi' "o" (cl primMixedOr <@> z1 <@> z2) $ \o -> el' (cl primLevelSuc <@> a) (Sort . tmSort <$> a)) $ \ bA ->
+          ((mpPi' "o1" z1 $ \ o1 -> el' a $ bA <..> (cl primMHolds1 <@> z1 <@> z2 <@> o1))) -->
+          ((mpPi' "o2" z2 $ \ o2 -> el' a $ bA <..> (cl primMHolds2 <@> z1 <@> z2 <@> o2))) -->
+          pPi' "o" (cl primMixedOr <@> z1 <@> z2) (\ o -> el' a $ bA <..> o)
+  return $ PrimImpl t $ primFun __IMPOSSIBLE__ 6 $ \ ts@[l,z1,z2,a,u,v] -> do
+    sz1 <- reduceB' z1
+    vz1 <- mcstrView $ unArg $ ignoreBlocking sz1
+    case vz1 of
+     Myes -> redReturn (unArg u)
+     Mno -> redReturn (unArg v)
+     _ -> do
+       sz2 <- reduceB' z2
+       vz2 <- mcstrView $ unArg $ ignoreBlocking sz1
+       case vz2 of
+         Myes -> redReturn (unArg v)
+         Mno -> redReturn (unArg u)
+         _ -> return $ NoReduction [notReduced l,reduced sz1,reduced sz2,notReduced a,notReduced u,notReduced v]
 
 
 -- * Kan operations with mixed constraints.
@@ -943,3 +1029,6 @@ mhcompGlue psi u u0 glueArgs@(la, lb, bA, phi, bT, e) tpos = do
   --   case tpos of
   --     Head -> t1 (pure tItIsOne)
   --     Eliminated -> a1  
+
+
+
