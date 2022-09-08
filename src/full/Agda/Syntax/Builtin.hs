@@ -30,7 +30,7 @@ builtinNat, builtinSuc, builtinZero, builtinNatPlus, builtinNatMinus,
   builtinBHolds, builtinBitHolds, builtinBPartial,
   builtinMCstr, builtinMno, builtinMyes, builtinMkmc, builtinMHolds, builtinMitHolds, builtinMPartial,
   builtinMComp, builtinMHComp, builtinTestPrim, builtinReflectMCstr,
-  builtinEmbd, builtinMixedOr, builtinMPartialP, builtinMHoldsEmpty, builtinMHolds1, builtinMHolds2, builtinMPOr,
+  builtinEmbd, builtinMixedOr, builtinMPartialP, builtinMHoldsEmpty, builtinMHolds1, builtinMHolds2, builtin_mpor,
   builtinSizeUniv, builtinSize, builtinSizeLt,
   builtinSizeSuc, builtinSizeInf, builtinSizeMax,
   builtinInf, builtinSharp, builtinFlat,
@@ -179,7 +179,6 @@ builtinMitHolds                          = "MITHOLDS"
 builtinMPartial                          = "MPARTIAL"
 builtinMComp                             = "primMComp"
 builtinMHComp                            = "primMHComp"
-builtinTestPrim                          = "primTestPrim"
 builtinReflectMCstr                      = "primReflectMCstr"
 builtinEmbd                              = "primEmbd" 
 builtinMixedOr                           = "primMixedOr"
@@ -187,7 +186,8 @@ builtinMPartialP                         = "MPARTIALP"
 builtinMHoldsEmpty                       = "MHOLDSEMPTY"
 builtinMHolds1                           = "MHOLDS1"
 builtinMHolds2                           = "MHOLDS2"
-builtinMPOr                              = "primMPOr"
+builtin_mpor                             = "prim^mpor"
+builtinTestPrim                          = "primTestPrim"
 builtinSizeUniv                          = "SIZEUNIV"
 builtinSize                              = "SIZE"
 builtinSizeLt                            = "SIZELT"
@@ -358,6 +358,7 @@ builtinsNoDef =
   , builtinBIZero         -- when stuff is in this list,   we do not have to postulate it in .agda?
   , builtinBIOne 
   , builtinCstrUniv
+  , builtinBCstr
   , builtinByes
   , builtinBno
   , builtinBisone

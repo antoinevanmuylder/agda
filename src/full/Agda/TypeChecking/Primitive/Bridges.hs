@@ -34,6 +34,8 @@ import Agda.Interaction.Options ( optBridges )
 import Agda.Syntax.Common
 import Agda.Syntax.Internal
 import Agda.Syntax.Internal.Pattern
+-- import Agda.Syntax.Translation.InternalToAbstract (reify)
+-- import Agda.Syntax.Translation.AbstractToConcrete (abstractToConcrete_)
 
 import Agda.TypeChecking.Names
 import Agda.TypeChecking.Primitive.Base
@@ -101,10 +103,46 @@ reportSDocDocs key lvl doc1 docList = do
   reportSDoc key lvl $ doc1
   reportSDoc key lvl $ nest 2 $ vcat docList
 
+
       -- reportSDoc "tc.prim.bridges.hasEmptyMeet" 50 $ nest 2 $ vcat
       --   [ "phi1     = " <+> prettyTCM phi1
       --   , "phi2     = " <+> prettyTCM phi2
       --   , "rphi12   = " <+> prettyTCM rphi12 ]
+
+
+-- | try convert implicit to explicit arguments in a term.
+toExplicitArgs :: Term -> Term
+toExplicitArgs t = case t of
+  (Var i es) -> Var i (forElims es)
+  (Lam ai (Abs nm rest)) -> Lam (setHiding NotHidden ai) (Abs nm (toExplicitArgs rest))
+  (Lam ai (NoAbs nm rest)) -> Lam (setHiding NotHidden ai) (NoAbs nm (toExplicitArgs rest))  
+  (Def q es) -> Def q (forElims es)
+  (Con ch ci es) -> Con ch ci (forElims es)
+  (MetaV mid es) -> MetaV mid (forElims es)
+  (DontCare t) -> DontCare (toExplicitArgs t)
+  (Dummy s es) -> Dummy s (forElims es)
+  _ -> t
+  where
+    forElim :: Elim -> Elim
+    forElim (Apply (Arg ai t)) = Apply $ Arg (setHiding NotHidden ai) (toExplicitArgs t)
+    forElim other = other
+
+    forElims :: Elims -> Elims
+    forElims es = map forElim es
+
+    
+
+    
+-- -- | pretty Doc's of terms, with implicit arguments.
+-- prettyTermImpl :: Term  -> TCM Doc
+-- prettyTermImpl t = do
+--   expr <- reify t -- Abstract.Expr
+--   smth <- abstractToConcrete_ expr -- Concrete.Expr
+--   -- P.pretty
+  
+--   return $ P.text "hello"
+
+
 
 
 -- * extent primitive
@@ -734,34 +772,6 @@ primReflectMCstr' = do
 -- (elSSet $ cl isOne <@> phi)
 -- isOne = fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinIsOne
 
--- a primitive with the same type than primHComp
--- by def, it reduces to something using primMHComp via primReflectMCstr.
-primTestPrim' :: TCM PrimitiveImpl
-primTestPrim' = do
-  requireCubical CErased ""
-  t    <- runNamesT [] $
-          hPi' "a" (el $ cl primLevel) $ \ a ->
-          hPi' "A" (sort . tmSort <$> a) $ \ bA ->
-          hPi' "φ" primIntervalType $ \ phi ->
-          nPi' "i" primIntervalType (\ i -> pPi' "o" phi $ \ _ -> el' a bA) -->
-          (el' a bA --> el' a bA)
-  bridges <- optBridges <$> pragmaOptions
-  case bridges of
-    False -> __IMPOSSIBLE__ -- primHComp'
-    True -> -- primMHComp {ℓ} {A} {φ b∨ bno} (λ i o → u i (reflct {φ} o)) u0
-      return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 $ \ [l, bA, phi@(Arg infPhi phitm), u@(Arg infU utm), u0] nelims -> do
-        mixhcomp <- getTerm "" builtinMHComp
-        mkmc <- getTerm "" builtinMkmc
-        bno <- getTerm "" builtinBno
-        reflct <- getTerm "" builtinReflectMCstr
-        let iotaPhi :: Term
-            iotaPhi = mkmc `apply` [ argN phitm , argN bno ]
-        liftReflectU <- runNamesT [] $ -- :: Term
-                        lam "i" $ \ i ->
-                        lam "mprf" $ \ mprf -> --write reflectMCstr mprf
-                        -- i:I, mprf:MHolds (i m∨ bno) ⊢ u i (reflect {phi} mprf)
-                        (pure $ raise 2 utm) <@> i <@> ( (pure reflct) <#> (pure $ raise 2 phitm) <@> mprf )
-        redReturn $ mixhcomp `apply` [l, bA, Arg infPhi iotaPhi, Arg infU liftReflectU, u0] -- defaultArgInfo
 
 
 -- \extentArgs@[lA, lB, bA, bB,
@@ -770,7 +780,7 @@ primTestPrim' = do
 --    r@(Arg rinfo rtm0), bM] -> do
 
 -- * auxiliary primitives for mix Kan ops.
---   primEmbd, primMixedOr, primMPartialP primMPOr
+--   primEmbd, primMixedOr, primMPartialP prim_mpor
 
 -- | I -> MCstr : φ maps to (φ m∨ bno)
 primEmbd' :: TCM PrimitiveImpl
@@ -831,18 +841,18 @@ primMPartialP' = do
   return $ PrimImpl t $ primFun __IMPOSSIBLE__ 0 $ \ _ -> redReturn v
 
 
-primMPOr' :: TCM PrimitiveImpl
-primMPOr' = do
-  requireBridges "in primMPOr'"
+prim_mpor' :: TCM PrimitiveImpl
+prim_mpor' = do
+  requireBridges "in prim_mpor'"
   t    <- runNamesT [] $
-          hPi' "a" (el $ cl primLevel)    $ \ a  ->
+          hPi' "l" (el $ cl primLevel)    $ \ l  ->
           nPi' "ζ1" primMCstrType $ \ z1  ->
           nPi' "ζ2" primMCstrType $ \ z2  ->
-          hPi' "A" (mpPi' "o" (cl primMixedOr <@> z1 <@> z2) $ \o -> el' (cl primLevelSuc <@> a) (Sort . tmSort <$> a)) $ \ bA ->
-          ((mpPi' "o1" z1 $ \ o1 -> el' a $ bA <..> (cl primMHolds1 <@> z1 <@> z2 <@> o1))) -->
-          ((mpPi' "o2" z2 $ \ o2 -> el' a $ bA <..> (cl primMHolds2 <@> z1 <@> z2 <@> o2))) -->
-          mpPi' "o" (cl primMixedOr <@> z1 <@> z2) (\ o -> el' a $ bA <..> o)
-  return $ PrimImpl t $ primFun __IMPOSSIBLE__ 6 $ \ ts@[l,z1,z2,a,u,v] -> do
+          hPi' "A" (mpPi' "o" (cl primMixedOr <@> z1 <@> z2) $ \o -> el' (cl primLevelSuc <@> l) (Sort . tmSort <$> l)) $ \ bA ->
+          (mpPi' "o1" z1 $ \ o1 -> el' l $ bA <..> (cl primMHolds1 <@> z1 <@> z2 <..> o1)) -->
+          (mpPi' "o2" z2 $ \ o2 -> el' l $ bA <..> (cl primMHolds2 <@> z1 <@> z2 <..> o2)) -->
+          mpPi' "o" (cl primMixedOr <@> z1 <@> z2) (\ o -> el' l $ bA <..> o)
+  return $ PrimImpl t $ primFun __IMPOSSIBLE__ 6 $ \ ts@[l,z1,z2,bA,u,v] -> do
     sz1 <- reduceB' z1
     vz1 <- mcstrView $ unArg $ ignoreBlocking sz1
     case vz1 of
@@ -854,7 +864,34 @@ primMPOr' = do
        case vz2 of
          Myes -> redReturn (unArg v)
          Mno -> redReturn (unArg u)
-         _ -> return $ NoReduction [notReduced l,reduced sz1,reduced sz2,notReduced a,notReduced u,notReduced v]
+         _ -> return $ NoReduction [notReduced l,reduced sz1,reduced sz2,notReduced bA,notReduced u,notReduced v]
+
+-- (cl primMkmc <@> (cl primIZero) <@> (cl primBno))
+primTestPrim' :: TCM PrimitiveImpl
+primTestPrim' = do
+  requireBridges "in primTestPrim'"
+  t    <- runNamesT [] $
+          hPi' "l" (el $ cl primLevel)    $ \ l  ->
+          nPi' "ζ1" primMCstrType $ \ z1  ->
+          nPi' "ζ2" primMCstrType $ \ z2  ->
+          hPi' "A" (mpPi' "o" (cl primMixedOr <@> z1 <@> z2) $ \o -> el' (cl primLevelSuc <@> l) (Sort . tmSort <$> l)) $ \ bA ->
+          (mpPi' "o1" z1 $ \ o1 -> el' l $ bA <..> (cl primMHolds1 <@> z1 <@> z2 <..> o1)) -->
+          (mpPi' "o2" z2 $ \ o2 -> el' l $ bA <..> (cl primMHolds2 <@> z1 <@> z2 <..> o2)) -->
+          mpPi' "o" (cl primMixedOr <@> z1 <@> z2) (\ o -> el' l $ bA <..> o)
+  return $ PrimImpl t $ primFun __IMPOSSIBLE__ 6 $ \ ts@[l,z1,z2,bA,u,v] -> do
+    sz1 <- reduceB' z1
+    vz1 <- mcstrView $ unArg $ ignoreBlocking sz1
+    case vz1 of
+     Myes -> redReturn (unArg u)
+     Mno -> redReturn (unArg v)
+     _ -> do
+       sz2 <- reduceB' z2
+       vz2 <- mcstrView $ unArg $ ignoreBlocking sz1
+       case vz2 of
+         Myes -> redReturn (unArg v)
+         Mno -> redReturn (unArg u)
+         _ -> return $ NoReduction [notReduced l,reduced sz1,reduced sz2,notReduced bA,notReduced u,notReduced v]
+
 
 
 -- * Kan operations with mixed constraints.
@@ -991,9 +1028,9 @@ mhcompGlue :: PureTCM m =>
            -> TermPosition
            -> m (Maybe Term)
 mhcompGlue psi u u0 glueArgs@(la, lb, bA, phi, bT, e) tpos = do
-  reportSLn "tc.prim.mhcomp" 40 $ "mhcompGlue was fired"
+  reportSLn "tc.prim.mhcomp.glue" 40 $ "mhcompGlue was fired"
   let getTermLocal = getTerm $ (builtinMHComp ++ " for " ++ builtinGlue)
-  tMPOr <- getTermLocal "primMPOr"
+  tmpor <- getTermLocal builtin_mpor
   tEmbd <- getTermLocal "primEmbd"
   tMixedOr <- getTermLocal "primMixedOr"
   tIMax <- getTermLocal builtinIMax
@@ -1011,13 +1048,12 @@ mhcompGlue psi u u0 glueArgs@(la, lb, bA, phi, bT, e) tpos = do
     [la, lb, bA, phi, bT, e] <- mapM (open . unArg) [la, lb, bA, phi, bT, e] -- phi = path cstr :I from Glue call.
     -- headStop tpos phi <-> tpos == Head and φ != i1.
     -- ?we keep going with φ!= 1 only in prim_unglue
-    ifM (headStop tpos phi) (return Nothing) $ Just <$> do
     let
       -- la:Lvl, A:Ty l, phi:MCstr, u: ∀ i → MPartial psi A, u0 : A, i:I
       hfill la bA phi u u0 i = pure tMHComp <#> la
                                            <#> bA
                                            <#> (pure tMixedOr <@> phi <@> (pure tEmbd <@> (pure tINeg <@> i)))
-                                           <@> lam "j" (\ j -> pure tMPOr <#> la <@> phi <@> (pure tEmbd <@> (pure tINeg <@> i)) <@> ilam "o" (\ a -> bA)
+                                           <@> lam "j" (\ j -> pure tmpor <#> la <@> phi <@> (pure tEmbd <@> (pure tINeg <@> i)) <@> ilam "o" (\ a -> bA)
                                                  <@> ilam "o" (\ o -> u <@> (pure tIMin <@> i <@> j) <..> o)
                                                  <@> ilam "o" (\ _ -> u0))
                                            <@> u0
@@ -1025,12 +1061,25 @@ mhcompGlue psi u u0 glueArgs@(la, lb, bA, phi, bT, e) tpos = do
       tf i o = hfill lb (bT <..> o) psi u u0 i
       unglue g = pure tunglue <#> la <#> lb <#> bA <#> phi <#> bT <#> e <@> g
       a1 = pure tMHComp <#> la <#> bA <#> (pure tMixedOr <@> psi <@> (pure tEmbd <@> phi))
-                       <@> lam "i" (\ i -> pure tMPOr <#> la <@> psi <@> (pure tEmbd <@> phi) <@> ilam "_" (\ _ -> bA)
+                       <@> lam "i" (\ i -> pure tmpor <#> la <@> psi <@> (pure tEmbd <@> phi) <@> ilam "_" (\ _ -> bA)
                              <@> ilam "o" (\ o -> unglue (u <@> i <..> o))
                              <@> ilam "o" (\ o -> pure tEFun <#> lb <#> la <#> (bT <..> o) <#> bA <@> (e <..> o) <@> tf i o))
                        <@> (unglue u0)
       t1 = tf (pure io)
     -- pure tglue <#> la <#> lb <#> bA <#> phi <#> bT <#> e <@> (ilam "o" $ \ o -> t1 o) <@> a1
+    
+    hres <- t1 (pure tItIsOne)
+    eres <- a1 -- PureTCM m => NamesT m ((Term))
+    stop <- headStop tpos phi
+    reportSDocDocs "tc.prim.mhcomp.glue" 40
+      (text $ "mhcompGlue results")
+      [ text $ "TermPos was " ++ (show tpos)
+      , text $ "returned Nothing (Head, φ ≠ 1): " ++ (show stop)
+      , "If somehting was returned, it is one of those:"
+      , "Head " <+> (prettyTCM $ toExplicitArgs hres)
+      , "Eliminated " <+> (prettyTCM $ toExplicitArgs eres) ]
+    
+    ifM (headStop tpos phi) (return Nothing) $ Just <$> do
     case tpos of
       Head -> t1 (pure tItIsOne)
       Eliminated -> a1  

@@ -98,9 +98,9 @@ pPi' n phi b = toFinitePi <$> nPi' n (elSSet $ cl isOne <@> phi) b
 
    isOne = fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinIsOne
 
--- | mpPi' "zeta" zeta cod :: NamesT m Type
---   represents the Type .(MHolds zeta) -> cod  ("." for irrelevance)
---   This is judg equal to MPartial zeta cod.
+-- | mpPi' "o" zeta cod :: NamesT m Type
+--   represents the Type (o : .(MHolds zeta)) -> cod o  ("." for irrelevance)
+--   This is judg equal to MPartialP zeta cod.
 mpPi' :: (MonadAddContext m, HasBuiltins m, MonadDebug m)
      => String -> NamesT m Term -> (NamesT m Term -> NamesT m Type) -> NamesT m Type
 mpPi' n zeta b = toFinitePi <$> nPi' n (elSSet $ cl mholds <@> zeta) b

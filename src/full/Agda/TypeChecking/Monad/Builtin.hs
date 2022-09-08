@@ -25,8 +25,14 @@ import Agda.Syntax.Literal
 import Agda.Syntax.Builtin
 import Agda.Syntax.Internal as I
 import Agda.TypeChecking.Monad.Base
+
 import Agda.TypeChecking.Monad.Debug
 import Agda.Utils.Pretty as P
+-- import Agda.Utils.Lens
+-- import Data.HashMap.Strict (HashMap)
+-- import qualified Data.HashMap.Strict as HashMap
+
+
 -- import Agda.TypeChecking.Functions  -- LEADS TO IMPORT CYCLE
 import Agda.TypeChecking.Substitute
 
@@ -146,7 +152,12 @@ getPrimitive' x = (getPrim =<<) <$> getBuiltinThing x
 getPrimitive :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m)
              => String -> m PrimFun
 getPrimitive x = do
-  fromMaybeM (typeError $ GenericError $ "there is no primitive function called " ++ x ++ " (< getPrimitive)") $ getPrimitive' x -- NoSuchPrimitiveFunction x
+  -- tcs <- getTCState
+  -- -- defs :: String
+  -- let defs = P.prettyShow $ HashMap.keys $ tcs ^. stImports ^. sigDefinitions
+  fromMaybeM (typeError $ GenericError $
+              "there is no primitive function called " ++ x ++ " (< getPrimitive)\n") $
+             getPrimitive' x
 
 getPrimitiveTerm :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m)
                  => String -> m Term
@@ -210,7 +221,7 @@ primInteger, primIntegerPos, primIntegerNegSuc,
     primBno, primByes, primBiszero, primBisone, primBConj,
     primBHolds, primBitHolds, primBPartial,
     primMCstr, primMno, primMyes, primMkmc, primMHolds, primMitHolds, primMPartial,
-    primEmbd, primMixedOr, primMPartialP, primMHoldsEmpty, primMHolds1, primMHolds2, primMPOr,
+    primEmbd, primMixedOr, primMPartialP, primMHoldsEmpty, primMHolds1, primMHolds2, prim_mpor,
     primMHComp, primMComp, primTestPrim, primReflectMCstr,
     
     primNatPlus, primNatMinus, primNatTimes, primNatDivSucAux, primNatModSucAux,
@@ -350,7 +361,7 @@ primMPartialP                         = getPrimitiveTerm "primMPartialP"
 primMHoldsEmpty                       = getBuiltin builtinMHoldsEmpty
 primMHolds1                           = getBuiltin builtinMHolds1
 primMHolds2                           = getBuiltin builtinMHolds2
-primMPOr                              = getPrimitiveTerm builtinMPOr
+prim_mpor                             = getPrimitiveTerm builtin_mpor
 primNat                               = getBuiltin builtinNat
 primSuc                               = getBuiltin builtinSuc
 primZero                              = getBuiltin builtinZero

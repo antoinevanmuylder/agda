@@ -19,6 +19,8 @@ import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HashMap
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -101,6 +103,9 @@ instance Pretty a => Pretty (IntMap a) where
 
 instance (Pretty k, Pretty v) => Pretty (Map k v) where
   pretty = prettyMap . Map.toList
+
+instance (Pretty k, Pretty v) => Pretty (HashMap k v) where
+  pretty = prettyMap . HashMap.toList
 
 -- * Generalizing the original type from list to Foldable
 
