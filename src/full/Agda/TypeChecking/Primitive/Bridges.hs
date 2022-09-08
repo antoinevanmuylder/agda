@@ -945,9 +945,11 @@ primMHComp' = do
       -- mId   <- getBuiltinName' builtinId
       -- pathV <- pathView'
       case (unArg $ ignoreBlocking sbA) of
+        
         MetaV m _ -> do
           reportSLn "tc.prim.mhcomp" 40 $ "in primMHComp, matched type has meta"
           fallback' (blocked_ m *> sbA)
+        
         Pi a b
           | nelims > 0  -> do
               reportSLn "tc.prim.mhcomp" 40 $ "in primMHComp, type matched Pi and nelims > 0"
@@ -958,7 +960,20 @@ primMHComp' = do
         -- Glue {ℓA ℓB} (A : Set ℓA) {φ' : I} (T : Partial φ' (Set ℓB)) (e: PartialP φ' (λ o → T o ≃ A)) : Set ℓB
         Def q [Apply la, Apply lb, Apply bA, Apply phi', Apply bT, Apply e] | Just q == mGlue -> do
           maybe fallback redReturn =<< mhcompGlue zeta u u0 (la, lb, bA, phi', bT, e) Head
+
+        -- total (cubical) call is
+        -- hcomp {ℓ} {hcomp {-} {Type ℓ} {φ'} (T : ∀ i → Partial φ' (Type ℓ))(A : Type ℓ)} {φ}
+        --   (u : ∀ i → Partial φ (hcomp T A) )
+        --   (u0 : hcomp T A)
+        --  : Type ℓ
+        -- u0 is in an adjusted type (along T, on φ'). And we adjust it along u, on φ.
+        -- How to adapt to bridges?
+        Def q [Apply _, Apply s, Apply phi', Apply bT, Apply bA]
+          | Just q == mHComp, Sort (Type la) <- unArg s  -> do
+          maybe fallback redReturn =<< mhcompHCompU zeta u u0 (l, phi', bT, bA) Head
+
         _ -> return $ NoReduction $ map notReduced ts
+        
 
 
 mhcompPi :: (Dom Type, Abs Type)
@@ -1086,3 +1101,59 @@ mhcompGlue psi u u0 glueArgs@(la, lb, bA, phi, bT, e) tpos = do
 
 
 
+mhcompHCompU :: PureTCM m =>
+           Arg Term
+           -- ^ ψ : MCstr, ambient mixed cstr, comes from primMHComp call.
+           -> Arg Term
+           -- ^ u : ∀ i → MPartial ψ (hcomp {φ : I} T A)
+           -> Arg Term
+           -- ^ u0 : hcomp {φ : I} T A
+           -> (Arg Term, Arg Term, Arg Term, Arg Term)
+           -- ^ inner hcomp args: {ℓ} {φ : I} (T : ∀ i → Partial φ (Type ℓ)) (A : Type ℓ)
+           -> TermPosition
+           -> m (Maybe Term)
+mhcompHCompU psi u u0 (la, phi, bT, bA) tpos = do
+  return Nothing
+      -- let getTermLocal = getTerm $ (builtinHComp ++ " for " ++ builtinHComp ++ " of Set")
+      -- io      <- getTermLocal builtinIOne
+      -- iz      <- getTermLocal builtinIZero
+      -- tPOr <- getTermLocal "primPOr"
+      -- tIMax <- getTermLocal builtinIMax
+      -- tIMin <- getTermLocal builtinIMin
+      -- tINeg <- getTermLocal builtinINeg
+      -- tHComp <- getTermLocal builtinHComp
+      -- tTransp  <- getTermLocal builtinTrans
+      -- tglue   <- getTermLocal builtin_glueU
+      -- tunglue <- getTermLocal builtin_unglueU
+      -- tLSuc   <- getTermLocal builtinLevelSuc
+      -- tSubIn <- getTermLocal builtinSubIn
+      -- tItIsOne <- getTermLocal builtinItIsOne
+      -- runNamesT [] $ do
+      --   [psi, u, u0] <- mapM (open . unArg) [psi, u, u0]
+      --   [la, phi, bT, bA] <- mapM (open . unArg) [la, phi, bT, bA]
+
+      --   ifM (headStop tpos phi) (return Nothing) $ Just <$> do
+
+      --   let
+      --     hfill la bA phi u u0 i = pure tHComp <#> la
+      --                                          <#> bA
+      --                                          <#> (pure tIMax <@> phi <@> (pure tINeg <@> i))
+      --                                          <@> lam "j" (\ j -> pure tPOr <#> la <@> phi <@> (pure tINeg <@> i) <@> ilam "o" (\ _ -> bA)
+      --                                                <@> ilam "o" (\ o -> u <@> (pure tIMin <@> i <@> j) <..> o)
+      --                                                <@> ilam "o" (\ _ -> u0))
+      --                                          <@> u0
+      --     transp la bA a0 = pure tTransp <#> lam "i" (const la) <@> lam "i" bA <@> pure iz <@> a0
+      --     tf i o = hfill la (bT <@> pure io <..> o) psi u u0 i
+      --     bAS = pure tSubIn <#> (pure tLSuc <@> la) <#> (Sort . tmSort <$> la) <#> phi <@> bA
+      --     unglue g = pure tunglue <#> la <#> phi <#> bT <#> bAS <@> g
+      --     a1 = pure tHComp <#> la <#> bA <#> (pure tIMax <@> psi <@> phi)
+      --                      <@> lam "i" (\ i -> pure tPOr <#> la <@> psi <@> phi <@> ilam "_" (\ _ -> bA)
+      --                            <@> ilam "o" (\ o -> unglue (u <@> i <..> o))
+      --                            <@> ilam "o" (\ o -> transp la (\ i -> bT <@> (pure tINeg <@> i) <..> o) (tf i o)))
+      --                      <@> unglue u0
+      --     t1 = tf (pure io)
+
+      --   -- pure tglue <#> la <#> phi <#> bT <#> bAS <@> (ilam "o" $ \ o -> t1 o) <@> a1
+      --   case tpos of
+      --     Eliminated -> a1
+      --     Head       -> t1 (pure tItIsOne)
