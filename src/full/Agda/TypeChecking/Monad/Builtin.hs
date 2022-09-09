@@ -222,7 +222,7 @@ primInteger, primIntegerPos, primIntegerNegSuc,
     primBHolds, primBitHolds, primBPartial,
     primMCstr, primMno, primMyes, primMkmc, primMHolds, primMitHolds, primMPartial,
     primEmbd, primMixedOr, primMPartialP, primMHoldsEmpty, primMHolds1, primMHolds2, prim_mpor,
-    primMHComp, primMComp, primTestPrim, primReflectMCstr,
+    primMHComp, primMComp, primTestPrim, primReflectMCstr, primPrsvMCstr,
     
     primNatPlus, primNatMinus, primNatTimes, primNatDivSucAux, primNatModSucAux,
     primNatEquality, primNatLess,
@@ -355,6 +355,7 @@ primMHComp                            = getPrimitiveTerm "primMHComp"
 primMComp                             = getPrimitiveTerm "primMComp"
 primTestPrim                          = getPrimitiveTerm "primTestPrim"
 primReflectMCstr                      = getPrimitiveTerm "primReflectMCstr"
+primPrsvMCstr                         = getPrimitiveTerm builtinPrsvMCstr
 primEmbd                              = getPrimitiveTerm builtinEmbd
 primMixedOr                           = getPrimitiveTerm builtinMixedOr
 primMPartialP                         = getPrimitiveTerm "primMPartialP"

@@ -756,17 +756,31 @@ primMPartial' = do
 primReflectMCstr' :: TCM PrimitiveImpl
 primReflectMCstr' = do
   requireBridges "in primReflectMCstr'"
-  -- reflectMCstr is used to define std Kan op in terms of mixed ones
-  -- hence using them in --cubical only environment is reasonnable.
   typ <- runNamesT [] $
     hPi' "φ" primIntervalType $ \ phi ->
-    mpPi' "o" (iota phi) $ \ _ -> --todo: replace phi by phi embedded in MCstr. phi :: NamesT m Term
+    mpPi' "o" (iota phi) $ \ _ ->
     elSSet $ cl isOne <@> phi
   return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 2 $ \ [Arg _ phi , _] -> do
     yes <- getTerm "" builtinItIsOne --reflectMCstr is a constant function.
     redReturn yes
   where
     isOne = fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinIsOne
+    iota phi = cl primMkmc <@> phi <@> cl primBno
+
+-- | used to convert a MPartial defined on path cstr, into a Partial.
+--   preserve : ∀ {φ : I} → .(IsOne φ) → MHolds (φ m∨ bno)
+primPrsvMCstr' :: TCM PrimitiveImpl
+primPrsvMCstr' = do
+  requireBridges "in primPrsvMCstr'"
+  typ <- runNamesT [] $
+    hPi' "φ" primIntervalType $ \ phi ->
+    pPi' "o" phi $ \ _ ->
+    elSSet $ cl mholds <@> (iota phi)
+  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 2 $ \ [Arg _ phi , _] -> do
+    yes <- getTerm "" builtinMitHolds --reflectMCstr is a constant function.
+    redReturn yes
+  where
+    mholds = fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinMHolds
     iota phi = cl primMkmc <@> phi <@> cl primBno
     
 -- (elSSet $ cl isOne <@> phi)
@@ -940,7 +954,8 @@ primMHComp' = do
       sbA <- reduceB' bA -- :: Blocked (Arg Term)
       let fallback = fallback' (sbA)
           t = ignoreBlocking sbA
-      mHComp <- getPrimitiveName' builtinMHComp
+      mHComp <- getPrimitiveName' builtinHComp
+      mMhocom <- getPrimitiveName' builtinMHComp
       mGlue <- getPrimitiveName' builtinGlue
       -- mId   <- getBuiltinName' builtinId
       -- pathV <- pathView'
@@ -967,10 +982,15 @@ primMHComp' = do
         --   (u0 : hcomp T A)
         --  : Type ℓ
         -- u0 is in an adjusted type (along T, on φ'). And we adjust it along u, on φ.
-        -- How to adapt to bridges?
+        -- This call should be impossible? the inner hcomp reduces to a mix hcomp.
         Def q [Apply _, Apply s, Apply phi', Apply bT, Apply bA]
           | Just q == mHComp, Sort (Type la) <- unArg s  -> do
           maybe fallback redReturn =<< mhcompHCompU zeta u u0 (l, phi', bT, bA) Head
+
+        -- mhocom {} { mhocom {}{Type ℓ}{φ' = embd φ''} } {ζ}
+        Def q [Apply _, Apply s, Apply phi', Apply bT, Apply bA]
+          | Just q == mMhocom, Sort (Type la) <- unArg s  -> do
+          maybe fallback redReturn =<< mhcompMixHCompU zeta u u0 (l, phi', bT, bA) Head
 
         _ -> return $ NoReduction $ map notReduced ts
         
@@ -1113,47 +1133,105 @@ mhcompHCompU :: PureTCM m =>
            -> TermPosition
            -> m (Maybe Term)
 mhcompHCompU psi u u0 (la, phi, bT, bA) tpos = do
-  return Nothing
-      -- let getTermLocal = getTerm $ (builtinHComp ++ " for " ++ builtinHComp ++ " of Set")
-      -- io      <- getTermLocal builtinIOne
-      -- iz      <- getTermLocal builtinIZero
-      -- tPOr <- getTermLocal "primPOr"
-      -- tIMax <- getTermLocal builtinIMax
-      -- tIMin <- getTermLocal builtinIMin
-      -- tINeg <- getTermLocal builtinINeg
-      -- tHComp <- getTermLocal builtinHComp
-      -- tTransp  <- getTermLocal builtinTrans
-      -- tglue   <- getTermLocal builtin_glueU
-      -- tunglue <- getTermLocal builtin_unglueU
-      -- tLSuc   <- getTermLocal builtinLevelSuc
-      -- tSubIn <- getTermLocal builtinSubIn
-      -- tItIsOne <- getTermLocal builtinItIsOne
-      -- runNamesT [] $ do
-      --   [psi, u, u0] <- mapM (open . unArg) [psi, u, u0]
-      --   [la, phi, bT, bA] <- mapM (open . unArg) [la, phi, bT, bA]
+  reportSLn "tc.prim.mhcomp.hcomp" 40
+    "In primMHComp: case mhocom at hocom type. The inner one should have been reduced to a mhocom (lifted hocom)"
+  __IMPOSSIBLE__
 
-      --   ifM (headStop tpos phi) (return Nothing) $ Just <$> do
+-- | reduces only if the inner mhcomp is a ≈lifted hcomp (φ pure-path)
+mhcompMixHCompU :: PureTCM m =>
+           Arg Term
+           -- ^ ψ : MCstr, ambient mixed cstr, comes from primMHComp call.
+           -> Arg Term
+           -- ^ u : ∀ i → MPartial ψ (mhocom {φ : MCstr} T A)
+           -> Arg Term
+           -- ^ u0 : mhocom {φ : MCstr} T A
+           -> (Arg Term, Arg Term, Arg Term, Arg Term)
+           -- ^ inner mhocom args: {ℓ} {φ : MCstr} (T : ∀ i → MPartial φ (Type ℓ)) (A : Type ℓ)
+           -> TermPosition
+           -> m (Maybe Term)
+mhcompMixHCompU psi u u0 inrArgs@(la, mphi, mbT, bA) tpos = do
+  reportSDocDocs "tc.prim.mhcomp.mhcomp" 40
+    (text "mhcomp at mhcomp rule fired with args")
+    [ "ψ = " <+> prettyTCM (unArg psi)
+    , "u = " <+> prettyTCM (unArg u)
+    , "u0 = " <+> prettyTCM (unArg u0)
+    , "innter args (ℓ,φ:MCstr,T,A) are: " <+> prettyTCM (unArg la, unArg mphi, unArg mbT, unArg bA)
+    , "tpos :: TermPosition is: " <+> (text $ show tpos) ]
+  
+  let getTermLocal = getTerm $ (builtinMHComp ++ " for " ++ builtinMHComp ++ "(lifted hcomp)" ++ " of Set")
+  io      <- getTermLocal builtinIOne
+  iz      <- getTermLocal builtinIZero
 
-      --   let
-      --     hfill la bA phi u u0 i = pure tHComp <#> la
-      --                                          <#> bA
-      --                                          <#> (pure tIMax <@> phi <@> (pure tINeg <@> i))
-      --                                          <@> lam "j" (\ j -> pure tPOr <#> la <@> phi <@> (pure tINeg <@> i) <@> ilam "o" (\ _ -> bA)
-      --                                                <@> ilam "o" (\ o -> u <@> (pure tIMin <@> i <@> j) <..> o)
-      --                                                <@> ilam "o" (\ _ -> u0))
-      --                                          <@> u0
-      --     transp la bA a0 = pure tTransp <#> lam "i" (const la) <@> lam "i" bA <@> pure iz <@> a0
-      --     tf i o = hfill la (bT <@> pure io <..> o) psi u u0 i
-      --     bAS = pure tSubIn <#> (pure tLSuc <@> la) <#> (Sort . tmSort <$> la) <#> phi <@> bA
-      --     unglue g = pure tunglue <#> la <#> phi <#> bT <#> bAS <@> g
-      --     a1 = pure tHComp <#> la <#> bA <#> (pure tIMax <@> psi <@> phi)
-      --                      <@> lam "i" (\ i -> pure tPOr <#> la <@> psi <@> phi <@> ilam "_" (\ _ -> bA)
-      --                            <@> ilam "o" (\ o -> unglue (u <@> i <..> o))
-      --                            <@> ilam "o" (\ o -> transp la (\ i -> bT <@> (pure tINeg <@> i) <..> o) (tf i o)))
-      --                      <@> unglue u0
-      --     t1 = tf (pure io)
+  smphi <- reduce mphi
+  vmphi <- mcstrView (unArg smphi)
+  (keepGoing, phi) <- case vmphi of
+    Mno -> return (True, argN iz)
+    Myes -> __IMPOSSIBLE__ -- return (True, argN io) --TODO-antva: what if mphi is byes...
+    Mkmc pth bdg -> do
+      vbdg <- bcstrView (unArg bdg)
+      case vbdg of
+        Bno -> return (True, pth)
+        _ -> return (False, pth)
+    _ -> __IMPOSSIBLE__
+  if (not keepGoing) then (return Nothing) else do
 
-      --   -- pure tglue <#> la <#> phi <#> bT <#> bAS <@> (ilam "o" $ \ o -> t1 o) <@> a1
-      --   case tpos of
-      --     Eliminated -> a1
-      --     Head       -> t1 (pure tItIsOne)
+  tmpor <- getTermLocal builtin_mpor
+  tmixOr <- getTermLocal builtinMixedOr
+  tEmbd <- getTermLocal builtinEmbd
+  tIMax <- getTermLocal builtinIMax
+  tIMin <- getTermLocal builtinIMin
+  tINeg <- getTermLocal builtinINeg
+  -- tHComp <- getTermLocal builtinHComp
+  tMHComp <- getTermLocal builtinMHComp
+  tTransp  <- getTermLocal builtinTrans
+  tglue   <- getTermLocal builtin_glueU
+  tunglue <- getTermLocal builtin_unglueU
+  tLSuc   <- getTermLocal builtinLevelSuc
+  tSubIn <- getTermLocal builtinSubIn
+  tItIsOne <- getTermLocal builtinItIsOne
+  tPrsvMCstr <- getTermLocal builtinPrsvMCstr
+  
+  runNamesT [] $ do
+    [psi, u, u0] <- mapM (open . unArg) [psi, u, u0]
+    [la, mphi, phi, mbT, bA] <- mapM (open . unArg) [la, mphi, phi, mbT, bA]
+
+    let
+      -- input phi:MCstr
+      hfill la bA phi u u0 i = pure tMHComp <#> la
+                                           <#> bA
+                                           <#> (pure tmixOr <@> phi <@> (pure tEmbd <@> (pure tINeg <@> i)))
+                                           <@> lam "j" (\ j -> pure tmpor <#> la <@> phi <@> (pure tEmbd <@> (pure tINeg <@> i)) <@> ilam "o" (\ _ -> bA)
+                                                 <@> ilam "o" (\ o -> u <@> (pure tIMin <@> i <@> j) <..> o)
+                                                 <@> ilam "o" (\ _ -> u0))
+                                           <@> u0
+
+      tf i o = hfill la (mbT <@> pure io <..> o) psi u u0 i
+      -- bAS is (inS A : Type ℓ [ φ ↦ _.A ] )
+      bAS = pure tSubIn <#> (pure tLSuc <@> la) <#> (Sort . tmSort <$> la) <#> phi <@> bA
+      -- why does it not unify ambiguous m0 type var and ambient PureTCM m??
+      transp la bA a0 = (pure tTransp) <#> (lam "i" (const la)) <@> (lam "i" bA) <@> (pure iz) <@> a0
+      bT = lam "i" (\ i -> ilam "o" (\ o -> mbT <@> i <..> (pure tPrsvMCstr <#> phi <..> o)))
+      unglue g = pure tunglue <#> la <#> phi <#> bT <#> bAS <@> g
+      a1 = pure tMHComp <#> la <#> bA <#> (pure tmixOr <@> psi <@> mphi)
+                       <@> lam "i" (\ i -> pure tmpor <#> la <@> psi <@> mphi <@> ilam "_" (\ _ -> bA)
+                             <@> ilam "o" (\ o -> unglue (u <@> i <..> o))
+                             <@> ilam "o" (\ o -> transp la (\ i -> mbT <@> (pure tINeg <@> i) <..> o) (tf i o)))
+                       <@> unglue u0
+      t1 = tf (pure io)
+      -- pure tglue <#> la <#> phi <#> bT <#> bAS <@> (ilam "o" $ \ o -> t1 o) <@> a1      
+
+    hres <- t1 (pure tItIsOne)
+    eres <- a1
+    flag <- headStop tpos phi
+    reportSDocDocs "tc.prim.mhcomp.mhcomp" 40
+      (text "mhcomp at mhcomp type, results")
+      [ "tpos :: TermPos = " <+> (text $ show tpos)
+      , "?returned Nothing ( <-> Head, φ ≠ 1): " <+> (text $ show flag)
+      , "If smth was returned, it is one of those:"
+      , "Head: " <+> (prettyTCM $ toExplicitArgs hres)
+      , "Eliminated: " <+> (prettyTCM $ toExplicitArgs eres) ]
+
+    ifM (headStop tpos phi) (return Nothing) $ Just <$> do
+    case tpos of
+      Eliminated -> a1
+      Head       -> t1 (pure tItIsOne)
