@@ -958,7 +958,7 @@ primMHComp' = do
       mMhocom <- getPrimitiveName' builtinMHComp
       mGlue <- getPrimitiveName' builtinGlue
       -- mId   <- getBuiltinName' builtinId
-      -- pathV <- pathView'
+      pathV <- pathView'
       case (unArg $ ignoreBlocking sbA) of
         
         MetaV m _ -> do
@@ -985,12 +985,16 @@ primMHComp' = do
         -- This call should be impossible? the inner hcomp reduces to a mix hcomp.
         Def q [Apply _, Apply s, Apply phi', Apply bT, Apply bA]
           | Just q == mHComp, Sort (Type la) <- unArg s  -> do
-          maybe fallback redReturn =<< mhcompHCompU zeta u u0 (l, phi', bT, bA) Head
+          maybe fallback redReturn =<< mhcompHCompU zeta u u0 (argH $ Level la, phi', bT, bA) Head
 
         -- mhocom {} { mhocom {}{Type ℓ}{φ' = embd φ''} } {ζ}
         Def q [Apply _, Apply s, Apply phi', Apply bT, Apply bA]
           | Just q == mMhocom, Sort (Type la) <- unArg s  -> do
-          maybe fallback redReturn =<< mhcompMixHCompU zeta u u0 (l, phi', bT, bA) Head
+              maybe fallback redReturn =<< mhcompMixHCompU zeta u u0 (argH $ Level la, phi', bT, bA) Head
+
+        -- Path/PathP
+        d | PathType _ _ _ bA x y <- pathV (El __DUMMY_SORT__ d) -> do
+          if nelims > 0 then mhcompPathP sZeta u u0 l (bA, x, y) else fallback
 
         _ -> return $ NoReduction $ map notReduced ts
         
@@ -1235,3 +1239,45 @@ mhcompMixHCompU psi u u0 inrArgs@(la, mphi, mbT, bA) tpos = do
     case tpos of
       Eliminated -> a1
       Head       -> t1 (pure tItIsOne)
+
+mhcompPathP ::
+        Blocked (Arg Term) -- ^ ψ:MCstr, ambient cstr of mhocom {PathP} call.
+        -> Arg Term -- ^ u : (i : I) → MPartial ψ (PathP A x y)
+        -> Arg Term -- ^ u0 : PathP A x y
+        -> Arg Term -- ^ l : Lvl
+        -> (Arg Term, Arg Term, Arg Term)
+        -- ^ A : (i:I) → Type ℓ, x : A i0, y : A i1
+        -> ReduceM (Reduced MaybeReducedArgs Term)
+mhcompPathP spsi u u0 l (bA,x,y) = do
+  let getTermLocal = getTerm $ builtinMHComp ++ " for path types"
+  iz <- getTermLocal builtinIZero
+  tmhocom <- getTermLocal builtinMHComp
+  tINeg <- getTermLocal builtinINeg
+  tIMax <- getTermLocal builtinIMax
+  tMixedOr <- getTermLocal builtinMixedOr
+  tEmbd <- getTermLocal builtinEmbd
+  tmpor   <- getTermLocal builtin_mpor
+  let
+    ineg j = pure tINeg <@> j
+    imax i j = pure tIMax <@> i <@> j
+
+  redReturn . runNames [] $ do
+     [l,u,u0] <- mapM (open . unArg) [l,u,u0]
+     psi      <- open . unArg . ignoreBlocking $ spsi
+     [bA, x, y] <- mapM (open . unArg) [bA, x, y]
+     lam "j" $ \ j ->
+         pure tmhocom <#> l
+                      <#> (bA <@> j)
+                      <#> (pure tMixedOr <@> psi <@> (pure tEmbd <@> (ineg j `imax` j)))
+                      <@> lam "i'" (\ i ->
+                           let or f1 f2 = pure tmpor <#> l <@> f1 <@> f2 <#> lam "_" (\ _ -> bA <@> i) --f1,2 : mcstr
+                           in or psi (pure tEmbd <@> (ineg j `imax` j))
+                                         <@> ilam "o" (\ o -> u <@> i <..> o <@@> (x, y, j)) -- a0 <@@> (x <@> i, y <@> i, j)
+                                         <@> (or (pure tEmbd <@> ineg j) (pure tEmbd <@> j) <@> ilam "_" (const x)
+                                                                 <@> ilam "_" (const y)))
+                      <@> (u0 <@@> (x, y, j))
+     -- res <- mres
+     -- reportSDocDocs "tc.prim.mhcomp.pathp" 40
+     --   (text "coucou")
+     --   [ text "coucou" ]
+     -- mres
