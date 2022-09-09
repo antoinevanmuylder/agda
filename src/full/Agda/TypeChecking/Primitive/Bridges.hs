@@ -994,6 +994,7 @@ primMHComp' = do
 
         -- Path/PathP
         d | PathType _ _ _ bA x y <- pathV (El __DUMMY_SORT__ d) -> do
+          reportSLn "tc.prim.mhcomp" 40 "in mhocom reduction, type casing matched PathP"
           if nelims > 0 then mhcompPathP sZeta u u0 l (bA, x, y) else fallback
 
         _ -> return $ NoReduction $ map notReduced ts
@@ -1249,6 +1250,7 @@ mhcompPathP ::
         -- ^ A : (i:I) → Type ℓ, x : A i0, y : A i1
         -> ReduceM (Reduced MaybeReducedArgs Term)
 mhcompPathP spsi u u0 l (bA,x,y) = do
+  reportSLn "tc.prim.mhcomp.pathp" 40 "Rule for mhocom at PathP fired."
   let getTermLocal = getTerm $ builtinMHComp ++ " for path types"
   iz <- getTermLocal builtinIZero
   tmhocom <- getTermLocal builtinMHComp
@@ -1261,23 +1263,26 @@ mhcompPathP spsi u u0 l (bA,x,y) = do
     ineg j = pure tINeg <@> j
     imax i j = pure tIMax <@> i <@> j
 
-  redReturn . runNames [] $ do
-     [l,u,u0] <- mapM (open . unArg) [l,u,u0]
-     psi      <- open . unArg . ignoreBlocking $ spsi
-     [bA, x, y] <- mapM (open . unArg) [bA, x, y]
-     lam "j" $ \ j ->
-         pure tmhocom <#> l
-                      <#> (bA <@> j)
-                      <#> (pure tMixedOr <@> psi <@> (pure tEmbd <@> (ineg j `imax` j)))
-                      <@> lam "i'" (\ i ->
-                           let or f1 f2 = pure tmpor <#> l <@> f1 <@> f2 <#> lam "_" (\ _ -> bA <@> i) --f1,2 : mcstr
-                           in or psi (pure tEmbd <@> (ineg j `imax` j))
-                                         <@> ilam "o" (\ o -> u <@> i <..> o <@@> (x, y, j)) -- a0 <@@> (x <@> i, y <@> i, j)
-                                         <@> (or (pure tEmbd <@> ineg j) (pure tEmbd <@> j) <@> ilam "_" (const x)
-                                                                 <@> ilam "_" (const y)))
-                      <@> (u0 <@@> (x, y, j))
-     -- res <- mres
-     -- reportSDocDocs "tc.prim.mhcomp.pathp" 40
-     --   (text "coucou")
-     --   [ text "coucou" ]
-     -- mres
+    res j psi u u0 l bA x y = 
+          pure tmhocom <#> l
+                       <#> (bA <@> j)
+                       <#> (pure tMixedOr <@> psi <@> (pure tEmbd <@> (ineg j `imax` j)))
+                       <@> lam "i'" (\ i ->
+                            let or f1 f2 = pure tmpor <#> l <@> f1 <@> f2 <#> lam "_" (\ _ -> bA <@> i) --f1,2 : mcstr
+                            in or psi (pure tEmbd <@> (ineg j `imax` j))
+                                          <@> ilam "o" (\ o -> u <@> i <..> o <@@> (x, y, j)) -- a0 <@@> (x <@> i, y <@> i, j)
+                                          <@> (or (pure tEmbd <@> ineg j) (pure tEmbd <@> j) <@> ilam "_" (const x)
+                                                                  <@> ilam "_" (const y)))
+                       <@> (u0 <@@> (x, y, j))
+
+  runNamesT [] $ do -- NamesT ReduceM (Reduced MaybeReducedArgs Term)
+    [l,u,u0] <- mapM (open . unArg) [l,u,u0]
+    psi      <- open . unArg . ignoreBlocking $ spsi
+    [bA, x, y] <- mapM (open . unArg) [bA, x, y]
+
+    lamres <- lam "j" (\ j -> res j psi u u0 l bA x y)
+    reportSDocDocs "tc.prim.mhcomp.pathp" 40
+      (text "mhocom at pathp type, results")
+      [ prettyTCM $ toExplicitArgs lamres ]
+
+    YesReduction YesSimplification <$> lam "j" (\ j -> res j psi u u0 l bA x y)
