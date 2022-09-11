@@ -1074,7 +1074,24 @@ primMHComp' = do
         Def q [Apply _ , Apply bA , Apply x , Apply y] | Just q == mId -> do
           maybe fallback return =<< mhcompId sZeta u u0 l (bA, x, y)
 
-        _ -> return $ NoReduction $ map notReduced ts
+        -- Def q es -> do
+        -- info <- getConstInfo q
+        -- let   lam_i = Lam defaultArgInfo . Abs "i"
+        -- case theDef info of
+        --   r@Record{recComp = kit}
+        --       | nelims > 0, Just as <- allApplyElims es, Just hCompR <- nameOfHComp kit
+        --              -> redReturn $ (Def hCompR []) `apply`
+        --                             (as ++ [ignoreBlocking sphi,fromMaybe __IMPOSSIBLE__ u,u0])
+
+        --       | Just as <- allApplyElims es, [] <- recFields r -> compData Nothing False (recPars r) cmd l (as <$ t) sbA sphi u u0
+              
+          -- Datatype{dataPars = pars, dataIxs = ixs, dataPathCons = pcons, dataTransp = mtrD}
+          --   | and [null pcons && ixs == 0 | DoHComp  <- [cmd]], Just as <- allApplyElims es ->
+          --     compData mtrD ((not $ null $ pcons) || ixs > 0) (pars+ixs) cmd l (as <$ t) sbA sphi u u0
+          -- Axiom constTransp | constTransp, [] <- es, DoTransp <- cmd -> redReturn $ unArg u0
+          -- _ -> fallback          
+
+        _ -> fallback
         
 
 
