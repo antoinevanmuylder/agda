@@ -130,8 +130,81 @@ toExplicitArgs t = case t of
     forElims :: Elims -> Elims
     forElims es = map forElim es
 
-    
 
+data CorBsplit
+  = CSPLIT
+  | BSPLIT
+  deriving (Eq, Ord, Show)
+
+instance PrettyTCM CorBsplit where prettyTCM = text . show
+
+dnfMixedCstr :: (HasBuiltins m , MonadDebug m, MonadReduce m) => Term -> m [ (CorBsplit, IntMap Bool, [Term]) ]
+dnfMixedCstr zeta = do
+  viewZeta <- mcstrView zeta
+  case viewZeta of
+    Mno -> return [] -- there are 0 DNF clauses.
+    Myes -> return [ (CSPLIT , IntMap.empty , [] ) ]
+    OtherMCstr _ -> __IMPOSSIBLE__ -- lets say that we shouldnt go here as precondition
+    Mkmc (Arg _ phi) (Arg _ psi) -> do
+      dnfPhi_0 <- decomposeInterval phi
+      -- :: [ (IntMap Bool, [Term]) ]
+      -- bs :: IntMap Bool is 1 non incositent conjunction within path DNF
+      let dnfPhi = flip map dnfPhi_0 $ \ (dbToB, ts) -> (CSPLIT, dbToB, ts)
+      reportSDoc "tc.conv.dnfmixed" 40 $ "dnfPhi  = " <+> prettyTCM dnfPhi
+      Just canPsi <- mbAsCanBCstr =<< reduce psi
+      dnfPsi <- case canPsi of
+        CanBno -> return []
+        CanByes -> __IMPOSSIBLE__ -- because we felt in Myes case above
+        CanMap dbToDir -> -- ≈ the list of  b∨ clauses
+          (\ base trav cont -> foldM cont base trav) [] (IntMap.toList dbToDir) $ \ done (bvar,fcs) -> do
+          -- (Bsplit :: CorBsplit,
+          --  ? :: IntMap Bool
+          --  [])  to match ts above.
+          return $ (++) done $ flip map (BoolSet.toList fcs) $ \ fc -> (BSPLIT, IntMap.singleton bvar (fc), [] :: [Term])
+      reportSDoc "tc.conv.dnfmixed" 40 $ "dnfPsi  = " <+> prettyTCM dnfPsi
+      return $ dnfPhi ++ dnfPsi
+
+data CanBCstr
+  = CanBno
+  | CanMap (IntMap (BoolSet))
+  | CanByes
+  deriving (Eq, Show)
+
+-- | precond: psi has been reduced. "as canonical bcstr"
+asCanBCstr :: (HasBuiltins m , MonadTCEnv m , ReadTCState m, MonadError TCErr m) => Term -> m CanBCstr
+asCanBCstr psi = do
+  psiView <- bcstrView psi
+  case psiView of
+    Bno -> return CanBno
+    Byes -> return CanByes
+    Bisone (Arg _ (Var i [])) -> return $ CanMap $ IntMap.singleton i (BoolSet.singleton True)
+    Biszero (Arg _ (Var i [])) -> return $ CanMap $ IntMap.singleton i (BoolSet.singleton False)
+    Bconj (Arg _ psi1) (Arg _ psi2) -> do
+      psi1' <- asCanBCstr psi1 ; psi2' <- asCanBCstr psi2
+      case (psi1' , psi2') of
+        (CanBno, _) -> typeError $ GenericDocError "asCanBCstr expects a reduced arg"
+        (_ , CanBno) -> typeError $ GenericDocError "asCanBCstr expects a reduced arg"
+        (CanByes, _) -> typeError $ GenericDocError "asCanBCstr expects a reduced arg"
+        (_ , CanByes) -> typeError $ GenericDocError "asCanBCstr expects a reduced arg"
+        (CanMap psi1map , CanMap psi2map) -> do
+          return $ CanMap $ IntMap.unionWith (BoolSet.union) psi1map psi2map
+    _ -> typeError $ GenericDocError "asCanBCstr expects a reduced arg/no metas"
+
+mbAsCanBCstr :: (HasBuiltins m) => Term -> m (Maybe CanBCstr)
+mbAsCanBCstr psi = do
+  psiView <- bcstrView psi
+  case psiView of
+    Bno -> return $ Just CanBno
+    Byes -> return $ Just CanByes
+    Bisone (Arg _ (Var i [])) -> return $ Just $ CanMap $ IntMap.singleton i (BoolSet.singleton True)
+    Biszero (Arg _ (Var i [])) -> return $ Just $ CanMap $ IntMap.singleton i (BoolSet.singleton False)
+    Bconj (Arg _ psi1) (Arg _ psi2) -> do
+      psi1' <- mbAsCanBCstr psi1 ; psi2' <- mbAsCanBCstr psi2
+      case (psi1' , psi2') of
+        (Just ( CanMap psi1map ), Just ( CanMap psi2map )) -> do
+          return $ Just $ CanMap $ IntMap.unionWith (BoolSet.union) psi1map psi2map
+        _ -> return Nothing
+    _ -> return Nothing
     
 -- -- | pretty Doc's of terms, with implicit arguments.
 -- prettyTermImpl :: Term  -> TCM Doc
@@ -957,7 +1030,7 @@ primMHComp' = do
       mHComp <- getPrimitiveName' builtinHComp
       mMhocom <- getPrimitiveName' builtinMHComp
       mGlue <- getPrimitiveName' builtinGlue
-      -- mId   <- getBuiltinName' builtinId
+      mId   <- getBuiltinName' builtinId
       pathV <- pathView'
       case (unArg $ ignoreBlocking sbA) of
         
@@ -996,6 +1069,10 @@ primMHComp' = do
         d | PathType _ _ _ bA x y <- pathV (El __DUMMY_SORT__ d) -> do
           reportSLn "tc.prim.mhcomp" 40 "in mhocom reduction, type casing matched PathP"
           if nelims > 0 then mhcompPathP sZeta u u0 l (bA, x, y) else fallback
+
+        -- for now, it only reduces if zeta is path pure.
+        Def q [Apply _ , Apply bA , Apply x , Apply y] | Just q == mId -> do
+          maybe fallback return =<< mhcompId sZeta u u0 l (bA, x, y)
 
         _ -> return $ NoReduction $ map notReduced ts
         
@@ -1286,3 +1363,113 @@ mhcompPathP spsi u u0 l (bA,x,y) = do
       [ prettyTCM $ toExplicitArgs lamres ]
 
     YesReduction YesSimplification <$> lam "j" (\ j -> res j psi u u0 l bA x y)
+
+-- | for now, reduces iff φ:MCstr is pure path
+--   Please preserve the commented code below.
+mhcompId ::
+        Blocked (Arg Term) -- ^ φ:MCstr, ambient cstr of mhocom {Id} call.
+        -> Arg Term -- ^ u : (i : I) → MPartial φ (Id A x y)
+        -> Arg Term -- ^ a0 : Id A x y
+        -> Arg Term -- ^ l : Lvl
+        -> (Arg Term, Arg Term, Arg Term)
+        -- ^ A : Type ℓ, x y : A
+        -> ReduceM (Maybe (Reduced MaybeReducedArgs Term))
+mhcompId sphi u a0 l (bA , x , y) = do
+  let getTermLocal = getTerm $ builtinMHComp ++ " for " ++ builtinId
+  vsphi <- mcstrView $ unArg $ ignoreBlocking sphi
+  io <- getTermLocal builtinBIZero
+  mbno <- getName' builtinBno
+  unmix <- case vsphi of
+    Mno -> return $ Just io
+    Mkmc (Arg _ phi) (Arg _ (Def q [])) | Just q == mbno -> return $ Just phi
+    _ -> return Nothing
+  case unmix of
+    Nothing -> return Nothing
+    Just phi -> do
+      tHComp <- getTermLocal builtinHComp
+      tId <- getTermLocal builtinId
+      tPres <- getTermLocal builtinPrsvMCstr
+      runNamesT [] $ do
+        -- NamesT ReduceM (Maybe (Reduced MaybeReducedArgs Term))
+        [l , bA , x , y , phi , u , a0] <- mapM (open . unArg) [l , bA , x , y , argN phi, u , a0]
+        let unmix u i o = u <@> i <..> (pure tPres <#> phi <..> o)
+            -- NamesT ReduceM Term
+            res = pure tHComp <#> l <#> (pure tId <#> l <#> bA <@> x <@> y) <#> phi
+               <@> (lam "i" ( \ i -> ilam "o" (\ o -> unmix u i o)))
+               <@> a0
+        Just <$> YesReduction YesSimplification <$> res
+        
+  -- unview <- intervalUnview'
+  -- mConId <- getName' builtinConId
+  -- cview <- conidView'
+  -- let isConId t = isJust $ cview __DUMMY_TERM__ t
+  -- sa0 <- reduceB' a0
+  -- -- wasteful to compute b even when cheaper checks might fail
+  -- b <- allComponents (unArg . ignoreBlocking $ sphi) (unArg u) isConId
+  -- case mConId of
+  --   Just conid | isConId (unArg . ignoreBlocking $ sa0) , b -> (Just <$>) . (redReturn =<<) $ do
+  --     tMHComp <- getTermLocal builtinMHComp
+  --     -- tTrans <- getTermLocal builtinTrans
+  --     tIMin <- getTermLocal "primDepIMin"
+  --     tFace <- getTermLocal "primIdFace"
+  --     tPath <- getTermLocal "primIdPath"
+  --     tPathType <- getTermLocal builtinPath
+  --     tConId <- getTermLocal builtinConId
+  --     runNamesT [] $ do
+  --       let io = pure $ unview IOne
+  --           iz = pure $ unview IZero
+  --           conId = pure $ tConId
+  --       l <- open (Lam defaultArgInfo $ NoAbs "_" $ unArg l)
+  --       [p0] <- mapM (open . unArg) [a0]
+  --       p <- do
+  --         u <- open . unArg $ u
+  --         return $ \ i o -> u <@> i <..> o
+  --       phi      <- open . unArg . ignoreBlocking $ sphi
+  --       [bA, x, y] <- forM [bA,x,y] $ \ a -> open (Lam defaultArgInfo $ NoAbs "_" $ unArg a)
+  --       let
+  --         eval DoHComp l bA phi u u0 = pure tMHComp <#> (l <@> io) <#> (bA <@> io) <#> phi
+  --                                                  <@> u <@> u0
+  --       conId <#> (l <@> io) <#> (bA <@> io) <#> (x <@> io) <#> (y <@> io)
+  --       -- TODO-antva: primDepIMin (phi : MCstr) ...
+  --             <@> (pure tIMin <@> phi
+  --                             <@> ilam "o" (\ o -> pure tFace <#> (l <@> io) <#> (bA <@> io) <#> (x <@> io) <#> (y <@> io)
+  --                                                              <@> (p io o)))
+  --             <@> (eval cmd l
+  --                           (lam "i" $ \ i -> pure tPathType <#> (l <@> i) <#> (bA <@> i) <@> (x <@> i) <@> (y <@> i))
+  --                           phi
+  --                           (lam "i" $ \ i -> ilam "o" $ \ o -> pure tPath <#> (l <@> i) <#> (bA <@> i)
+  --                                                                               <#> (x <@> i) <#> (y <@> i)
+  --                                                                               <@> (p i o)
+  --                                 )
+  --                           (pure tPath <#> (l <@> iz) <#> (bA <@> iz) <#> (x <@> iz) <#> (y <@> iz)
+  --                                             <@> p0)
+  --                 )
+  --   _ -> return $ Nothing
+
+  -- where
+  --   allComponents phi u p = do
+  --     [i0 , i1, bi0, bi1] <- mapM (getTerm "mhocom at Id") [builtinIZero, builtinIOne, builtinBIZero, builtinBIOne]
+  --     let boolToInt :: CorBsplit -> Bool -> Term --bool to interval
+  --         boolToInt skind = case skind of
+  --           CSPLIT -> \ bl -> case bl of
+  --             False -> i0
+  --             True -> i1
+  --           BSPLIT -> \ bl -> case bl of
+  --             False -> bi0
+  --             True -> bi1
+  --     as <- dnfMixedCstr phi
+  --     andM . for as $ \ (skind, bs,ts) -> do
+  --          let u' = listS (IntMap.toAscList $ IntMap.map (boolToInt skind) bs) `applySubst` u
+  --          t <- reduce2Lam u'
+  --          return $! p $ ignoreBlocking t
+  --   reduce2Lam t = do
+  --         t <- reduce' t
+  --         case lam2Abs Relevant t of
+  --           t -> underAbstraction_ t $ \ t -> do
+  --              t <- reduce' t
+  --              case lam2Abs Irrelevant t of
+  --                t -> underAbstraction_ t reduceB'
+  --        where
+  --          lam2Abs rel (Lam _ t) = absBody t <$ t
+  --          lam2Abs rel t         = Abs "y" (raise 1 t `apply` [setRelevance rel $ argN $ var 0])  
+                                   

@@ -464,31 +464,6 @@ compareGelTm cmp a' args@[l, bA0@(Arg _ bA0tm), bA1@(Arg _ bA1tm),
     ldArgInfo = setLock IsLock defaultArgInfo
 compareGelTm _ _ _ _ _ = __IMPOSSIBLE__
 
-data CanBCstr
-  = CanBno
-  | CanMap (IntMap (BoolSet))
-  | CanByes
-  deriving (Eq, Show)
-
--- | precond: psi has been reduced. "as canonical bcstr"
-asCanBCstr :: (MonadConversion m) => Term -> m CanBCstr
-asCanBCstr psi = do
-  psiView <- bcstrView psi
-  case psiView of
-    Bno -> return CanBno
-    Byes -> return CanByes
-    Bisone (Arg _ (Var i [])) -> return $ CanMap $ IntMap.singleton i (BoolSet.singleton True)
-    Biszero (Arg _ (Var i [])) -> return $ CanMap $ IntMap.singleton i (BoolSet.singleton False)
-    Bconj (Arg _ psi1) (Arg _ psi2) -> do
-      psi1' <- asCanBCstr psi1 ; psi2' <- asCanBCstr psi2
-      case (psi1' , psi2') of
-        (CanBno, _) -> typeError $ GenericDocError "asCanBCstr expects a reduced arg"
-        (_ , CanBno) -> typeError $ GenericDocError "asCanBCstr expects a reduced arg"
-        (CanByes, _) -> typeError $ GenericDocError "asCanBCstr expects a reduced arg"
-        (_ , CanByes) -> typeError $ GenericDocError "asCanBCstr expects a reduced arg"
-        (CanMap psi1map , CanMap psi2map) -> do
-          return $ CanMap $ IntMap.unionWith (BoolSet.union) psi1map psi2map
-    _ -> typeError $ GenericDocError "asCanBCstr expects a reduced arg/no metas"
 
 
 -- | inspired from compareInterval
@@ -2154,12 +2129,6 @@ forallBridgeFaceMaps xi k = do
   return [thing0, thing1]
 
 
-data CorBsplit
-  = CSPLIT
-  | BSPLIT
-  deriving (Eq, Ord, Show)
-
-instance PrettyTCM CorBsplit where prettyTCM = text . show
 
 -- | mixed version of forallFaceMaps
 --   does continuation k on every DNF clause of zeta : MCstr.
@@ -2180,7 +2149,7 @@ forallMixedFaces :: MonadConversion m =>
   ->  m [a]
   -- ^ the size of the output list = the # of DNF clauses of (zeta : MCstr).
 forallMixedFaces zeta kb k = do
-  viewZeta <- mcstrView zeta
+  -- viewZeta <- mcstrView zeta
   i0 <- primIZero ; i1 <- primIOne
   bi0 <- primBIZero ; bi1 <- primBIOne
   let boolToInt :: CorBsplit -> Bool -> Term --bool to invterval
@@ -2191,29 +2160,7 @@ forallMixedFaces zeta kb k = do
         BSPLIT -> \ bl -> case bl of
           False -> bi0
           True -> bi1
-  dnfZeta <- do -- :: [ (CorBsplit, IntMap Bool, [Term]) ]
-    case viewZeta of
-      Mno -> return [] -- there are 0 DNF clauses.
-      Myes -> return [ (CSPLIT , IntMap.empty , [] ) ]
-      OtherMCstr _ -> __IMPOSSIBLE__ -- lets say that we shouldnt go here as precondition
-      Mkmc (Arg _ phi) (Arg _ psi) -> do
-        dnfPhi_0 <- decomposeInterval phi
-        -- :: [ (IntMap Bool, [Term]) ]
-        -- bs :: IntMap Bool is 1 non incositent conjunction within path DNF
-        let dnfPhi = flip map dnfPhi_0 $ \ (dbToB, ts) -> (CSPLIT, dbToB, ts)
-        reportSDoc "tc.conv.forallmixed" 40 $ "dnfPhi  = " <+> prettyTCM dnfPhi
-        canPsi <- asCanBCstr =<< reduce psi
-        dnfPsi <- case canPsi of
-          CanBno -> return []
-          CanByes -> __IMPOSSIBLE__ -- because we felt in Myes case above
-          CanMap dbToDir -> -- ≈ the list of  b∨ clauses
-            (\ base trav cont -> foldM cont base trav) [] (IntMap.toList dbToDir) $ \ done (bvar,fcs) -> do
-            -- (Bsplit :: CorBsplit,
-            --  ? :: IntMap Bool
-            --  [])  to match ts above.
-            return $ (++) done $ flip map (BoolSet.toList fcs) $ \ fc -> (BSPLIT, IntMap.singleton bvar (fc), [] :: [Term])
-        reportSDoc "tc.conv.forallmixed" 40 $ "dnfPsi  = " <+> prettyTCM dnfPsi
-        return $ dnfPhi ++ dnfPsi
+  dnfZeta <- dnfMixedCstr zeta
   reportSDoc "tc.conv.forallmixed" 40 $ "dnfZeta  = " <+> prettyTCM dnfZeta
   forM dnfZeta $ \ (skind , dirs, ts) -> do -- dirs :: IntMap Bool is 1 conjunctive DNF clause of zeta
     reportSDoc "tc.conv.forallmixed" 40 $ "Current DNF clause is " <+> prettyTCM (skind, dirs)
@@ -2250,6 +2197,9 @@ forallMixedFaces zeta kb k = do
             CSPLIT -> foldr (\ x r -> and `apply` [argN x,argN r]) io ts
             BSPLIT -> io
       ifBlocked t blocked unblocked
+
+
+  
 
 
 -- | ≈builds σ : ctx <- ctx' (?direction) where ctx' is obtained from ctx by setting db var xi := biEps.
