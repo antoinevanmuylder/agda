@@ -208,7 +208,7 @@ instance EmbPrj MutualId where
   value n         = MutId `fmap` value n
 
 instance EmbPrj CompKit where
-  icod_ (CompKit a b) = icodeN' CompKit a b
+  icod_ (CompKit a b c) = icodeN' CompKit a b c
   value = valueN CompKit
 
 instance EmbPrj Definition where

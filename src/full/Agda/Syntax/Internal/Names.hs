@@ -119,7 +119,7 @@ instance
     namesAndMetasIn' sg ((x, (y, z)), (u, (v, w)))
 
 instance NamesIn CompKit where
-  namesAndMetasIn' sg (CompKit a b) = namesAndMetasIn' sg (a,b)
+  namesAndMetasIn' sg (CompKit a b c) = namesAndMetasIn' sg (a,b,c)
 
 -- Base cases
 

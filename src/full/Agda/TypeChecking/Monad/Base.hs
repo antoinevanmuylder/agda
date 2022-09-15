@@ -2119,11 +2119,12 @@ data FunctionFlag
 data CompKit = CompKit
   { nameOfHComp :: Maybe QName
   , nameOfTransp :: Maybe QName
+  , nameOfMHComp :: Maybe QName -- mixed hom. comp., from --bridges
   }
   deriving (Data, Eq, Ord, Show, Generic)
 
 emptyCompKit :: CompKit
-emptyCompKit = CompKit Nothing Nothing
+emptyCompKit = CompKit Nothing Nothing Nothing
 
 defaultAxiom :: Defn
 defaultAxiom = Axiom False

@@ -433,6 +433,7 @@ defineCompKitR name params fsT fns rect = do
     return $ CompKit
       { nameOfTransp = transp
       , nameOfHComp  = hcomp
+      , nameOfMHComp = Nothing
       }
   where
     whenDefined xs m = do

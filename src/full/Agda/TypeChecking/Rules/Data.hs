@@ -436,6 +436,7 @@ defineCompData d con params names fsT t boundary = do
     return $ CompKit
       { nameOfTransp = transp
       , nameOfHComp  = hcomp
+      , nameOfMHComp = Nothing -- TODO-antva
       }
   where
     -- Δ^I, i : I |- sub Δ : Δ
