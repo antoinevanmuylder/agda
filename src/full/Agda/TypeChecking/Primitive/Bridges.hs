@@ -1073,25 +1073,18 @@ primMHComp' = do
         -- for now, it only reduces if zeta is path pure.
         Def q [Apply _ , Apply bA , Apply x , Apply y] | Just q == mId -> do
           maybe fallback return =<< mhcompId sZeta u u0 l (bA, x, y)
-
-        -- in the record case, it reduces to a special hcomp primitive? (whose QName is in r.recComp)
         
-        -- Def q es -> do
-        --   info <- getConstInfo q
-        --   let   lam_i = Lam defaultArgInfo . Abs "i"
+        Def q es -> do
+          info <- getConstInfo q
+          let   lam_i = Lam defaultArgInfo . Abs "i"
 
-        --   case theDef info of
-        --     r@Record{recComp = kit} | nelims > 0, Just as <- allApplyElims es, DoTransp <- cmd, Just transpR <- nameOfTransp kit
-        --                -> if recPars r == 0
-        --                   then redReturn $ unArg u0
-        --                   else redReturn $ (Def transpR []) `apply`
-        --                               (map (fmap lam_i) as ++ [ignoreBlocking sphi,u0])
-        --         | nelims > 0, Just as <- allApplyElims es, DoHComp <- cmd, Just hCompR <- nameOfHComp kit
-        --                -> redReturn $ (Def hCompR []) `apply`
-        --                               (as ++ [ignoreBlocking sphi,fromMaybe __IMPOSSIBLE__ u,u0])
-
+          case theDef info of
+            r@Record{recComp = kit}
+                | nelims > 0, Just as <- allApplyElims es, Just mhocomR <- nameOfMHComp kit
+                       -> redReturn $ (Def mhocomR []) `apply`
+                                      (as ++ [ignoreBlocking sZeta, u, u0])
         --         | Just as <- allApplyElims es, [] <- recFields r -> compData Nothing False (recPars r) cmd l (as <$ t) sbA sphi u u0
-        --         _ -> fallback
+            _ -> fallback
 
         _ -> fallback
         
