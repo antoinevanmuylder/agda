@@ -1868,3 +1868,168 @@ isCoinductive t = do
     MetaV {} -> return Nothing
     DontCare{} -> __IMPOSSIBLE__
     Dummy s _  -> __IMPOSSIBLE_VERBOSE__ s
+
+
+-- | duplication of defineTranspOrHCompForFields
+defineMixHCompForFields0 ::
+  (Maybe Term)            -- ^ PathCons, Δ.Φ ⊢ u : R δ
+  -> (Term -> QName -> Term) -- ^ how to apply a "projection" to a term
+  -> QName       -- ^ some name, e.g. record name
+  -> Telescope   -- ^ param types Δ
+  -> Telescope   -- ^ fields' types Δ ⊢ Φ
+  -> [Arg QName] -- ^ fields' names
+  -> Type        -- ^ record type Δ ⊢ T
+  -> TCM (Maybe ((QName, Telescope, Type, [Dom Type], [Term]), Substitution))
+defineMixHCompForFields0 pathCons project name params fsT fns rect = runMaybeT $ do
+  fsT' <- traverse (traverse (MaybeT . toLType)) fsT
+  rect' <- MaybeT $ toLType rect
+  lift $ defineMixHCompForFields project name params fsT' fns rect'
+
+-- | duplication of defineHCompForFields
+--   invariant: resulting tel Γ is such that Γ = (δ : Δ), (φ : MCstr), (u : ∀ i → MPartial φ (R δ)), (a0 : R δ))
+--        where u and a0 have types matching the arguments of primMHComp.
+defineMixHCompForFields
+  :: (Term -> QName -> Term) -- ^ how to apply a "projection" to a term
+  -> QName       -- ^ some name, e.g. record name
+  -> Telescope   -- ^ param types Δ
+  -> Tele (Dom LType)   -- ^ fields' types Δ ⊢ Φ
+  -> [Arg QName] -- ^ fields' names
+  -> LType        -- ^ record type (δ : Δ) ⊢ R[δ]
+  -> TCM ((QName, Telescope, Type, [Dom Type], [Term]),Substitution)
+defineMixHCompForFields applyProj name params fsT fns rect = do
+  interval <- primIntervalType
+  let delta = params
+  iz <- primIZero
+  io <- primIOne
+  imin <- getPrimitiveTerm "primIMin"
+  -- imax <- getPrimitiveTerm "primIMax"
+  tIMax <- getPrimitiveTerm "primIMax"
+  ineg <- getPrimitiveTerm "primINeg"
+  -- hcomp <- getPrimitiveTerm builtinHComp
+  mhocom <- getPrimitiveTerm builtinMHComp
+  transp <- getPrimitiveTerm builtinTrans
+  -- por <- getPrimitiveTerm "primPOr"
+  mpor <- getPrimitiveTerm builtin_mpor
+  one <- primItIsOne
+
+  mixedOr <- getPrimitiveTerm builtinMixedOr
+  embd <- getPrimitiveTerm builtinEmbd
+  
+  reportSDoc "comp.rec" 20 $ text $ show params
+  reportSDoc "comp.rec" 20 $ text $ show delta
+  reportSDoc "comp.rec" 10 $ text $ show fsT
+
+  let thePrefix = "mhocom-"
+  theName <- freshAbstractQName'_ $ thePrefix ++ P.prettyShow (A.qnameName name)
+
+  reportSLn "hcomp.rec" 5 $ ("Generated name: " ++ show theName ++ " " ++ showQNameId theName)
+
+  theType <- (abstract delta <$>) $ runNamesT [] $ do
+              rect <- open $ fromLType rect
+              nPi' "zeta" primMCstrType $ \ zeta ->
+               nPi' "i" primIntervalType (\ i ->
+                mpPi' "o" zeta $ \ _ -> rect) -->
+               rect --> rect
+
+  reportSDoc "hcomp.rec" 20 $ prettyTCM theType
+  reportSDoc "hcomp.rec" 60 $ text $ "sort = " ++ show (lTypeLevel rect)
+
+  lang <- getLanguage
+  noMutualBlock $ addConstant theName $
+    (defaultDefn defaultArgInfo theName theType lang
+       (emptyFunction { funTerminates = Just True }))
+      { defNoCompilation = True }
+  --   ⊢ Γ = gamma = (δ : Δ) (ζ : MCstr) (_ : (i : I) -> MPartial ζ (R δ)) (_ : R δ)
+  -- Γ ⊢     rtype = R δ
+  TelV gamma rtype <- telView theType
+
+  let -- Γ ⊢ R δ
+      drect_gamma = raiseS (size gamma - size delta) `applySubst` rect
+
+  reportSDoc "hcomp.rec" 60 $ text $ "sort = " ++ show (lTypeLevel drect_gamma)
+
+  let
+
+      -- (γ : Γ) ⊢ hcompR γ : rtype
+      compTerm = Def theName [] `apply` teleArgs gamma
+
+      -- (δ, ζ, u, u0) : Γ ⊢ φ : I
+      the_zeta = var 2
+      -- (δ, ζ, u, u0) : Γ ⊢ u : (i : I) → [ζ] → R (δ i)
+      the_u   = var 1
+      -- (δ, ζ, u, u0) : Γ ⊢ u0 : R (δ i0)
+      the_u0  = var 0
+
+      -- ' (δ, ζ, u, u0) : Γ ⊢ fillR Γ : (i : I) → rtype[ δ ↦ (\ j → δ (i ∧ j))]
+      fillTerm = runNames [] $ do
+        rect <- open . unEl  . fromLType  $ drect_gamma
+        lvl  <- open . Level . lTypeLevel $ drect_gamma
+        params     <- mapM open $ take (size delta) $ teleArgs gamma
+        [zeta,w,w0] <- mapM open [the_zeta,the_u,the_u0]
+        -- (δ : Δ, ζ : MCstr, w : .., w0 : R δ) ⊢
+        -- ' fillR Γ = λ i → hcompR δ (ζ ∨∨ (embdI ~i)) (\ j → [ ζ ↦ w (i ∧ j) , embdI ~i ↦ w0 ]) w0
+        --           = hfillR δ φ w w0
+        lam "i" $ \ i -> do
+          args <- sequence params
+          psi <- pure mixedOr <@> zeta <@> (pure embd <@> (pure ineg <@> i))
+          -- psi  <- pure imax <@> phi <@> (pure ineg <@> i)
+          u <- lam "j" (\ j -> pure mpor <#> lvl
+                                         <@> zeta
+                                         <@> (pure embd <@> (pure ineg <@> i))
+                                         <#> lam "_" (\ o -> rect)
+                                         <@> (w <@> (pure imin <@> i <@> j))
+                                         <@> lam "_" (\ o -> w0) -- TODO wait for i = 0
+                       )
+          u0 <- w0
+          pure $ Def theName [] `apply` (args ++ [argN psi, argN u, argN u0])
+
+      -- (γ : Γ) ⊢ (flatten Φ)[n ↦ f_n (compR γ)]
+      clause_types = parallelS [compTerm `applyProj` (unArg fn)
+                               | fn <- reverse fns] `applySubst`
+                       flattenTel (raiseS (size gamma - size delta) `applySubst` fsT) -- Γ, Φ ⊢ flatten Φ
+      -- Δ ⊢ Φ = fsT
+      -- Γ, i : I ⊢ Φ'
+      fsT' = raiseS ((size gamma - size delta) + 1) `applySubst` fsT
+
+      -- Γ, i : I ⊢ (flatten Φ')[n ↦ f_n (fillR Γ i)]
+      filled_types = parallelS [raise 1 fillTerm `apply` [argN $ var 0] `applyProj` (unArg fn)
+                               | fn <- reverse fns] `applySubst`
+                       flattenTel fsT' -- Γ, i : I, Φ' ⊢ flatten Φ'
+
+
+  comp <- do
+        let
+          imax i j = pure tIMax <@> i <@> j
+        let forward la bA r u = pure transp <#> lam "i" (\ i -> la <@> (i `imax` r))
+                                            <@> lam "i" (\ i -> bA <@> (i `imax` r))
+                                            <@> r
+                                            <@> u
+        return $ \ la bA zeta u u0 ->
+          pure mhocom <#> (la <@> pure io) <#> (bA <@> pure io) <#> zeta
+                      <@> lam "i" (\ i -> ilam "o" $ \ o ->
+                              forward la bA i (u <@> i <..> o))
+                      <@> forward la bA (pure iz) u0
+  let
+      mkBody (fname, filled_ty') = do
+        let
+          proj t = (`applyProj` unArg fname) <$> t
+          filled_ty = Lam defaultArgInfo (Abs "i" $ (unEl . fromLType . unDom) filled_ty')
+          -- Γ ⊢ l : I -> Level of filled_ty
+        l <- reduce $ lTypeLevel $ unDom filled_ty'
+        let lvl = Lam defaultArgInfo (Abs "i" $ Level l)
+        return $ runNames [] $ do
+             lvl <- open lvl
+             [zeta,w,w0] <- mapM open [the_zeta,the_u,the_u0]
+             filled_ty <- open filled_ty
+
+             comp lvl
+                  filled_ty
+                  zeta
+                  (lam "i" $ \ i -> ilam "o" $ \ o -> proj $ w <@> i <..> o) -- TODO wait for phi = 1
+                  (proj w0)
+
+  reportSDoc "hcomp.rec" 60 $ text $ "filled_types sorts:" ++ show (map (getSort . fromLType . unDom) filled_types)
+
+  bodys <- mapM mkBody (zip fns filled_types)
+  return $ ((theName, gamma, rtype, map (fmap fromLType) clause_types, bodys),IdS)
+

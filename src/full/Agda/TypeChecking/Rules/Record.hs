@@ -424,12 +424,14 @@ defineCompKitR name params fsT fns rect = do
         , builtinPOr
         , builtinItIsOne
         ]
+  bridges <- optBridges <$> pragmaOptions
   reportSDoc "tc.rec.cxt" 30 $ prettyTCM params
   reportSDoc "tc.rec.cxt" 30 $ prettyTCM fsT
   reportSDoc "tc.rec.cxt" 30 $ pretty rect
   if not $ all isJust required then return $ emptyCompKit else do
     transp <- whenDefined [builtinTrans]              (defineTranspOrHCompR DoTransp name params fsT fns rect)
     hcomp  <- whenDefined [builtinTrans,builtinHComp] (defineTranspOrHCompR DoHComp name params fsT fns rect)
+    -- mhocom <- whenDefined [builtinMHComp] (defineMixHCompR name params fsT fns rect)
     return $ CompKit
       { nameOfTransp = transp
       , nameOfHComp  = hcomp
@@ -766,3 +768,104 @@ checkRecordProjections m r hasNamedCon con tel ftel fs = do
     checkProjs ftel1 ftel2 vs (d : fs) = do
       checkDecl d
       checkProjs ftel1 ftel2 vs fs
+
+
+-- defineMixHCompR ::
+--   QName       -- ^ some name, e.g. record name
+--   -> Telescope   -- ^ param types Δ
+--   -> Telescope   -- ^ fields' types Δ ⊢ Φ
+--   -> [Arg QName] -- ^ fields' names
+--   -> Type        -- ^ record type Δ ⊢ T
+--   -> TCM (Maybe QName)
+-- defineMixHCompR name params fsT fns rect = do
+--   let project = (\ t fn -> t `applyE` [Proj ProjSystem fn])
+--   stuff <- fmap fst <$> defineMixHCompForFields0 Nothing project name params fsT fns rect
+
+--   caseMaybe stuff (return Nothing) $ \ (theName, gamma, rtype, clause_types, bodies) -> do
+--   -- theName = mhocom-myRec
+--   -- Γ = δ:Δ , ζ:MCstr , u: (i:I) → MPartial ζ (R δ) , u0 : R δ
+--   -- Γ ⊢ rtype, record type.
+
+--   -- clause when ζ holds?
+--   -- TODO-antva: in the mixed case were forced to produce several c'
+--   --             contrary to cubical where there is 1 clause with pattern (phi=i1)
+--   c' <- do
+--            io <- primIOne
+--            Just io_name <- getBuiltinName' builtinIOne
+--            -- one <- primItIsOne
+--            mitholds <- primMitHolds
+--            tInterval <- primIntervalType
+--            let
+--               (ix,rhs) =
+--                   -- MixHCompRArgs = (ζ : Mcstr)(u : ..) (a0 : ..)
+--                   -- Γ = Δ, CompRArgs
+--                   -- pats = ... | ζ = myes  TODO-antva: phi=i1 is a pat. not ζ = myes.
+--                   -- body = u i1 mitHolds
+--                   (2,Var 1 [] `apply` [argN io, setRelevance Irrelevant $ argN mitholds])
+
+--               p = ConP (ConHead io_name IsData Inductive [])
+--                        (noConPatternInfo { conPType = Just (Arg defaultArgInfo tInterval)
+--                                          , conPFallThrough = True })
+--                          []
+
+--               -- gamma, rtype
+
+--               s = singletonS ix p
+
+--               pats :: [NamedArg DeBruijnPattern]
+--               pats = s `applySubst` teleNamedArgs gamma
+
+--               t :: Type
+--               t = s `applyPatSubst` rtype
+
+--               gamma' :: Telescope
+--               gamma' = unflattenTel (ns0 ++ ns1) $ s `applyPatSubst` (g0 ++ g1)
+--                where
+--                 (g0,_:g1) = splitAt (size gamma - 1 - ix) $ flattenTel gamma
+--                 (ns0,_:ns1) = splitAt (size gamma - 1 - ix) $ teleNames gamma
+
+--               c = Clause { clauseFullRange = noRange
+--                          , clauseLHSRange  = noRange
+--                          , clauseTel       = gamma'
+--                          , namedClausePats = pats
+--                          , clauseBody      = Just $ rhs
+--                          , clauseType      = Just $ argN t
+--                          , clauseCatchall    = False
+--                          , clauseExact       = Just True
+--                          , clauseRecursive   = Just False  -- definitely non-recursive!
+--                          , clauseUnreachable = Just False
+--                          , clauseEllipsis    = NoEllipsis
+--                          , clauseWhereModule = Nothing
+--                          }
+--            reportSDoc "trans.rec.face" 17 $ text $ show c
+--            return c
+--   cs <- forM (zip3 fns clause_types bodies) $ \ (fname, clause_ty, body) -> do
+--           let
+--               pats = teleNamedArgs gamma ++ [defaultNamedArg $ ProjP ProjSystem $ unArg fname]
+--               c = Clause { clauseFullRange = noRange
+--                          , clauseLHSRange  = noRange
+--                          , clauseTel       = gamma
+--                          , namedClausePats = pats
+--                          , clauseBody      = Just body
+--                          , clauseType      = Just $ argN (unDom clause_ty)
+--                          , clauseCatchall    = False
+--                          , clauseExact       = Just True
+--                          , clauseRecursive   = Nothing
+--                              -- Andreas 2020-02-06 TODO
+--                              -- Or: Just False;  is it known to be non-recursive?
+--                          , clauseUnreachable = Just False
+--                          , clauseEllipsis    = NoEllipsis
+--                          , clauseWhereModule = Nothing
+--                          }
+--           reportSDoc "trans.rec" 17 $ text $ show c
+--           reportSDoc "trans.rec" 16 $ text "type =" <+> text (show (clauseType c))
+--           reportSDoc "trans.rec" 15 $ prettyTCM $ abstract gamma (unDom clause_ty)
+--           reportSDoc "trans.rec" 10 $ text "body =" <+> prettyTCM (abstract gamma body)
+--           return c
+--   addClauses theName $ c' : cs
+--   reportSDoc "trans.rec" 15 $ text $ "compiling clauses for " ++ show theName
+--   (mst, _, cc) <- inTopContext (compileClauses Nothing cs)
+--   whenJust mst $ setSplitTree theName
+--   setCompiledClauses theName cc
+--   reportSDoc "trans.rec" 15 $ text $ "compiled"
+--   return $ Just theName
