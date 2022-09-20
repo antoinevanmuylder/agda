@@ -52,6 +52,7 @@ import Agda.TypeChecking.Primitive.Cubical ( headStop , TermPosition(..) ) --TOD
 import Agda.Utils.Either
 import Agda.Utils.Functor
 import Agda.Utils.Maybe
+import Agda.Utils.Function (applyUnless)
 
 import Agda.Utils.Impossible
 import Agda.Utils.Maybe
@@ -1485,3 +1486,173 @@ mhcompId sphi u a0 l (bA , x , y) = do
   --          lam2Abs rel (Lam _ t) = absBody t <$ t
   --          lam2Abs rel t         = Abs "y" (raise 1 t `apply` [setRelevance rel $ argN $ var 0])  
                                    
+
+mhcompData ::
+      Maybe QName -- ^ transport-at-data auxiliary primitive
+      -- -> Bool -- ^ is HIT
+      -- -> Nat -- ^ pars + idxs
+      -- -> TranspOrHComp
+      -> Arg Term -- ^ lvl
+      -> [Arg Term] -- ^ more elims
+      -> Blocked (Arg Term) -- ^ data type, simplified
+      -> Blocked (Arg Term) -- ^ ambient hcomp constraint, simplified
+      -> Arg Term -- ^ u adjustement
+      -> Arg Term -- ^ u0
+      -> ReduceM (Reduced MaybeReducedArgs Term)
+mhcompData mtrD l ps sc sphi u a0 = do
+  let getTermLocal = getTerm $ builtinMHComp ++ " for data types"
+  -- tPOr   <- getTermLocal builtinPOr
+  mempty <- getTermLocal builtinMHoldsEmpty
+  mpor <- getTermLocal builtin_mpor
+  embd <- getTermLocal builtinEmbd
+  mixedOr <- getTermLocal builtinMixedOr
+  myes <- getTermLocal builtinMyes
+  biszero <- getTermLocal builtinBiszero
+  bisone <- getTermLocal builtinBisone
+  
+  iO   <- getTermLocal builtinIOne
+  iZ   <- getTermLocal builtinIZero
+  mno  <- getTermLocal builtinMno
+  tMin <- getTermLocal builtinIMin
+  tNeg <- getTermLocal builtinINeg
+  let iNeg t = tNeg `apply` [argN t]
+      iMin t u = tMin `apply` [argN t, argN u]
+      -- iz = pure iZ
+  constrForm <- do
+    mz <- getTerm' builtinZero
+    ms <- getTerm' builtinSuc
+    return $ \ t -> fromMaybe t (constructorForm' mz ms t)
+  su  <- reduceB' u
+  sa0 <- reduceB' a0
+  view   <- mcstrView'
+  -- unview <- intervalUnview'
+  let f = unArg . ignoreBlocking
+      phi = f sphi
+      a0 = f sa0
+      isLit t@(Lit lt) = Just t
+      isLit _ = Nothing
+      isCon (Con h _ _) = Just h
+      isCon _           = Nothing
+      combine l ty d [] = d
+      combine l ty d [(psi,u)] = u
+      combine l ty d ((psi,u):xs)
+        = pure mpor <#> l <@> psi <@> foldr (mixmax . fst) (pure mno) xs
+                    <#> ilam "o" (\ _ -> ty) -- the type
+                    <@> u <@> (combine l ty d xs)
+        where
+          mixmax zeta1 zeta2 = do
+            z1 <- zeta1
+            z2 <- zeta2
+            return $ mixedOr `apply` [argN z1, argN z2] 
+              
+      noRed' su = return $ NoReduction [notReduced l,reduced sc, reduced sphi, reduced su', reduced sa0]
+        where
+          su' = case view phi of
+                 Mno -> notBlocked $ argN $ runNames [] $ do
+                             [l,c] <- mapM (open . unArg) [l,ignoreBlocking sc]
+                             lam "i" $ \ i -> pure mempty <#> l
+                                                          <#> ilam "o" (\ _ -> c)
+                 _     -> su
+
+  -- noRed' su
+
+      sameConHeadBack :: Maybe Term             -- ^ base a0 is a literal, in a data type
+                         -> Maybe ConHead       -- ^ base a0 is instead a constructor
+                         -> Blocked (Arg Term)          -- ^ adjustement u, simplified.
+                         -> (ConHead
+                             -> Blocked (Arg Term)
+                             -> ReduceM (Reduced MaybeReducedArgs Term))
+                         -- ^ continuation.
+                         -> ReduceM (Reduced MaybeReducedArgs Term)
+      sameConHeadBack Nothing Nothing su k = noRed' su
+      sameConHeadBack lt h su k = do
+        let u = unArg . ignoreBlocking $ su
+        -- b list of flags, 1 for each dnf clause of phi
+        -- ts list of terms obtained by subst u with dnf clause, forall clauses.
+        (b, ts, skinds) <- allComponentsBack  phi u $ \ t ->
+                    (isLit t == lt, isCon (constrForm t) == h)
+        let
+          (lit,hd) = unzip b
+
+        if isJust lt && and lit then redReturn a0 else do
+        -- if sequence ts == Nothing, return su. else
+        su <- caseMaybe (sequence ts) (return su) $ \ ts -> do
+          let (us,bools) = unzip ts --both lists have same size than skinds.
+          fmap ((sequenceA_ us $>) . argN) $ do
+          let
+            phis :: [Term]
+            phis = for (zip bools skinds) $ \ (m,skind) -> case skind of
+                     CSPLIT ->
+                       embd `apply` [argN $ foldr (iMin . (\(i,b) -> applyUnless b iNeg $ var i)) iO (IntMap.toList m)]
+                     BSPLIT ->
+                       case (IntMap.toList m) of
+                         [] -> myes
+                         [ (i,True) ] -> bisone `apply` [argN $ var i]
+                         [ (i,False) ] -> biszero `apply` [argN $ var i]
+                         _ -> __IMPOSSIBLE__
+                       
+          runNamesT [] $ do
+            u <- open u
+            [l,c] <- mapM (open . unArg) [l,ignoreBlocking sc]
+            phis <- mapM open phis
+            us   <- mapM (open . ignoreBlocking) us
+            lam "i" $ \ i -> do
+              combine l c (u <@> i) $ zip phis (map (\ t -> t <@> i) us)
+
+        if isJust h && and hd then k (fromMaybe __IMPOSSIBLE__ h) su
+                  else noRed' su
+
+  sameConHeadBack (isLit a0) (isCon a0) su $ \ h su -> do
+        let u = unArg . ignoreBlocking $ su
+        Constructor{ conComp = cm } <- theDef <$> getConstInfo (conName h)
+        case nameOfMHComp cm of
+          Just mhcompD -> redReturn $ Def mhcompD [] `apply`
+                                      (ps ++ map argN [phi,u,a0])
+          Nothing        -> noRed' su
+  where
+
+    -- | second component of result is a list of size #(dnf phi)
+    --   For 1 clause, elem :: Maybe (u-restr:: Blocked Term,dirs:: IntMap Bool)
+    --   u-restr is u where the current clause has been substituted, using the dirs.
+    --
+    --   the third arg @p@ is a continuation to produce flags for each clause.
+    allComponentsBack :: Term
+                      -> Term
+                      -> (Term -> a)
+                      -> ReduceM ([a], [Maybe (Blocked Term, IntMap Bool)], [CorBsplit])
+    allComponentsBack phi u p = do
+      [i0 , i1, bi0, bi1] <- mapM (getTerm "mhocom at Id") [builtinIZero, builtinIOne, builtinBIZero, builtinBIOne]
+      let
+        boolToInt :: CorBsplit -> Bool -> Term --bool to interval
+        boolToInt skind = case skind of
+          CSPLIT -> \ bl -> case bl of
+            False -> i0
+            True -> i1
+          BSPLIT -> \ bl -> case bl of
+            False -> bi0
+            True -> bi1
+        -- boolToI b = if b then unview IOne else unview IZero
+        lamlam t = Lam defaultArgInfo (Abs "i" (Lam (setRelevance Irrelevant defaultArgInfo) (Abs "o" t)))
+      -- as :: [ (CorBsplit, IntMap Bool, [Term]) ]
+      as <- dnfMixedCstr phi
+      (flags,t_alphas, splitKinds) <- fmap unzip3 . forM as $ \ (skind, bs ,ts) -> do
+           -- u' is u with current clause bs substituted
+           let u' = listS bs' `applySubst` u
+               bs' = IntMap.toAscList $ IntMap.map (boolToInt skind) bs
+               -- Γ₁, i : I, Γ₂, j : I, Γ₃  ⊢ weaken : Γ₁, Γ₂, Γ₃   for bs' = [(j,_),(i,_)]
+               -- ordering of "j,i,.." matters.
+           let weaken = foldr (\ j s -> s `composeS` raiseFromS j 1) idS (map fst bs')
+           t <- reduce2Lam u'
+           return $ (p $ ignoreBlocking t, listToMaybe [ (weaken `applySubst` (lamlam <$> t),bs) | null ts ], skind)
+      return $ (flags,t_alphas, splitKinds)
+
+    reduce2Lam t = do
+      t <- reduce' t
+      case lam2Abs Relevant t of
+        t -> underAbstraction_ t $ \ t -> do
+           t <- reduce' t
+           case lam2Abs Irrelevant t of
+             t -> underAbstraction_ t reduceB'
+      where
+        lam2Abs rel (Lam _ t) = absBody t <$ t
+        lam2Abs rel t         = Abs "y" (raise 1 t `apply` [setRelevance rel $ argN $ var 0])  

@@ -1377,6 +1377,18 @@ primTransHComp cmd ts nelims = do
                  t <- reduce2Lam u'
                  return $ (p $ ignoreBlocking t, listToMaybe [ (weaken `applySubst` (lamlam <$> t),bs) | null ts ])
             return $ (flags,t_alphas)
+    compData ::
+      Maybe QName -- ^ transport-at-data auxiliary primitive
+      -> Bool -- ^ is HIT
+      -> Nat -- ^ pars + idxs
+      -> TranspOrHComp
+      -> FamilyOrNot (Arg Term) -- ^ lvl
+      -> FamilyOrNot [Arg Term] -- ^ more elims
+      -> Blocked (FamilyOrNot (Arg Term)) -- ^ data type, simplified
+      -> Blocked (Arg Term) -- ^ ambient hcomp constraint, simplified
+      -> Maybe (Arg Term) -- ^ u adjustement
+      -> Arg Term -- ^ u0
+      -> ReduceM (Reduced MaybeReducedArgs Term)
     compData mtrD False _ cmd@DoHComp (IsNot l) (IsNot ps) fsc sphi (Just u) a0 = do
       let getTermLocal = getTerm $ cmdToName cmd ++ " for data types"
 
