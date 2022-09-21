@@ -431,8 +431,10 @@ defineCompData d con params names fsT t boundary = do
     , builtinItIsOne
     ]
   if not (all isJust required) then return $ emptyCompKit else do
-    hcomp  <- whenDefined (null boundary) [builtinHComp,builtinTrans] (defineTranspOrHCompD DoHComp  d con params names fsT t boundary)
-    transp <- whenDefined True            [builtinTrans]              (defineTranspOrHCompD DoTransp d con params names fsT t boundary)
+    hcomp  <- whenDefined (null boundary) [builtinHComp,builtinTrans]
+      (defineKanOperationD DoHComp  d con params names fsT t boundary)
+    transp <- whenDefined True            [builtinTrans]
+      (defineKanOperationD DoTransp d con params names fsT t boundary)
     return $ CompKit
       { nameOfTransp = transp
       , nameOfHComp  = hcomp
@@ -443,9 +445,9 @@ defineCompData d con params names fsT t boundary = do
     sub tel = [ var n `apply` [Arg defaultArgInfo $ var 0] | n <- [1..size tel] ] ++# EmptyS __IMPOSSIBLE__
     withArgInfo tel = zipWith Arg (map domInfo . telToList $ tel)
 
-    defineTranspOrHCompD cmd d con params names fsT t boundary = do
+    defineKanOperationD cmd d con params names fsT t boundary = do
       let project = (\ t p -> apply (Def p []) [argN t])
-      stuff <- defineTranspOrHCompForFields cmd
+      stuff <- defineKanOperationForFields cmd
                  (guard (not $ null boundary) >> Just (Con con ConOSystem $ teleElims fsT boundary))
                  project d params fsT (map argN names) t
       caseMaybe stuff (return Nothing) $ \ ((theName, gamma , ty, _cl_types , bodies), theSub) -> do
@@ -1294,8 +1296,8 @@ defineConClause trD' isHIT mtrX npars nixs xTel' telI sigma dT' cnames = do
       return c
 
 
-defineTranspOrHCompForFields
-  :: TranspOrHComp
+defineKanOperationForFields
+  :: Command
   -> (Maybe Term)            -- ^ PathCons, Δ.Φ ⊢ u : R δ
   -> (Term -> QName -> Term) -- ^ how to apply a "projection" to a term
   -> QName       -- ^ some name, e.g. record name
@@ -1304,7 +1306,7 @@ defineTranspOrHCompForFields
   -> [Arg QName] -- ^ fields' names
   -> Type        -- ^ record type Δ ⊢ T
   -> TCM (Maybe ((QName, Telescope, Type, [Dom Type], [Term]), Substitution))
-defineTranspOrHCompForFields cmd pathCons project name params fsT fns rect =
+defineKanOperationForFields cmd pathCons project name params fsT fns rect =
    case cmd of
        DoTransp -> runMaybeT $ do
          fsT' <- traverse (traverse (MaybeT . toCType)) fsT
@@ -1732,9 +1734,9 @@ fitsIn uc forceds t s = do
   -- noConstraints $ s' `leqSort` s
 
   withoutK <- withoutKOption
-  when withoutK $ whenM (isFibrant s) $ do
+  when withoutK $ do
     q <- viewTC eQuantity
-    usableAtModality (setQuantity q defaultModality) (unEl t)
+    usableAtModality' (Just s) (setQuantity q defaultModality) (unEl t)
 
   fitsIn' withoutK forceds t s
   where

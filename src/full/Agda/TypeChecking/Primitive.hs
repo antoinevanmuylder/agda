@@ -38,6 +38,7 @@ import Agda.TypeChecking.Quote (quoteTermWithKit, quoteTypeWithKit, quoteDomWith
 import Agda.TypeChecking.Primitive.Base
 import Agda.TypeChecking.Primitive.Cubical
 import Agda.TypeChecking.Primitive.Bridges
+import Agda.TypeChecking.Primitive.Cubical.Base
 import Agda.TypeChecking.Warnings
 
 import Agda.Utils.Char
@@ -960,7 +961,6 @@ primitiveFunctions = localTCStateSavingWarnings <$> Map.fromListWith __IMPOSSIBL
   , "primComp"            |-> primComp
   , builtinTrans          |-> primTrans'
   , builtinHComp          |-> primHComp'
-  , "primIdJ"             |-> primIdJ
   , "primPartial"         |-> primPartial'
   , "primPartialP"        |-> primPartialP'
   , builtinGlue           |-> primGlue'

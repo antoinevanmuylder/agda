@@ -96,6 +96,11 @@ initLHSState
   -> (LHSState a -> TCM a) -- ^ Continuation for when checking the patterns is complete.
   -> TCM (LHSState a)      -- ^ The initial LHS state constructed from the user patterns.
 initLHSState delta eqs ps a ret = do
+  reportSDoc "tc.lhs.init" 40 $ vcat
+    [ "initLHSState"
+    , nest 2 $ "delta = " <+> prettyTCM delta
+    , nest 2 $ "a     = " <+> addContext delta (prettyTCM a)
+    ]
   let problem = Problem eqs ps ret
       qs0     = teleNamedArgs delta
 
@@ -106,10 +111,10 @@ initLHSState delta eqs ps a ret = do
 updateProblemRest
   :: forall m a. (PureTCM m, MonadError TCErr m, MonadTrace m, MonadFresh NameId m)
   => LHSState a -> m (LHSState a)
-updateProblemRest st@(LHSState tel0 qs0 p@(Problem oldEqs ps ret) a psplit) = do
+updateProblemRest st@(LHSState tel0 qs0 p@(Problem oldEqs ps ret) a psplit) = addContext tel0 $ do
   reportSDoc "tc.lhs.problem" 50 $
     "updateProblemRest args: " $$ (nest 2 $ prettyTCM st)
-  ps <- addContext tel0 $ insertImplicitPatternsT ExpandLast ps $ unArg a
+  ps <- insertImplicitPatternsT ExpandLast ps $ unArg a
   reportSDoc "tc.lhs.imp" 20 $
     "insertImplicitPatternsT returned" <+> fsep (map prettyA ps)
   -- (Issue 734: Do only the necessary telView to preserve clause types as much as possible.)

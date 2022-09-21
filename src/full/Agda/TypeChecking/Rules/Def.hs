@@ -84,7 +84,7 @@ checkFunDef :: Delayed -> A.DefInfo -> QName -> [A.Clause] -> TCM ()
 checkFunDef delayed i name cs = do
         -- Reset blocking tag (in case a previous attempt was blocked)
         modifySignature $ updateDefinition name $ updateDefBlocked $ const $
-          NotBlocked MissingClauses ()
+          NotBlocked (MissingClauses name) ()
         -- Get the type and relevance of the function
         def <- instantiateDef =<< getConstInfo name
         let t    = defType def
@@ -654,7 +654,7 @@ checkCubSystemCoverage f n t cs = do
                   fmap (abstract delta) $ addContext delta $ do
                     reportSDoc "tc.sys.coh" 40 $ "extra tel delta" <+> prettyTCM delta
                     fmap fromReduced $ runReduceM $
-                      appDef' (Def f []) [cl] [] (map notReduced $ raise (size delta) args ++ teleArgs delta)
+                      appDef' f (Def f []) [cl] [] (map notReduced $ raise (size delta) args ++ teleArgs delta)
             v1 <- body cl1
             v2 <- body cl2
             equalTerm t' v1 v2
@@ -1754,7 +1754,8 @@ checkWithFunction cxtNames (WithFunction f aux t delta delta1 delta2 vtys b qs n
 
   -- Check the with function
   let info = Info.mkDefInfo (nameConcrete $ qnameName aux) noFixity' PublicAccess abstr (getRange cs)
-  checkFunDefS withFunType defaultArgInfo NotDelayed Nothing (Just f) info aux (Just withSub) cs
+  ai <- defArgInfo <$> getConstInfo f
+  checkFunDefS withFunType ai NotDelayed Nothing (Just f) info aux (Just withSub) cs
   return $ Just $ call_in_parent
 
 -- | Type check a where clause.

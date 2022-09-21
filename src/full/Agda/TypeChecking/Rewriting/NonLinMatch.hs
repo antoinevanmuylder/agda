@@ -53,8 +53,7 @@ import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Reduce.Monad
 import Agda.TypeChecking.Substitute
 import Agda.TypeChecking.Telescope
-import Agda.TypeChecking.Primitive.Base ( primIntervalType )
-import Agda.TypeChecking.Primitive.Cubical
+import Agda.TypeChecking.Primitive.Cubical.Base
 
 import Agda.Utils.Either
 import Agda.Utils.Functor

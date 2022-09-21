@@ -2,11 +2,11 @@
 
 module Agda.TypeChecking.Primitive.Base where
 
--- Control.Monad.Fail import is redundant since GHC 8.8.1
-import Control.Monad.Fail (MonadFail)
+import Control.Monad.Fail ( MonadFail )
 import Control.Monad (mzero , msum)
 import Data.Bifunctor ( second )
 import Data.Either ( partitionEithers )
+import Control.Monad.Trans.Maybe ( MaybeT(..), runMaybeT )
 
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
@@ -246,18 +246,18 @@ lookupPrimitiveFunctionQ q = do
   return (s, PrimImpl t $ pf { primFunName = q })
 
 getBuiltinName :: (HasBuiltins m, MonadReduce m) => String -> m (Maybe QName)
-getBuiltinName b = traverse getQNameFromTerm =<< getBuiltin' b
+getBuiltinName b = runMaybeT $ getQNameFromTerm =<< MaybeT (getBuiltin' b)
 
 -- | Convert a name in 'Term' form back to 'QName'.
 --
-getQNameFromTerm :: MonadReduce m => Term -> m QName
+getQNameFromTerm :: MonadReduce m => Term -> MaybeT m QName
 getQNameFromTerm v = do
     v <- reduce v
     case unSpine v of
       Def x _   -> return x
       Con x _ _ -> return $ conName x
       Lam _ b   -> getQNameFromTerm $ unAbs b
-      _ -> __IMPOSSIBLE__
+      _ -> mzero
 
 isBuiltin :: (HasBuiltins m, MonadReduce m) => QName -> String -> m Bool
 isBuiltin q b = (Just q ==) <$> getBuiltinName b
@@ -291,71 +291,3 @@ getSigmaKit = do
             }
         _ -> __IMPOSSIBLE__
 
-
-------------------------------------------------------------------------
--- * Previously in Cubical.hs
-------------------------------------------------------------------------
-
-
--- | Checks that the correct variant of Cubical Agda is activated.
--- Note that @--erased-cubical@ \"counts as\" @--cubical@ in erased
--- contexts.
-
-requireCubical
-  :: Cubical -- ^ Which variant of Cubical Agda is required?
-  -> String -> TCM ()
-requireCubical wanted s = do
-  cubical         <- optCubical <$> pragmaOptions
-  inErasedContext <- hasQuantity0 <$> getEnv
-  case cubical of
-    Just CFull -> return ()
-    Just CErased | wanted == CErased || inErasedContext -> return ()
-    _ -> typeError $ GenericError $ "Missing option " ++ opt ++ s
-  where
-  opt = case wanted of
-    CFull   -> "--cubical"
-    CErased -> "--cubical or --erased-cubical"
-
-primIntervalType :: (HasBuiltins m, MonadTCError m) => m Type -- MonadError TCErr m, MonadTCEnv m, ReadTCState m
-primIntervalType = El intervalSort <$> primInterval
-
--- | Basically gives t:I in DNF
---   [ .. (bm_i, ts_i) .. ] <- decomposeInterval phi where phi = phi1 ∨ phi2 ...
---   then:
---   bm_i is describes a conjunction phi_i
---   ts is used to store blocked terms (?)
--- 
---   EX1: xyz ⊢ ~ x ∨ (y ∧ ~ z) ∨ i1
---        [  ([(2,False)],[])  , ([(0,False), (1,True)],[])  , ([],[])  ]
---   EX2: xyz ⊢ x ∧ (y ∨ z)
---        [  ([(1,True), (2,True)],[])  , ([(0,True), (2,True)],[])  ]
---        because x ∧ (y ∨ z) = (x ∧ y) ∨ (x ∧ z)
-decomposeInterval :: HasBuiltins m => Term -> m [(IntMap Bool, [Term])]
-decomposeInterval t = do
-  decomposeInterval' t <&> \ xs ->
-    [ (bm, ts)
-    | (bsm :: IntMap BoolSet, ts) <- xs
-    , bm <- maybeToList $ traverse BoolSet.toSingleton bsm
-        -- discard inconsistent mappings
-    ]
-
-decomposeInterval' :: HasBuiltins m => Term -> m [(IntMap BoolSet, [Term])]
-decomposeInterval' t = do
-     view   <- intervalView'
-     unview <- intervalUnview'
-     let f :: IntervalView -> [[Either (Int,Bool) Term]]
-         -- TODO handle primIMinDep
-         -- TODO? handle forall
-         f IZero = mzero -- []
-         f IOne  = return [] -- [[]]
-         f (IMin x y) = do xs <- (f . view . unArg) x; ys <- (f . view . unArg) y; return (xs ++ ys)
-         f (IMax x y) = msum $ map (f . view . unArg) [x,y]
-         f (INeg x)   = map (either (\ (x,y) -> Left (x,not y)) (Right . unview . INeg . argN)) <$> (f . view . unArg) x
-         f (OTerm (Var i [])) = return [Left (i,True)]
-         f (OTerm t)          = return [Right t]
-         v = view t
-     return [ (bsm,ts)
-            | xs <- f v
-            , let (bs,ts) = partitionEithers xs
-            , let bsm     = IntMap.fromListWith BoolSet.union $ map (second BoolSet.singleton) bs
-            ]

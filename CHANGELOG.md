@@ -4,7 +4,7 @@ Release notes for Agda version 2.6.3
 Installation and infrastructure
 -------------------------------
 
-Agda supports GHC versions 8.0.2 to 9.2.3.
+Agda supports GHC versions 8.0.2 to 9.2.4.
 
 Language
 --------
@@ -63,8 +63,8 @@ Language
   (see [#5427](https://github.com/agda/agda/issues/5427)).
 
 * The cubical interval `I` now belongs to its own sort, `IUniv`, rather
-  than `SSet`. For `J : ISet` and `A : J → Set l`, we have
-  `(j : J) → A : Set l`, that is, the type of functions from a type in `ISet`
+  than `SSet`. For `J : IUniv` and `A : J → Set l`, we have
+  `(j : J) → A j : Set l`, that is, the type of functions from a type in `IUniv`
   to a fibrant type is fibrant.
 
 * The option `--experimental-irrelevance` is now perhaps incompatible
@@ -112,6 +112,34 @@ Language
 
 * A new constructor `pattErr : Pattern → ErrorPart` of `ErrorPart` for reflection
   is added.
+
+* The type expected by the builtin `EQUIVPROOF` has been changed to
+  properly encode the condition that `EQUVIFUN` is an equivalence.
+  ([#5661](https://github.com/agda/agda/issues/5661),
+  [#6032](https://github.com/agda/agda/pull/6032))
+
+* The primitive `primIdJ` has been removed
+  ([#6032](https://github.com/agda/agda/pull/6032)).
+
+* The builtin `SUBIN` is now exported from `Agda.Builtin.Cubical.Sub` as
+  **`inS`** rather than `inc`.
+
+* A new built-in constructor `REFLID` was added to the cubical identity
+  types. This is definitionally equal to the reflexivity identification
+  built with `conid`, with the difference being that matching on
+  `REFLID` is allowed.
+
+  ```agda
+  symId : ∀ {a} {A : Set a} {x y : A} → Id x y → Id y x
+  symId reflId = reflId
+  ```
+
+* The new option `--no-load-primitives` complements `--no-import-sorts`
+  by foregoing loading of the primitive modules altogether. This option
+  leaves Agda in a very fragile state, as the built-in sorts are used
+  extensively throughout the implementation. It is intended to be used
+  with Literate Agda projects which want to bind `BUILTIN TYPE` (and
+  other primitives) in their own literate files.
 
 Syntax
 ------
@@ -187,6 +215,14 @@ Pragmas and options
   [#5843](https://github.com/agda/agda/issues/5843).)
 
   The old name is retained for backwards compatibility.
+
+* If `--interaction-exit-on-error` is used, then Agda exits with a
+  non-zero exit code if `--interaction` or `--interaction-json` are
+  used and a type error is encountered. The option also makes Agda
+  exit with exit code 113 if Agda fails to parse a command.
+
+  This option might for instance be used if Agda is controlled from a
+  script.
 
 Performance
 -----------

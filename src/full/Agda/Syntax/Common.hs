@@ -20,7 +20,6 @@ import qualified Data.Foldable as Fold
 import Data.Function
 import Data.Hashable (Hashable(..))
 import qualified Data.Strict.Maybe as Strict
-import Data.Data (Data)
 import Data.Word
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
@@ -50,7 +49,7 @@ type Arity  = Nat
 
 -- | Used to specify whether something should be delayed.
 data Delayed = Delayed | NotDelayed
-  deriving (Data, Show, Eq, Ord, Generic)
+  deriving (Show, Eq, Ord, Generic)
 
 instance KillRange Delayed where
   killRange = id
@@ -62,7 +61,7 @@ instance NFData Delayed
 ---------------------------------------------------------------------------
 
 data FileType = AgdaFileType | MdFileType | RstFileType | TexFileType | OrgFileType
-  deriving (Data, Eq, Ord, Show, Generic)
+  deriving (Eq, Ord, Show, Generic)
 
 instance Pretty FileType where
   pretty = \case
@@ -109,7 +108,7 @@ data RecordDirectives' a = RecordDirectives
   , recHasEta      :: Maybe HasEta0
   , recPattern     :: Maybe Range
   , recConstructor :: Maybe a
-  } deriving (Functor, Data, Show, Eq)
+  } deriving (Functor, Show, Eq)
 
 emptyRecordDirectives :: RecordDirectives' a
 emptyRecordDirectives = RecordDirectives empty empty empty empty
@@ -131,7 +130,7 @@ instance NFData a => NFData (RecordDirectives' a) where
 data HasEta' a
   = YesEta
   | NoEta a
-  deriving (Data, Show, Eq, Ord, Functor, Foldable, Traversable)
+  deriving (Show, Eq, Ord, Functor, Foldable, Traversable)
 
 instance HasRange a => HasRange (HasEta' a) where
   getRange = foldMap getRange
@@ -158,7 +157,7 @@ data PatternOrCopattern
       -- ^ Can match on the record constructor.
   | CopatternMatching
       -- ^ Can copattern match using the projections. (Default.)
-  deriving (Data, Show, Eq, Ord, Enum, Bounded)
+  deriving (Show, Eq, Ord, Enum, Bounded)
 
 instance NFData PatternOrCopattern where
   rnf PatternMatching   = ()
@@ -201,7 +200,7 @@ instance CopatternMatchingAllowed HasEta where
 
 -- | @Inductive < Coinductive@
 data Induction = Inductive | CoInductive  -- Keep in this order!
-  deriving (Data, Eq, Ord, Show)
+  deriving (Eq, Ord, Show)
 
 instance Pretty Induction where
   pretty Inductive   = "inductive"
@@ -225,10 +224,10 @@ instance PatternMatchingAllowed Induction where
 ---------------------------------------------------------------------------
 
 data Overlappable = YesOverlap | NoOverlap
-  deriving (Data, Show, Eq, Ord)
+  deriving (Show, Eq, Ord)
 
 data Hiding  = Hidden | Instance Overlappable | NotHidden
-  deriving (Data, Show, Eq, Ord)
+  deriving (Show, Eq, Ord)
 
 instance Pretty Hiding where
   pretty = \case
@@ -280,7 +279,7 @@ data WithHiding a = WithHiding
   { whHiding :: !Hiding
   , whThing  :: a
   }
-  deriving (Data, Eq, Ord, Show, Functor, Foldable, Traversable)
+  deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
 instance Decoration WithHiding where
   traverseF f (WithHiding h a) = WithHiding h <$> f a
@@ -416,7 +415,7 @@ data Modality = Modality
       -- ^ Cohesion/what was in Agda-flat.
       --   see "Brouwer's fixed-point theorem in real-cohesive homotopy type theory" (arXiv:1509.07584)
       --   Currently only the comonad is implemented.
-  } deriving (Data, Eq, Ord, Show, Generic)
+  } deriving (Eq, Ord, Show, Generic)
 
 -- | Dominance ordering.
 instance PartialOrd Modality where
@@ -621,21 +620,21 @@ data Q0Origin
   = Q0Inferred       -- ^ User wrote nothing.
   | Q0       Range   -- ^ User wrote "@0".
   | Q0Erased Range   -- ^ User wrote "@erased".
-  deriving (Data, Show, Generic, Eq, Ord)
+  deriving (Show, Generic, Eq, Ord)
 
 -- | Origin of 'Quantity1'.
 data Q1Origin
   = Q1Inferred       -- ^ User wrote nothing.
   | Q1       Range   -- ^ User wrote "@1".
   | Q1Linear Range   -- ^ User wrote "@linear".
-  deriving (Data, Show, Generic, Eq, Ord)
+  deriving (Show, Generic, Eq, Ord)
 
 -- | Origin of 'Quantityω'.
 data QωOrigin
   = QωInferred       -- ^ User wrote nothing.
   | Qω       Range   -- ^ User wrote "@ω".
   | QωPlenty Range   -- ^ User wrote "@plenty".
-  deriving (Data, Show, Generic, Eq, Ord)
+  deriving (Show, Generic, Eq, Ord)
 
 -- *** Instances for 'Q0Origin'.
 
@@ -776,7 +775,7 @@ data Quantity
   | Quantity1 Q1Origin -- ^ Linear use @{1}@ (could be updated destructively).
     -- Mostly TODO (needs postponable constraints between quantities to compute uses).
   | Quantityω QωOrigin -- ^ Unrestricted use @ℕ@.
-  deriving (Data, Show, Generic, Eq, Ord)
+  deriving (Show, Generic, Eq, Ord)
     -- @Ord@ instance in case @Quantity@ is used in keys for maps etc.
 
 -- | Equality ignoring origin.
@@ -995,7 +994,7 @@ instance NFData Quantity where
 data Erased
   = Erased Q0Origin
   | NotErased QωOrigin
-  deriving (Data, Show, Eq, Generic)
+  deriving (Show, Eq, Generic)
 
 -- | The default value of type 'Erased': not erased.
 
@@ -1065,7 +1064,7 @@ data Relevance
                 --   Therefore, it is irrelevant at run-time.
                 --   It is treated relevantly during equality checking.
   | Irrelevant  -- ^ The argument is irrelevant at compile- and runtime.
-    deriving (Data, Show, Eq, Enum, Bounded, Generic)
+    deriving (Show, Eq, Enum, Bounded, Generic)
 
 allRelevances :: [Relevance]
 allRelevances = [minBound..maxBound]
@@ -1254,7 +1253,7 @@ data Annotation = Annotation
   { annLock :: Lock
     -- ^ Fitch-style dependent right adjoints.
     --   See Modal Dependent Type Theory and Dependent Right Adjoints, arXiv:1804.05236.
-  } deriving (Data, Eq, Ord, Show, Generic)
+  } deriving (Eq, Ord, Show, Generic)
 
 instance HasRange Annotation where
   getRange _ = noRange
@@ -1300,7 +1299,7 @@ instance LensAnnotation (Arg t) where
 data Lock = IsNotLock
           | IsLock -- ^ In the future there might be different kinds of them.
                    --   For now we assume lock weakening.
-  deriving (Data, Show, Generic, Eq, Enum, Bounded, Ord)
+  deriving (Show, Generic, Eq, Enum, Bounded, Ord)
 
 defaultLock :: Lock
 defaultLock = IsNotLock
@@ -1344,7 +1343,7 @@ data Cohesion
   | Continuous  -- ^ identity modality.
   -- | Sharp    -- ^ same points, codiscrete topology, idempotent monad, diamond-like.
   | Squash      -- ^ single point space, artificially added for Flat left-composition.
-    deriving (Data, Show, Eq, Enum, Bounded, Generic)
+    deriving (Show, Eq, Enum, Bounded, Generic)
 
 allCohesions :: [Cohesion]
 allCohesions = [minBound..maxBound]
@@ -1514,7 +1513,7 @@ data Origin
   | Reflected    -- ^ Produced by the reflection machinery.
   | CaseSplit    -- ^ Produced by an interactive case split.
   | Substitution -- ^ Named application produced to represent a substitution. E.g. "?0 (x = n)" instead of "?0 n"
-  deriving (Data, Show, Eq, Ord)
+  deriving (Show, Eq, Ord)
 
 instance HasRange Origin where
   getRange _ = noRange
@@ -1534,7 +1533,7 @@ data WithOrigin a = WithOrigin
   { woOrigin :: !Origin
   , woThing  :: a
   }
-  deriving (Data, Eq, Ord, Show, Functor, Foldable, Traversable)
+  deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
 instance Decoration WithOrigin where
   traverseF f (WithOrigin h a) = WithOrigin h <$> f a
@@ -1587,7 +1586,7 @@ instance LensOrigin (WithOrigin a) where
 -----------------------------------------------------------------------------
 
 data FreeVariables = UnknownFVs | KnownFVs IntSet
-  deriving (Data, Eq, Ord, Show)
+  deriving (Eq, Ord, Show)
 
 instance Semigroup FreeVariables where
   UnknownFVs   <> _            = UnknownFVs
@@ -1659,7 +1658,7 @@ data ArgInfo = ArgInfo
   , argInfoAnnotation    :: Annotation
     -- ^ Sometimes we want a different kind of binder/pi-type, without it
     --   supporting any of the @Modality@ interface.
-  } deriving (Data, Eq, Ord, Show)
+  } deriving (Eq, Ord, Show)
 
 instance HasRange ArgInfo where
   getRange (ArgInfo h m o _fv a) = getRange (h, m, o, a)
@@ -1794,7 +1793,7 @@ isInsertedHidden a = getHiding a == Hidden && getOrigin a == Inserted
 data Arg e  = Arg
   { argInfo :: ArgInfo
   , unArg :: e
-  } deriving (Data, Eq, Ord, Show, Functor, Foldable, Traversable)
+  } deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
 instance Decoration Arg where
   traverseF f (Arg ai a) = Arg ai <$> f a
@@ -1967,7 +1966,7 @@ data Named name a =
     Named { nameOf     :: Maybe name
           , namedThing :: a
           }
-    deriving (Eq, Ord, Show, Data, Functor, Foldable, Traversable)
+    deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
 -- | Standard naming.
 type Named_ = Named NamedName
@@ -2136,7 +2135,7 @@ data Ranged a = Ranged
   { rangeOf     :: Range
   , rangedThing :: a
   }
-  deriving (Data, Show, Functor, Foldable, Traversable)
+  deriving (Show, Functor, Foldable, Traversable)
 
 -- | Thing with no range info.
 unranged :: a -> Ranged a
@@ -2194,7 +2193,7 @@ data ConOrigin
   | ConOCon     -- ^ User wrote a constructor (pattern).
   | ConORec     -- ^ User wrote a record (pattern).
   | ConOSplit   -- ^ Generated by interactive case splitting.
-  deriving (Data, Show, Eq, Ord, Enum, Bounded, Generic)
+  deriving (Show, Eq, Ord, Enum, Bounded, Generic)
 
 instance NFData ConOrigin
 
@@ -2211,7 +2210,7 @@ data ProjOrigin
   = ProjPrefix    -- ^ User wrote a prefix projection.
   | ProjPostfix   -- ^ User wrote a postfix projection.
   | ProjSystem    -- ^ Projection was generated by the system.
-  deriving (Data, Show, Eq, Ord, Enum, Bounded, Generic)
+  deriving (Show, Eq, Ord, Enum, Bounded, Generic)
 
 instance NFData ProjOrigin
 
@@ -2225,7 +2224,7 @@ instance KillRange ProjOrigin where
 -- | Functions can be defined in both infix and prefix style. See
 --   'Agda.Syntax.Concrete.LHS'.
 data IsInfix = InfixDef | PrefixDef
-    deriving (Data, Show, Eq, Ord)
+    deriving (Show, Eq, Ord)
 
 -- ** private blocks, public imports
 
@@ -2235,7 +2234,7 @@ data Access
       -- ^ Store the 'Origin' of the private block that lead to this qualifier.
       --   This is needed for more faithful printing of declarations.
   | PublicAccess
-    deriving (Data, Show, Eq, Ord)
+    deriving (Show, Eq, Ord)
 
 instance Pretty Access where
   pretty = text . \case
@@ -2255,7 +2254,7 @@ instance KillRange Access where
 
 -- | Abstract or concrete.
 data IsAbstract = AbstractDef | ConcreteDef
-    deriving (Data, Show, Eq, Ord, Generic)
+    deriving (Show, Eq, Ord, Generic)
 
 -- | Semigroup computes if any of several is an 'AbstractDef'.
 instance Semigroup IsAbstract where
@@ -2297,7 +2296,7 @@ instance AnyIsAbstract a => AnyIsAbstract (Maybe a) where
 data IsInstance
   = InstanceDef Range  -- ^ Range of the @instance@ keyword.
   | NotInstanceDef
-    deriving (Data, Show, Eq, Ord)
+    deriving (Show, Eq, Ord)
 
 instance KillRange IsInstance where
   killRange = \case
@@ -2317,7 +2316,7 @@ instance NFData IsInstance where
 
 -- | Is this a macro definition?
 data IsMacro = MacroDef | NotMacroDef
-  deriving (Data, Show, Eq, Ord, Generic)
+  deriving (Show, Eq, Ord, Generic)
 
 instance KillRange IsMacro where killRange = id
 instance HasRange  IsMacro where getRange _ = noRange
@@ -2329,7 +2328,7 @@ instance NFData IsMacro
 ---------------------------------------------------------------------------
 
 newtype ModuleNameHash = ModuleNameHash { moduleNameHash :: Word64 }
-  deriving (Eq, Ord, Data, Hashable)
+  deriving (Eq, Ord, Hashable)
 
 noModuleNameHash :: ModuleNameHash
 noModuleNameHash = ModuleNameHash 0
@@ -2343,7 +2342,7 @@ instance Show ModuleNameHash where
 -- | The unique identifier of a name. Second argument is the top-level module
 --   identifier.
 data NameId = NameId {-# UNPACK #-} !Word64 {-# UNPACK #-} !ModuleNameHash
-    deriving (Eq, Ord, Data, Generic, Show)
+    deriving (Eq, Ord, Generic, Show)
 
 instance KillRange NameId where
   killRange = id
@@ -2377,7 +2376,7 @@ data MetaId = MetaId
   { metaId     :: {-# UNPACK #-} !Word64
   , metaModule :: {-# UNPACK #-} !ModuleNameHash
   }
-  deriving (Eq, Ord, Data, Generic)
+  deriving (Eq, Ord, Generic)
 
 instance Pretty MetaId where
   pretty (MetaId n m) =
@@ -2416,7 +2415,7 @@ newtype Constr a = Constr a
 -- | A "problem" consists of a set of constraints and the same constraint can be part of multiple
 --   problems.
 newtype ProblemId = ProblemId Nat
-  deriving (Data, Eq, Ord, Enum, Real, Integral, Num, NFData)
+  deriving (Eq, Ord, Enum, Real, Integral, Num, NFData)
 
 -- This particular Show instance is ok because of the Num instance.
 instance Show   ProblemId where show   (ProblemId n) = show n
@@ -2437,7 +2436,7 @@ data PositionInName
     -- @foo_bar@.
   | End
     -- ^ The following underscore is at the end of the name: @foo_@.
-  deriving (Show, Eq, Ord, Data)
+  deriving (Show, Eq, Ord)
 
 -- | Placeholders are used to represent the underscores in a section.
 
@@ -2446,7 +2445,7 @@ data MaybePlaceholder e
   | NoPlaceholder !(Strict.Maybe PositionInName) e
     -- ^ The second argument is used only (but not always) for name
     -- parts other than underscores.
-  deriving (Data, Eq, Ord, Functor, Foldable, Traversable, Show)
+  deriving (Eq, Ord, Functor, Foldable, Traversable, Show)
 
 -- | An abbreviation: @noPlaceholder = 'NoPlaceholder'
 -- 'Strict.Nothing'@.
@@ -2478,7 +2477,6 @@ newtype InteractionId = InteractionId { interactionId :: Nat }
              , Integral
              , Real
              , Enum
-             , Data
              , NFData
              )
 
@@ -2500,7 +2498,7 @@ data FixityLevel
     -- ^ No fixity declared.
   | Related !PrecedenceLevel
     -- ^ Fixity level declared as the number.
-  deriving (Eq, Ord, Show, Data)
+  deriving (Eq, Ord, Show)
 
 instance Null FixityLevel where
   null Unrelated = True
@@ -2514,7 +2512,7 @@ instance NFData FixityLevel where
 -- | Associativity.
 
 data Associativity = NonAssoc | LeftAssoc | RightAssoc
-   deriving (Eq, Ord, Show, Data)
+   deriving (Eq, Ord, Show)
 
 -- | Fixity of operators.
 
@@ -2524,7 +2522,7 @@ data Fixity = Fixity
   , fixityLevel :: !FixityLevel
   , fixityAssoc :: !Associativity
   }
-  deriving (Data, Show)
+  deriving Show
 
 noFixity :: Fixity
 noFixity = Fixity noRange Unrelated NonAssoc
@@ -2564,7 +2562,7 @@ data Fixity' = Fixity'
       -- ^ Range of the name in the fixity declaration
       --   (used for correct highlighting, see issue #2140).
     }
-  deriving (Data, Show)
+  deriving Show
 
 noFixity' :: Fixity'
 noFixity' = Fixity' noFixity noNotation noRange
@@ -2621,7 +2619,7 @@ data ImportDirective' n m = ImportDirective
   , impRenaming    :: RenamingDirective' n m
   , publicOpen     :: Maybe Range -- ^ Only for @open@. Exports the opened names from the current module.
   }
-  deriving (Data, Eq)
+  deriving Eq
 
 type HidingDirective'   n m = [ImportedName' n m]
 type RenamingDirective' n m = [Renaming' n m]
@@ -2659,7 +2657,7 @@ isDefaultImportDir dir = null dir && null (publicOpen dir)
 data Using' n m
   = UseEverything              -- ^ No @using@ clause given.
   | Using [ImportedName' n m]  -- ^ @using@ the specified names.
-  deriving (Data, Eq)
+  deriving Eq
 
 instance Semigroup (Using' n m) where
   UseEverything <> u             = u
@@ -2684,7 +2682,7 @@ mapUsing f = \case
 data ImportedName' n m
   = ImportedModule  m  -- ^ Imported module name of type @m@.
   | ImportedName    n  -- ^ Imported name of type @n@.
-  deriving (Data, Eq, Ord, Show)
+  deriving (Eq, Ord, Show)
 
 fromImportedName :: ImportedName' a a -> a
 fromImportedName = \case
@@ -2720,7 +2718,7 @@ data Renaming' n m = Renaming
   , renToRange :: Range
     -- ^ The range of the \"to\" keyword.  Retained for highlighting purposes.
   }
-  deriving (Data, Eq)
+  deriving Eq
 
 -- ** HasRange instances
 
@@ -2791,7 +2789,7 @@ data TerminationCheck m
     -- ^ Treat as terminating (unsafe).  Same effect as 'NoTerminationCheck'.
   | TerminationMeasure Range m
     -- ^ Skip termination checking but use measure instead.
-    deriving (Data, Show, Eq, Functor)
+    deriving (Show, Eq, Functor)
 
 instance KillRange m => KillRange (TerminationCheck m) where
   killRange (TerminationMeasure _ m) = TerminationMeasure noRange (killRange m)
@@ -2810,7 +2808,7 @@ instance NFData a => NFData (TerminationCheck a) where
 
 -- | Positivity check? (Default = True).
 data PositivityCheck = YesPositivityCheck | NoPositivityCheck
-  deriving (Eq, Ord, Show, Bounded, Enum, Data, Generic)
+  deriving (Eq, Ord, Show, Bounded, Enum, Generic)
 
 instance KillRange PositivityCheck where
   killRange = id
@@ -2833,7 +2831,7 @@ instance NFData PositivityCheck
 
 -- | Universe check? (Default is yes).
 data UniverseCheck = YesUniverseCheck | NoUniverseCheck
-  deriving (Eq, Ord, Show, Bounded, Enum, Data, Generic)
+  deriving (Eq, Ord, Show, Bounded, Enum, Generic)
 
 instance KillRange UniverseCheck where
   killRange = id
@@ -2846,7 +2844,7 @@ instance NFData UniverseCheck
 
 -- | Coverage check? (Default is yes).
 data CoverageCheck = YesCoverageCheck | NoCoverageCheck
-  deriving (Eq, Ord, Show, Bounded, Enum, Data, Generic)
+  deriving (Eq, Ord, Show, Bounded, Enum, Generic)
 
 instance KillRange CoverageCheck where
   killRange = id
@@ -2877,7 +2875,7 @@ instance NFData CoverageCheck
 data RewriteEqn' qn nm p e
   = Rewrite (List1 (qn, e))             -- ^ @rewrite e@
   | Invert qn (List1 (Named nm (p, e))) -- ^ @with p <- e in eq@
-  deriving (Data, Eq, Show, Functor, Foldable, Traversable)
+  deriving (Eq, Show, Functor, Foldable, Traversable)
 
 instance (NFData qn, NFData nm, NFData p, NFData e) => NFData (RewriteEqn' qn nm p e) where
   rnf = \case
@@ -2918,7 +2916,7 @@ data ExpandedEllipsis
   , ellipsisWithArgs :: Int
   }
   | NoEllipsis
-  deriving (Data, Show, Eq)
+  deriving (Show, Eq)
 
 instance Null ExpandedEllipsis where
   null  = (== NoEllipsis)
@@ -2964,7 +2962,7 @@ data BoundVariablePosition = BoundVariablePosition
     -- for @x@ is @0@, the number for @_@ is @1@, and the number for
     -- @y@ is @2@.
   }
-  deriving (Data, Eq, Ord, Show)
+  deriving (Eq, Ord, Show)
 
 -- | Notation parts.
 
@@ -2987,7 +2985,7 @@ data NotationPart
     -- range of the variable in the left-hand side.
   | WildPart (Ranged BoundVariablePosition)
     -- ^ A wildcard (an underscore in binding position).
-  deriving (Data, Show)
+  deriving Show
 
 instance Eq NotationPart where
   VarPart _ i  == VarPart _ j  = i == j
