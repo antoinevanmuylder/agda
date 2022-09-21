@@ -1379,7 +1379,7 @@ primTransHComp cmd ts nelims = do
             return $ (flags,t_alphas)
     compData ::
       Maybe QName -- ^ transport-at-data auxiliary primitive
-      -> Bool -- ^ is HIT
+      -> Bool -- ^ is HIT or indexed.
       -> Nat -- ^ pars + idxs
       -> TranspOrHComp
       -> FamilyOrNot (Arg Term) -- ^ lvl

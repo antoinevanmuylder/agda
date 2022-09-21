@@ -1486,20 +1486,22 @@ mhcompId sphi u a0 l (bA , x , y) = do
   --          lam2Abs rel (Lam _ t) = absBody t <$ t
   --          lam2Abs rel t         = Abs "y" (raise 1 t `apply` [setRelevance rel $ argN $ var 0])  
                                    
-
+-- | if u0 / u are not literals, reduce to (applied) auxiliary mhcomp-at-data primitive.
+--   The QName of the latter is stored in Defn.Contructor.conComp field.
+--   Computational behaviour for this prim is spec. in Rules/Data.hs
 mhcompData ::
-      Maybe QName -- ^ transport-at-data auxiliary primitive
+      -- Maybe QName -- ^ transport-at-data aux prim
       -- -> Bool -- ^ is HIT
       -- -> Nat -- ^ pars + idxs
       -- -> TranspOrHComp
-      -> Arg Term -- ^ lvl
+      Arg Term -- ^ lvl
       -> [Arg Term] -- ^ more elims
       -> Blocked (Arg Term) -- ^ data type, simplified
       -> Blocked (Arg Term) -- ^ ambient hcomp constraint, simplified
       -> Arg Term -- ^ u adjustement
       -> Arg Term -- ^ u0
       -> ReduceM (Reduced MaybeReducedArgs Term)
-mhcompData mtrD l ps sc sphi u a0 = do
+mhcompData l ps sc sphi u a0 = do
   let getTermLocal = getTerm $ builtinMHComp ++ " for data types"
   -- tPOr   <- getTermLocal builtinPOr
   mempty <- getTermLocal builtinMHoldsEmpty
@@ -1554,10 +1556,8 @@ mhcompData mtrD l ps sc sphi u a0 = do
                                                           <#> ilam "o" (\ _ -> c)
                  _     -> su
 
-  -- noRed' su
-
-      sameConHeadBack :: Maybe Term             -- ^ base a0 is a literal, in a data type
-                         -> Maybe ConHead       -- ^ base a0 is instead a constructor
+      sameConHeadBack :: Maybe Term             -- ^ base @a0@ is a literal, in a data type
+                         -> Maybe ConHead       -- ^ base @a0@ is instead a constructor
                          -> Blocked (Arg Term)          -- ^ adjustement u, simplified.
                          -> (ConHead
                              -> Blocked (Arg Term)
@@ -1567,8 +1567,10 @@ mhcompData mtrD l ps sc sphi u a0 = do
       sameConHeadBack Nothing Nothing su k = noRed' su
       sameConHeadBack lt h su k = do
         let u = unArg . ignoreBlocking $ su
-        -- b list of flags, 1 for each dnf clause of phi
-        -- ts list of terms obtained by subst u with dnf clause, forall clauses.
+        -- 3 list of size #(dnf phi).
+        -- b  ≈ [ u[sigma] == (λ i → literal/constructor) | sigma clause subst ]
+        -- ts ≈ [ if blocked then Just ( u[sigma] , boolmapof(sigma) ) else Nothing | sigma clause subst ]
+        -- skinds = [ kind of clause. cubical or bridge? | clause ]
         (b, ts, skinds) <- allComponentsBack  phi u $ \ t ->
                     (isLit t == lt, isCon (constrForm t) == h)
         let
@@ -1577,7 +1579,7 @@ mhcompData mtrD l ps sc sphi u a0 = do
         if isJust lt && and lit then redReturn a0 else do
         -- if sequence ts == Nothing, return su. else
         su <- caseMaybe (sequence ts) (return su) $ \ ts -> do
-          let (us,bools) = unzip ts --both lists have same size than skinds.
+          let (us,bools) = unzip ts
           fmap ((sequenceA_ us $>) . argN) $ do
           let
             phis :: [Term]
