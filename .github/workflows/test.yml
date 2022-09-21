@@ -85,7 +85,7 @@ jobs:
     strategy:
       matrix:
         ghc-ver:
-        - 9.2.3
+        - 9.2.4
         os:
         - ubuntu-20.04
         stack-ver:
@@ -268,7 +268,6 @@ name: Build, Test, and Benchmark
     - '!macros/**'
     - '!notes/**'
     - '!.mailmap'
-    - '!.ghci*'
     - '!.gitignore'
     - '!.hlint.yaml'
     - '!.travis.yml'
@@ -299,7 +298,6 @@ name: Build, Test, and Benchmark
     - '!macros/**'
     - '!notes/**'
     - '!.mailmap'
-    - '!.ghci*'
     - '!.gitignore'
     - '!.hlint.yaml'
     - '!.travis.yml'

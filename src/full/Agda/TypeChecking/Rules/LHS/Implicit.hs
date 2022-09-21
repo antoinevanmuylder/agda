@@ -91,7 +91,8 @@ insertImplicitPatternsT exh            ps a = do
       let ps0@(~(p1 : ps1)) = hs ++ ps
       reduce a >>= piOrPathBridge >>= \case
         -- If @a@ is a function (or path/bridge) type, continue inserting after @p1@.
-        Left (_, b) -> (p1 :) <$> insertImplicitPatternsT exh ps1 (absBody b)
+        Left (dom, cod) -> underAbstraction dom cod $ \b ->
+          (p1 :) <$> insertImplicitPatternsT exh ps1 b
         -- Otherwise, we are done.
         Right{}     -> return ps0
   where

@@ -11,9 +11,11 @@ import Control.Monad.Fail (MonadFail)
 import Data.Function
 import Data.Semigroup ((<>))
 import Data.IntMap (IntMap)
+
+import qualified Data.List   as List
 import qualified Data.IntMap as IntMap
-import qualified Data.List as List
 import qualified Data.IntSet as IntSet
+import qualified Data.Set    as Set
 
 import Agda.Syntax.Common
 import Agda.Syntax.Internal
@@ -269,6 +271,9 @@ compareTerm' cmp a m n =
     isSize   <- isJust <$> isSizeType a'
     (bs, s)  <- reduceWithBlocker $ getSort a'
     mlvl     <- getBuiltin' builtinLevel
+    reportSDoc "tc.conv.term" 40 $ fsep
+      [ "compareTerm", prettyTCM m, prettyTCM cmp, prettyTCM n, ":", prettyTCM a'
+      , "at sort", prettyTCM s]
     reportSDoc "tc.conv.level" 60 $ nest 2 $ sep
       [ "a'   =" <+> pretty a'
       , "mlvl =" <+> pretty mlvl
@@ -283,7 +288,12 @@ compareTerm' cmp a m n =
           b <- levelView n
           equalLevel a b
         a@Pi{}    -> equalFun s a m n
-        Lam _ _   -> __IMPOSSIBLE__
+        Lam _ _   -> do
+          reportSDoc "tc.conv.term.sort" 10 $ fsep
+            [ "compareTerm", prettyTCM m, prettyTCM cmp, prettyTCM n, ":", prettyTCM a'
+            , "at sort", prettyTCM s
+            ]
+          __IMPOSSIBLE__
         Def r es  -> do
           isrec <- isEtaRecord r
           if isrec
@@ -377,7 +387,23 @@ compareTerm' cmp a m n =
               unglue <- prim_unglue
               let mkUnglue m = apply unglue $ map (setHiding Hidden) args ++ [argN m]
               reportSDoc "conv.glue" 20 $ prettyTCM (aty,mkUnglue m,mkUnglue n)
-              compareTermOnFace cmp (unArg phi) a' m n
+
+              -- When φ is an interval expression which can be
+              -- decomposed into substitutions σ, then we also compare
+              -- the terms m[σ] = n[σ] at the type (Glue a φ _)[σ]. This
+              -- is because, under decomposing φ, the Glue type might
+              -- reduce.
+              phi' <- decomposeInterval' (unArg phi)
+              -- However if φ is *not* decomposable (e.g. because it is
+              -- a function application φ i, see Issue #5955), then we
+              -- do not recur, otherwise we'd just end up right back
+              -- here.
+              unless (IntMap.null (foldMap fst phi')) $
+                compareTermOnFace cmp (unArg phi) a' m n
+
+              -- And in the general case, we compare the glued things by
+              -- "eta": m and n are the same if they unglue to the same
+              -- thing.
               compareTerm cmp aty (mkUnglue m) (mkUnglue n)
          Def q es | Just q == mGel, Just args <- allApplyElims es -> compareGelTm cmp a' args m n
          Def q es | Just q == mHComp, Just (sl:s:args@[phi,u,u0]) <- allApplyElims es
@@ -480,14 +506,6 @@ computeElimHeadType f es es' = do
     fromMaybeM __IMPOSSIBLE__ $ getDefType f targ
 
 
-abortIfMissingClauses :: (Blocked Term, Blocked Term) -> Blocker
-abortIfMissingClauses (NotBlocked nb t, NotBlocked nb' t') =
-  case nb <> nb' of
-    MissingClauses -> alwaysUnblock
-    _              -> neverUnblock
-abortIfMissingClauses _ = __IMPOSSIBLE__
-
-
 -- | Syntax directed equality on atomic values
 --
 compareAtom :: forall m. MonadConversion m => Comparison -> CompareAs -> Term -> Term -> m ()
@@ -501,12 +519,15 @@ compareAtom cmp t m n =
                              , prettyTCM n
                              , prettyTCM t
                              ]
-    let blockIfMissingClauses b@Blocked{} = b
-        -- re #5600: We might add more clauses to the function later,
+    -- Are we currently defining mutual functions? Which?
+    currentMutuals <- maybe (pure Set.empty) (mutualNames <.> lookupMutualBlock) =<< asksTC envMutualBlock
+
+    let -- re #5600: We might add more clauses to the function later,
         --           so we shouldn't commit to an UnequalTerms error yet,
         --           even if there are no metas blocking computation.
-        blockIfMissingClauses (NotBlocked MissingClauses t) = Blocked alwaysUnblock t
-        blockIfMissingClauses b@NotBlocked{} = b
+        blockIfMissingClauses (NotBlocked (MissingClauses f) t)
+          | f `Set.member` currentMutuals = Blocked alwaysUnblock t
+        blockIfMissingClauses b = b
     -- Andreas: what happens if I cut out the eta expansion here?
     -- Answer: Triggers issue 245, does not resolve 348
     (mb',nb') <- do
@@ -598,8 +619,15 @@ compareAtom cmp t m n =
       (Blocked b _, _) | not cmpBlocked -> useInjectivity (fromCmp cmp) b t m n   -- The blocked term  goes first
       (_, Blocked b _) | not cmpBlocked -> useInjectivity (flipCmp $ fromCmp cmp) b t n m
       bs -> do
-        let blocker' | cmpBlocked = blocker
-                     | otherwise = unblockOnEither blocker $ abortIfMissingClauses bs
+        let blocker'
+              | cmpBlocked = blocker
+              | otherwise = unblockOnEither blocker $
+                  case bs of
+                    (NotBlocked nb1 _, NotBlocked nb2 _)  -- this is the only case if not cmpBlocked
+                      | MissingClauses f <- nb1 <> nb2
+                      , f `Set.member` currentMutuals
+                      -> alwaysUnblock
+                    _ -> neverUnblock
         blockOnError blocker' $ do
         -- -- Andreas, 2013-10-20 put projection-like function
         -- -- into the spine, to make compareElims work.
@@ -1866,6 +1894,7 @@ equalSort s1 s2 = do
           ]
         propEnabled <- isPropEnabled
         sizedTypesEnabled <- sizedTypesOption
+        cubicalEnabled <- isJust . optCubical <$> pragmaOptions
         case s0 of
           -- If @Setωᵢ == funSort s1 s2@, then either @s1@ or @s2@ must
           -- be @Setωᵢ@.
@@ -1876,15 +1905,16 @@ equalSort s1 s2 = do
                   -- TODO 2ltt: handle IsStrict cases.
                   | otherwise                   -> synEq s0 (FunSort s1 s2)
           -- If @Set l == funSort s1 s2@, then @s2@ must be of the
-          -- form @Set l2@. @s1@ can be one of @Set l1@, @Prop l1@, or
-          -- @SizeUniv@.
+          -- form @Set l2@. @s1@ can be one of @Set l1@, @Prop l1@,
+          -- @SizeUniv@, or @IUniv@.
           Type l -> do
             l2 <- forceType s2
             -- We must have @l2 =< l@, this might help us to solve
             -- more constraints (in particular when @l == 0@).
             leqLevel l2 l
             -- Jesper, 2019-12-27: SizeUniv is disabled at the moment.
-            if | {- sizedTypesEnabled || -} propEnabled -> case funSort' s1 (Type l2) of
+            if | {- sizedTypesEnabled || -} propEnabled || cubicalEnabled ->
+                case funSort' s1 (Type l2) of
                    -- If the work we did makes the @funSort@ compute,
                    -- continue working.
                    Just s  -> equalSort (Type l) s

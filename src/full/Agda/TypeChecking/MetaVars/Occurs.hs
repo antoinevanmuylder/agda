@@ -276,9 +276,9 @@ allowedVars :: OccursM (Nat -> Bool)
 allowedVars = do
   -- @n@ is the number of binders we have stepped under.
   n  <- liftM2 (-) getContextSize (asks (occCxtSize . feExtra))
-  xs <- asks ((IntMap.keysSet . theVarMap) . (occVars . feExtra))
+  xs <- asks (theVarMap . occVars . feExtra)
   -- Bound variables are allowed, and those mentioned in occVars.
-  return $ \ i -> i < n || (i - n) `IntSet.member` xs
+  return $ \ i -> i < n || (i - n) `IntMap.member` xs
 
 -- ** Unfolding during occurs check.
 
@@ -834,7 +834,7 @@ instance AnyRigid Term where
         -- If the definition is incomplete, arguments might disappear
         -- by reductions that come with more clauses, thus, these
         -- arguments are not rigid.
-        NotBlocked MissingClauses _ -> return False
+        NotBlocked (MissingClauses _) _ -> return False
         -- _        -> mempty -- breaks: ImproveInertRHS, Issue442, PruneRecord, PruningNonMillerPattern
         _        -> anyRigid f es
       Con _ _ ts -> anyRigid f ts

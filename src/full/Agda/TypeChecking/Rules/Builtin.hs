@@ -13,6 +13,7 @@ import Prelude hiding (null)
 
 import Control.Monad
 import Control.Monad.Except
+import Control.Monad.Trans.Maybe
 
 import Data.List (find, sortBy)
 import Data.Function (on)
@@ -194,13 +195,15 @@ coreBuiltins =
                                                                              (cl primEquiv <#> la <#> lb <@> bA <@> bB)) $ \ e -> do
                                                                nPi' "b" (el' lb bB) $ \ b -> do
                                                                 let f = cl primEquivFun <#> la <#> lb <#> bA <#> bB <@> e
-                                                                    fiber = el' (cl primLevelMax <@> la <@> lb)
+                                                                    lub = cl primLevelMax <@> la <@> lb
+                                                                    fiber = el' lub
                                                                                 (cl primSigma <#> la <#> lb
                                                                                   <@> bA
                                                                                   <@> lam "a" (\ a ->
                                                                                          cl primPath <#> lb <#> bB <@> (f <@> a) <@> b))
                                                                 nPi' "φ" (cl tinterval) $ \ phi ->
-                                                                  pPi' "o" phi (\ o -> fiber) --> fiber
+                                                                  nPi' "f" (pPi' "o" phi (\ o -> fiber)) $ \ pfib ->
+                                                                    el' lub (cl primSub <#> lub <#> fmap unEl fiber <@> phi <@> pfib)
                                                              ))
                                                               (const $ const $ return ()))
   , (builtinTranspProof                       |-> BuiltinUnknown (Just $ requireCubical CErased "" >> runNamesT [] (
@@ -386,6 +389,8 @@ coreBuiltins =
   , builtinAgdaTCMFreshName                  |-> builtinPostulate (tstring --> tTCM_ primQName)
   , builtinAgdaTCMDeclareDef                 |-> builtinPostulate (targ tqname --> ttype --> tTCM_ primUnit)
   , builtinAgdaTCMDeclarePostulate           |-> builtinPostulate (targ tqname --> ttype --> tTCM_ primUnit)
+  , builtinAgdaTCMDeclareData                |-> builtinPostulate (tqname --> tnat --> ttype --> tTCM_ primUnit)
+  , builtinAgdaTCMDefineData                 |-> builtinPostulate (tqname --> tlist (tpair primLevelZero primLevelZero tqname ttype) --> tTCM_ primUnit)
   , builtinAgdaTCMDefineFun                  |-> builtinPostulate (tqname --> tlist tclause --> tTCM_ primUnit)
   , builtinAgdaTCMGetType                    |-> builtinPostulate (tqname --> tTCM_ primAgdaTerm)
   , builtinAgdaTCMGetDefinition              |-> builtinPostulate (tqname --> tTCM_ primAgdaDefinition)
@@ -859,7 +864,9 @@ bindBuiltinInfo (BuiltinInfo s d) e = do
           t <- tcmt
           (,t) <$> checkExpr e t
         f v t
-        if | s == builtinRewrite -> bindBuiltinRewriteRelation =<< getQNameFromTerm v
+        if | s == builtinRewrite -> runMaybeT (getQNameFromTerm v) >>= \case
+              Nothing -> genericError "Invalid rewrite relation"
+              Just q  -> bindBuiltinRewriteRelation q
            | otherwise           -> bindBuiltinName s v
 
 setConstTranspAxiom :: QName -> TCM ()

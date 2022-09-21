@@ -179,7 +179,7 @@ primExtent' = do
             bi0 <- getTerm "primExtent" builtinBIZero
             bi1 <- getTerm "primExtent" builtinBIOne
             let lamM = captureIn bMtm' ri   -- λ r. M (where M has been reduced = weak head normalized)
-            sbMtm <- simplify' $ unArg bM 
+            sbMtm <- simplify $ unArg bM 
             let sLamM = captureIn sbMtm ri  -- λ r. M (where M has been simplified)
             let readableLamM = captureIn (unArg bM) ri --  λ r. M (where M is untouched)
             reportSLn "tc.prim.extent" 30 $ "captureIn (( " ++ psh bM ++" )) (( " ++ psh ri ++ " ))"
