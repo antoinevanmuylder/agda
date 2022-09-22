@@ -1153,8 +1153,8 @@ checkMSystemCoverage f n t cs = do
                 let extra = length (drop n $ namedClausePats cl)
                 TelV delta _ <- telViewUpTo extra t' --normally delta = (_ : IsOne zeta[σ]) is of size 1
                 fmap (abstract delta) $ addContext delta $ do
-                  fmap fromReduced $ runReduceM $
-                    appDef' (Def f []) [cl] [] (map notReduced $ raise (size delta) args ++ teleArgs delta)
+                  fmap fromReduced $ runReduceM $ -- ReduceM (Reduced (Blocked' t0 Term) Term)
+                    appDef' f (Def f []) [cl] [] (map notReduced $ raise (size delta) args ++ teleArgs delta)
           v1 <- body cl1
           v2 <- body cl2
           reportSDocDocs "tc.sys.coh" 40
