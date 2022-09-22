@@ -412,7 +412,7 @@ checkConstructor d uc tel nofIxs s con@(A.Axiom _ i ai Nothing c e) =
 checkConstructor _ _ _ _ _ _ = __IMPOSSIBLE__ -- constructors are axioms
 
 defineCompData :: QName      -- datatype name
-               -> ConHead
+               -> ConHead    -- transporting/composing a constructor
                -> Telescope  -- Γ parameters
                -> [QName]    -- projection names
                -> Telescope  -- Γ ⊢ Φ field types
@@ -430,15 +430,17 @@ defineCompData d con params names fsT t boundary = do
     , builtinPOr
     , builtinItIsOne
     ]
+  bridges <- optBridges <$> pragmaOptions
   if not (all isJust required) then return $ emptyCompKit else do
     hcomp  <- whenDefined (null boundary) [builtinHComp,builtinTrans]
       (defineKanOperationD DoHComp  d con params names fsT t boundary)
     transp <- whenDefined True            [builtinTrans]
       (defineKanOperationD DoTransp d con params names fsT t boundary)
+    mhocom <- if bridges then (defineMixHCompD d con params names fsT t boundary) else return Nothing
     return $ CompKit
       { nameOfTransp = transp
       , nameOfHComp  = hcomp
-      , nameOfMHComp = Nothing -- TODO-antva
+      , nameOfMHComp = mhocom
       }
   where
     -- Δ^I, i : I |- sub Δ : Δ
@@ -2035,3 +2037,80 @@ defineMixHCompForFields applyProj name params fsT fns rect = do
   bodys <- mapM mkBody (zip fns filled_types)
   return $ ((theName, gamma, rtype, map (fmap fromLType) clause_types, bodys),IdS)
 
+
+defineMixHCompD :: QName -- ^ data type name
+                -> ConHead -- ^ mixed composition of: a (applied) constructor
+                -> Telescope -- ^ params Γ of data type
+                -> [QName] -- ^ "field" names
+                -> Telescope -- ^ Γ ⊢ Φ, field types
+                -> Type      -- ^ Γ ⊢ T target type (qname at Γ?)
+                -> Boundary
+                -- ^ [(i,t_i,b_i)],  Γ.Φ ⊢ [ (i=0) -> t_i; (i=1) -> b_i ] : ?T
+                --   a path constructor specifies, for each path variable i in Φ,
+                --   left and right boundaries t_i, b_i for it.
+                -> TCM (Maybe QName)
+defineMixHCompD d con params names fsT t boundary = do
+      let project = (\ t p -> apply (Def p []) [argN t])
+      -- defineMixHCompForFields0 pathCons project name params fsT fns rect
+      stuff <- defineMixHCompForFields0
+                 (guard (not $ null boundary) >> Just (Con con ConOSystem $ teleElims fsT boundary))
+                 project d params fsT (map argN names) t
+      caseMaybe stuff (return Nothing) $ \ ((theName, gamma , ty, _cl_types , bodies), theSub) -> do
+
+      iz <- primIZero
+      body <- return $ Con con ConOSystem (map Apply $ withArgInfo fsT bodies)
+      let
+
+        -- δ : Δ^I, φ : F ⊢ [δ 0] : Δ
+        d0 :: Substitution
+        d0 = wkS 1 -- Δ^I, φ : F ⊢ Δ
+                       (consS iz IdS `composeS` sub params) -- Δ^I ⊢ Δ
+                                 -- Δ^I , i:I ⊢ sub params : Δ
+
+        -- Δ.Φ ⊢ u = Con con ConOSystem $ teleElims fsT boundary : R δ
+--        u = Con con ConOSystem $ teleElims fsT boundary
+        up = ConP con (ConPatternInfo defaultPatternInfo False False Nothing False) $
+               telePatterns (d0 `applySubst` fsT) (liftS (size fsT) d0 `applySubst` boundary)
+--        gamma' = telFromList $ take (size gamma - 1) $ telToList gamma
+
+        -- (δ , φ , fs : Φ[d0]) ⊢ u[liftS Φ d0]
+        -- (δ , φ, u) : Γ ⊢ body
+        -- Δ ⊢ Φ = fsT
+        -- (δ , φ , fs : Φ[d0]) ⊢ u[liftS Φ d0] `consS` raiseS Φ : Γ
+--        (tel',theta) = (abstract gamma' (d0 `applySubst` fsT), (liftS (size fsT) d0 `applySubst` u) `consS` raiseS (size fsT))
+
+      let
+        pats | null boundary = teleNamedArgs gamma
+             | otherwise     = take (size gamma - size fsT) (teleNamedArgs gamma) ++ [argN $ unnamed $ up]
+        clause = Clause
+          { clauseTel         = gamma
+          , clauseType        = Just . argN $ ty
+          , namedClausePats   = pats
+          , clauseFullRange   = noRange
+          , clauseLHSRange    = noRange
+          , clauseCatchall    = False
+          , clauseBody        = Just $ body
+          , clauseExact       = Just True
+          , clauseRecursive   = Nothing
+              -- Andreas 2020-02-06 TODO
+              -- Or: Just False;  is it known to be non-recursive?
+          , clauseUnreachable = Just False
+          , clauseEllipsis    = NoEllipsis
+          , clauseWhereModule = Nothing
+          }
+        cs = [clause]
+      addClauses theName cs
+      (mst, _, cc) <- inTopContext (compileClauses Nothing cs)
+      whenJust mst $ setSplitTree theName
+      setCompiledClauses theName cc
+      setTerminates theName True
+      return $ Just theName
+      
+  where
+    whenDefined False _ _ = return Nothing
+    whenDefined True xs m = do
+      xs <- mapM getTerm' xs
+      if all isJust xs then m else return Nothing
+
+    sub tel = [ var n `apply` [Arg defaultArgInfo $ var 0] | n <- [1..size tel] ] ++# EmptyS __IMPOSSIBLE__
+    withArgInfo tel = zipWith Arg (map domInfo . telToList $ tel)

@@ -146,7 +146,7 @@ dnfMixedCstr zeta = do
   case viewZeta of
     Mno -> return [] -- there are 0 DNF clauses.
     Myes -> return [ (CSPLIT , IntMap.empty , [] ) ]
-    OtherMCstr _ -> __IMPOSSIBLE__ -- lets say that we shouldnt go here as precondition
+    OtherMCstr tm -> return [ (BSPLIT, IntMap.empty, [tm]) ]
     Mkmc (Arg _ phi) (Arg _ psi) -> do
       dnfPhi_0 <- decomposeInterval phi
       -- :: [ (IntMap Bool, [Term]) ]
@@ -1075,7 +1075,7 @@ primMHComp' = do
         -- for now, it only reduces if zeta is path pure.
         Def q [Apply _ , Apply bA , Apply x , Apply y] | Just q == mId -> do
           maybe fallback return =<< mhcompId sZeta u u0 l (bA, x, y)
-        
+
         Def q es -> do
           info <- getConstInfo q
           let   lam_i = Lam defaultArgInfo . Abs "i"
@@ -1085,7 +1085,13 @@ primMHComp' = do
                 | nelims > 0, Just as <- allApplyElims es, Just mhocomR <- nameOfMHComp kit
                        -> redReturn $ (Def mhocomR []) `apply`
                                       (as ++ [ignoreBlocking sZeta, u, u0])
-        --         | Just as <- allApplyElims es, [] <- recFields r -> compData Nothing False (recPars r) cmd l (as <$ t) sbA sphi u u0
+                | Just as <- allApplyElims es, [] <- recFields r -> mhcompData l as sbA sZeta u u0
+
+            Datatype{dataPars = pars, dataIxs = ixs, dataPathCons = pcons, dataTransp = mtrD}
+              | null pcons && ixs == 0, Just as <- allApplyElims es -> do
+                reportSLn "tc.prim.mhcomp" 40 $ "rule for mhocom at data type (no hit, no index) fired"
+                mhcompData l as sbA sZeta u u0
+
             _ -> fallback
 
         _ -> fallback
@@ -1503,6 +1509,15 @@ mhcompData ::
       -> Arg Term -- ^ u0
       -> ReduceM (Reduced MaybeReducedArgs Term)
 mhcompData l ps sc sphi u a0 = do
+  reportSDoc "tc.prim.mhcomp.data" 40 $ text "mhcompData with args"
+  reportSDoc "tc.prim.mhcomp.data" 40 $ nest 2 $ vcat
+    [ "lvl" <+> (return $ P.pretty l)
+    , "extra elims" <+> (return $ P.pretty ps)
+    , "the data type" <+> (return $ P.pretty $ ignoreBlocking sc)
+    , "the constraint" <+> (return $ P.pretty $ ignoreBlocking $ sphi)
+    , "u adjustement " <+> (return $ P.pretty $ u)
+    , "base " <+> (return $ P.pretty $ a0) ]
+  
   let getTermLocal = getTerm $ builtinMHComp ++ " for data types"
   -- tPOr   <- getTermLocal builtinPOr
   mempty <- getTermLocal builtinMHoldsEmpty
@@ -1567,13 +1582,28 @@ mhcompData l ps sc sphi u a0 = do
                          -> ReduceM (Reduced MaybeReducedArgs Term)
       sameConHeadBack Nothing Nothing su k = noRed' su
       sameConHeadBack lt h su k = do
+        reportSDoc "tc.prim.mhcomp.data" 45 $ text "sameConHeadBack with args"
+        reportSDoc "tc.prim.mhcomp.data" 45 $ nest 2 $ vcat
+          [ "literal? = " <+> (return $ P.pretty lt)
+          , "constructor head? = " <+>  (return $ P.pretty h)
+          , "simpl. u " <+> (return $ P.pretty $ ignoreBlocking su) ]                                 
         let u = unArg . ignoreBlocking $ su
-        -- 3 list of size #(dnf phi).
+        -- 3 lists of size #(dnf phi).
         -- b  ≈ [ u[sigma] == (λ i → literal/constructor) | sigma clause subst ]
         -- ts ≈ [ if blocked then Just ( u[sigma] , boolmapof(sigma) ) else Nothing | sigma clause subst ]
         -- skinds = [ kind of clause. cubical or bridge? | clause ]
         (b, ts, skinds) <- allComponentsBack  phi u $ \ t ->
                     (isLit t == lt, isCon (constrForm t) == h)
+
+        let treat mBtIMap = case  mBtIMap of -- Maybe (Blocked Term, IntMap Bool)
+              Nothing -> Nothing
+              Just (bt,imap) -> Just (ignoreBlocking bt , imap)
+        reportSDoc "tc.prim.mhcomp.data" 45 $ text "allComponentBack unview phi u <cont> ="
+        reportSDoc "tc.prim.mhcomp.data" 45 $ nest 2 $ vcat
+          [ "flag list = " <+> (return $ P.pretty b)
+          , "zip us bools = " <+> (return $ P.pretty $ map treat ts )
+          , "skinds = " <+> (text $ show skinds) ]
+        
         let
           (lit,hd) = unzip b
 

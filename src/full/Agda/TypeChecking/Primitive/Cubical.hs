@@ -538,7 +538,8 @@ primTransHComp cmd ts nelims = do
               -- higher inductive type, then hcomp is normal; But
               -- compData knows what to do for the general cases.
               Datatype{dataPars = pars, dataIxs = ixs, dataPathCons = pcons, dataTransp = mtrD}
-                | and [null pcons && ixs == 0 | DoHComp  <- [cmd]], Just as <- allApplyElims es ->
+                | and [null pcons && ixs == 0 | DoHComp  <- [cmd]], Just as <- allApplyElims es -> do
+                  reportSLn "tc.prim.hcomp" 40 $ "rule for hcomp at data (not HIT/indexed) fires"
                   compData mtrD ((not $ null $ pcons) || ixs > 0) (pars+ixs) cmd l (as <$ t) sbA sphi u u0
 
               -- Is this an axiom with constrant transport? Then. Well. Transport is constant.
@@ -575,6 +576,15 @@ primTransHComp cmd ts nelims = do
       -> Arg Term -- ^ u0
       -> ReduceM (Reduced MaybeReducedArgs Term)
     compData mtrD False _ cmd@DoHComp (IsNot l) (IsNot ps) fsc sphi (Just u) a0 = do
+      reportSDoc "tc.prim.hcomp.data" 40 $ text "compData (DoHComp) with args"
+      reportSDoc "tc.prim.hcomp.data" 40 $ nest 2 $ vcat
+        [ "lvl" <+> (return $ P.pretty l)
+        , "extra elims" <+> (return $ P.pretty ps)
+        , "the data type" <+> (return $ P.pretty $ famThing $ ignoreBlocking fsc)
+        , "the constraint" <+> (return $ P.pretty $ ignoreBlocking $ sphi)
+        , "u adjustement " <+> (return $ P.pretty $ u)
+        , "base " <+> (return $ P.pretty $ a0) ]
+      
       let getTermLocal = getTerm $ "builtinHComp for data types"
 
       let sc = famThing <$> fsc
@@ -618,9 +628,24 @@ primTransHComp cmd ts nelims = do
                      _     -> su
           sameConHeadBack Nothing Nothing su k = noRed' su
           sameConHeadBack lt h su k = do
+            reportSDoc "tc.prim.hcomp.data" 45 $ text "sameConHeadBack with args"
+            reportSDoc "tc.prim.hcomp.data" 45 $ nest 2 $ vcat
+              [ "literal? = " <+> (return $ P.pretty lt)
+              , "constructor head? = " <+>  (return $ P.pretty h)
+              , "simpl. u " <+> (return $ P.pretty $ ignoreBlocking su) ]
+            
             let u = unArg . ignoreBlocking $ su
             (b, ts) <- allComponentsBack unview phi u $ \ t ->
                         (isLit t == lt, isCon (constrForm t) == h)
+
+            let treat mBtIMap = case  mBtIMap of -- Maybe (Blocked Term, IntMap Bool)
+                  Nothing -> Nothing
+                  Just (bt,imap) -> Just (ignoreBlocking bt , imap)
+            reportSDoc "tc.prim.hcomp.data" 45 $ text "allComponentBack unview phi u <cont> ="
+            reportSDoc "tc.prim.hcomp.data" 45 $ nest 2 $ vcat
+              [ "flag list = " <+> (return $ P.pretty b)
+              , "zip us bools = " <+> (return $ P.pretty $ map treat ts ) ]
+            
             let
               (lit,hd) = unzip b
 
