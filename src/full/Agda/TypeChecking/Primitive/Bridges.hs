@@ -1623,7 +1623,7 @@ mhcompData l ps sc sphi u a0 = do
                          [ (i,True) ] -> bisone `apply` [argN $ var i]
                          [ (i,False) ] -> biszero `apply` [argN $ var i]
                          _ -> __IMPOSSIBLE__
-                       
+
           runNamesT [] $ do
             u <- open u
             [l,c] <- mapM (open . unArg) [l,ignoreBlocking sc]
@@ -1632,6 +1632,13 @@ mhcompData l ps sc sphi u a0 = do
             lam "i" $ \ i -> do
               combine l c (u <@> i) $ zip phis (map (\ t -> t <@> i) us)
 
+        reportSDocDocs "tc.prim.mhcomp.data" 45
+          (text "sameConHeadBack, before calling <cont>")
+          [ "h = " <+> (return $ P.pretty h)
+          , "hd = " <+> (return $ P.pretty hd)
+          , "isJust h && and hd = " <+> (prettyTCM (isJust h && and hd)) ]
+        -- work if base "a0" is a constructor, and adjustment u is a line
+        -- along the same constructor.
         if isJust h && and hd then k (fromMaybe __IMPOSSIBLE__ h) su
                   else noRed' su
 
@@ -1676,6 +1683,13 @@ mhcompData l ps sc sphi u a0 = do
                -- ordering of "j,i,.." matters.
            let weaken = foldr (\ j s -> s `composeS` raiseFromS j 1) idS (map fst bs')
            t <- reduce2Lam u'
+           reportSDoc "tc.prim.mhcomp.data" 45 $ "allCompoonentsBack, t = " <+> (return $ P.pretty $ ignoreBlocking t)
+           constrForm <- do --TODO-antva: constrFrom redefined here just for testing
+             mz <- getTerm' builtinZero
+             ms <- getTerm' builtinSuc
+             return $ \ t -> fromMaybe t (constructorForm' mz ms t)
+           reportSDoc "tc.prim.mhcomp.data" 45 $
+             "allComponentsBack, constrForm t = " <+> (return $ P.pretty $ constrForm $ ignoreBlocking t)
            return $ (p $ ignoreBlocking t, listToMaybe [ (weaken `applySubst` (lamlam <$> t),bs) | null ts ], skind)
       return $ (flags,t_alphas, splitKinds)
 
