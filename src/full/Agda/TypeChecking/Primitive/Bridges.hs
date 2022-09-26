@@ -1034,6 +1034,7 @@ primMHComp' = do
       mGlue <- getPrimitiveName' builtinGlue
       mId   <- getBuiltinName' builtinId
       pathV <- pathView'
+      bridgeV <- bridgeView'
       case (unArg $ ignoreBlocking sbA) of
         
         MetaV m _ -> do
@@ -1071,6 +1072,11 @@ primMHComp' = do
         d | PathType _ _ _ bA x y <- pathV (El __DUMMY_SORT__ d) -> do
           reportSLn "tc.prim.mhcomp" 40 "in mhocom reduction, type casing matched PathP"
           if nelims > 0 then mhcompPathP sZeta u u0 l (bA, x, y) else fallback
+
+        -- BridgeP
+        d | BridgeType _ _ _ bA x y <- bridgeV (El __DUMMY_SORT__ d) -> do
+          reportSLn "tc.prim.mhcomp" 40 "in mhocom reduction, type casing matched BridgeP"
+          if nelims > 0 then mhcompBridgeP sZeta u u0 l (bA, x, y) else fallback
 
         -- for now, it only reduces if zeta is path pure.
         Def q [Apply _ , Apply bA , Apply x , Apply y] | Just q == mId -> do
@@ -1703,3 +1709,60 @@ mhcompData l ps sc sphi u a0 = do
       where
         lam2Abs rel (Lam _ t) = absBody t <$ t
         lam2Abs rel t         = Abs "y" (raise 1 t `apply` [setRelevance rel $ argN $ var 0])  
+
+
+mhcompBridgeP ::
+        Blocked (Arg Term) -- ^ ψ:MCstr, ambient cstr of mhocom {BridgeP} call.
+        -> Arg Term -- ^ u : (i : I) → MPartial ψ (BridgeP A x y)
+        -> Arg Term -- ^ u0 : BridgeP A x y
+        -> Arg Term -- ^ l : Lvl
+        -> (Arg Term, Arg Term, Arg Term)
+        -- ^ A : (\@tick x:BI) → Type ℓ, x : A bi0, y : A bi1
+        -> ReduceM (Reduced MaybeReducedArgs Term)
+mhcompBridgeP spsi u u0 l (bA,x,y) = do
+  reportSLn "tc.prim.mhcomp.bridgep" 40 "Rule for mhocom at BridgeP fired."
+  let getTermLocal = getTerm $ builtinMHComp ++ " for BridgeP types"
+  iz <- getTermLocal builtinIZero
+  biz <- getTermLocal builtinBIZero
+  tmhocom <- getTermLocal builtinMHComp
+  bconj <- getTermLocal builtinBconj
+  biszero <- getTermLocal builtinBiszero
+  bisone <- getTermLocal builtinBisone
+  -- tINeg <- getTermLocal builtinINeg
+  -- tIMax <- getTermLocal builtinIMax
+  tMixedOr <- getTermLocal builtinMixedOr
+  mkmc <- getTermLocal builtinMkmc
+  -- tEmbd <- getTermLocal builtinEmbd
+  tmpor   <- getTermLocal builtin_mpor
+  let
+    -- ineg j = pure tINeg <@> j
+    -- imax i j = pure tIMax <@> i <@> j
+    
+    -- auxCstr (x:BI) = (x =bi0 b∨ x =bi1)
+    auxCstr bvar = pure mkmc <@> (pure iz) <@> (pure bconj <@>  (pure biszero <@> bvar) <@> (pure bisone <@> bvar))
+    cstrZero bvar = pure mkmc <@> (pure iz) <@> (pure biszero <@> bvar)
+    cstrOne bvar = pure mkmc <@> (pure iz) <@> (pure bisone  <@> bvar)
+
+    res j psi u u0 l bA x y = 
+          pure tmhocom <#> l
+                       <#> (bA <@> j)
+                       <#> (pure tMixedOr <@> psi <@> auxCstr j)
+                       <@> lam "i'" (\ i ->
+                            let or f1 f2 = pure tmpor <#> l <@> f1 <@> f2 <#> lam "_" (\ _ -> bA <@> i) --f1,2 : mcstr
+                            in or psi (auxCstr j)
+                                          <@> ilam "o" (\ o -> u <@> i <..> o <@@> (x, y, j)) -- a0 <@@> (x <@> i, y <@> i, j)
+                                          <@> (or (cstrZero j) (cstrOne j) <@> ilam "_" (const x)
+                                                                  <@> ilam "_" (const y)))
+                       <@> (u0 <@@> (x, y, j))
+
+  runNamesT [] $ do -- NamesT ReduceM (Reduced MaybeReducedArgs Term)
+    [l,u,u0] <- mapM (open . unArg) [l,u,u0]
+    psi      <- open . unArg . ignoreBlocking $ spsi
+    [bA, x, y] <- mapM (open . unArg) [bA, x, y]
+
+    lamres <- lam "j" (\ j -> res j psi u u0 l bA x y)
+    reportSDocDocs "tc.prim.mhcomp.bridgep" 40
+      (text "mhocom at bridgep type, results")
+      [ prettyTCM $ toExplicitArgs lamres ]
+
+    YesReduction YesSimplification <$> lam "j" (\ j -> res j psi u u0 l bA x y)
