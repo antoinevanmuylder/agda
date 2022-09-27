@@ -48,7 +48,7 @@ import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Telescope
 import Agda.TypeChecking.Lock
-import Agda.TypeChecking.Primitive.Cubical ( headStop , TermPosition(..) ) --TODO-antva move to Primitive.Base, maybe.
+-- import Agda.TypeChecking.Primitive.Cubical ( headStop , TermPosition(..) ) --TODO-antva move to Primitive.Base, maybe.
 
 import Agda.Utils.Either
 import Agda.Utils.Functor
@@ -1766,3 +1766,146 @@ mhcompBridgeP spsi u u0 l (bA,x,y) = do
       [ prettyTCM $ toExplicitArgs lamres ]
 
     YesReduction YesSimplification <$> lam "j" (\ j -> res j psi u u0 l bA x y)
+
+
+transpBridgeP :: Arg Term -- ^ l : I→Level
+              -> (Arg Term, Arg Term, Arg Term)
+              -- ^ (bA : I → BI → Type, x : (i:I) → A(i,bi0), y : (i:I) → A(i,bi1))
+              --   Arguments of a line of bridges i ↦ BridgeP (λ r → A(i,r)) x(i) y(i)
+              -> Blocked (Arg Term) -- ^ reduced transport (path) cofib φ
+              -> Arg Term -- ^ base bridge u0
+              -> ReduceM (Reduced MaybeReducedArgs Term)
+-- transpBridgeP _ _ _ _ = __IMPOSSIBLE__              
+transpBridgeP l (bA, x , y) phi u0 = do
+  reportSDocDocs "tc.prim.transp.bridge" 40
+    (text "rule for transporting at BridgeP fired with args...")
+    [ "level l = " <+> (return $ P.pretty l)
+    , "A : I → BI → Type is " <+> (return $ P.pretty  bA)
+    , "x : i:I → A (i, bi0) = " <+> (return $ P.pretty x)
+    , "y : i:I → A (i, bi0) = " <+> (return $ P.pretty y)
+    , "path cofib φ is " <+> (prettyTCM phi)
+    , "base u0 is " <+> (prettyTCM u0) ]
+  
+  let getTermLocal = getTerm "transport for bridge types"
+  iz <- getTermLocal builtinIZero
+  io <- getTermLocal builtinIOne
+  mixedOr <- getTermLocal builtinMixedOr
+  mkmc <- getTermLocal builtinMkmc
+  bno <- getTermLocal builtinBno
+  biszero <- getTermLocal builtinBiszero
+  bisone <- getTermLocal builtinBisone
+
+  -- Transport in bridge types becomes mixed /CCHM/ composition in the
+  -- underlying line of spaces. The intuition is that not only do we
+  -- have to fix the endpoints (using composition) but also actually
+  -- transport. mixed CCHM composition conveniently does that for us!
+  -- rem. : CCHM = heterogeneous.
+
+  redReturn <=< runNamesT [] $ do
+    -- In reality to avoid a round-trip between primComp we use mkComp
+    -- here.
+    comp <- mkMhecom $ "transport for bridge types"
+    [l, u0, phi] <- traverse (open . unArg) [l, u0, ignoreBlocking phi]
+    [bA, x, y] <- mapM (\ a -> open . runNames [] $ lam "i" (const (pure $ unArg a))) [bA, x, y]
+
+    let phiAsMixed phi = pure mkmc <@> phi <@> (pure bno)
+        bvarZero bvar = pure mkmc <@> (pure iz) <@> (pure biszero <@> bvar)
+        bvarOne bvar = pure mkmc <@> (pure iz) <@> (pure bisone <@> bvar)
+        -- embdI φ ∨∨ (iz m∨ (j =bi1)) ∨∨  (iz m∨ (j =bi0))
+        combineCstrs phi bvar = (pure mixedOr) <@> (phiAsMixed phi) <@> ((pure mixedOr) <@> (bvarOne bvar) <@> (bvarZero bvar))
+
+    let res = 
+          lam "j" $ \ j -> -- j:BI
+            comp l (lam "i" $ \ i -> bA <@> i <@> j)
+              (combineCstrs (phi) j)
+              (lam "i'" $ \i -> mixCombineSys l (bA <@> i <@> j) -- i : I
+                [ (phi, ilam "o" (\o -> u0 <@@> (x <@> pure iz, y <@> pure iz, j)))
+                -- Note that here we have lines of endpoints which we must
+                -- apply to fix the endpoints:
+                , (pure bisone <@> j, ilam "_" (const (y <@> i)))
+                , (pure biszero <@> j, ilam "_" (const (x <@> i)))
+                ])
+              (u0 <@@> (x <@> pure iz, y <@> pure iz, j))
+
+    rres <- res
+    reportSDocDocs "tc.prim.transp.bridge" 40
+      (text "transport at bridgep type, results")
+      [ prettyTCM $ toExplicitArgs rres ]
+    res
+
+
+-- | Constructs a helper for heterogeneous, mixed composition, with a string indicating
+--   what function uses it.
+mkMhecom :: HasBuiltins m => String -> NamesT m (NamesT m Term -> NamesT m Term -> NamesT m Term -> NamesT m Term -> NamesT m Term -> NamesT m Term)
+mkMhecom s = do
+  let getTermLocal = getTerm s
+  tIMax  <- getTermLocal builtinIMax
+  tINeg  <- getTermLocal builtinINeg
+  -- tHComp <- getTermLocal builtinHComp
+  mhocom <- getTermLocal builtinMHComp
+  tTrans <- getTermLocal builtinTrans
+  iz     <- getTermLocal builtinIZero
+  io     <- getTermLocal builtinIOne
+
+  let
+    forward la bA r u = pure tTrans
+      <#> (lam "i" $ \i -> la <@> (i `imax` r))
+      <@> (lam "i" $ \i -> bA <@> (i `imax` r))
+      <@> r
+      <@> u
+
+  -- phi : MCstr, u : ∀i → MPartial φ (A i), u0 : A i0
+  pure $ \la bA phi u u0 ->
+    pure mhocom <#> (la <@> pure io) <#> (bA <@> pure io) <#> phi
+                <@> lam "i" (\i -> ilam "o" $ \o ->
+                        forward la bA i (u <@> i <..> o))
+                <@> forward la bA (pure iz) u0
+
+
+-- | Builds a mixed partial element. The type of the resulting partial element
+-- can depend on the computed extent, which we denote by @φ@ here. Note
+-- that @φ@ is the n-ary disjunction of all the @ψ@s.
+mixCombineSys
+  :: HasBuiltins m
+  => NamesT m Term -- The level @l : Level@
+  -> NamesT m Term -- The type @A : Partial φ (Type l)@.
+  -> [(NamesT m Term, NamesT m Term)]
+  -- ^ A list of @(ψ, PartialP ψ λ o → A (... o ...))@ mappings. Note
+  -- that by definitional proof-irrelevance of @IsOne@, the actual
+  -- injection can not matter here.
+  -> NamesT m Term
+mixCombineSys l ty xs = snd <$> combineSys' l ty xs
+
+-- | Builds a mixed partial element, and compute its extent. See 'combineSys'
+-- for the details.
+mixCombineSys'
+  :: forall m. HasBuiltins m
+  => NamesT m Term -- The level @l@
+  -> NamesT m Term -- The type @A@
+  -> [(NamesT m Term, NamesT m Term)]
+  -> NamesT m (Term,Term)
+mixCombineSys' l ty xs = do
+  -- tPOr <- fromMaybe __IMPOSSIBLE__ <$> getTerm' builtinPOr
+  mpor <- fromMaybe __IMPOSSIBLE__ <$> getTerm' builtin_mpor
+  mixedOr <- fromMaybe __IMPOSSIBLE__ <$> getTerm' builtinMixedOr
+  mempty <- fromMaybe __IMPOSSIBLE__ <$> getTerm' builtinMHoldsEmpty
+  mno <- fromMaybe __IMPOSSIBLE__ <$> getTerm' builtinMno
+  -- tMax <- fromMaybe __IMPOSSIBLE__ <$> getTerm' builtinIMax
+  -- iz <- fromMaybe __IMPOSSIBLE__ <$> getTerm' builtinIZero
+  -- tEmpty <- fromMaybe __IMPOSSIBLE__ <$> getTerm' builtinIsOneEmpty
+
+  let
+    -- phi, psi : MCstr
+    mkMpor l ty phi psi u0 u1 = pure mpor
+      <#> l <@> phi <@> psi <#> (ilam "o" $ \ _ -> ty)
+      <@> u0 <@> u1
+
+    -- In one pass, compute the disjunction of all the cofibrations and
+    -- compute the prim^mpor expression.
+    combine :: [(NamesT m Term, NamesT m Term)] -> NamesT m (Term, Term)
+    combine [] = (mno,) <$> (pure mempty <#> l <#> (ilam "o" $ \ _ -> ty))
+    combine [(psi, u)] = (,) <$> psi <*> u
+    combine ((psi, u):xs) = do
+      (phi, c) <- combine xs
+      (,) <$>  (pure mixedOr <@> psi <@> (pure phi) )<*> mkMpor l ty psi (pure phi) u (pure c) -- imax psi (pure phi)
+  combine xs

@@ -41,7 +41,7 @@ import Agda.TypeChecking.Substitute
 import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Telescope
--- import Agda.TypeChecking.Primitive.Bridges ( primMHComp' )
+import Agda.TypeChecking.Primitive.Bridges ( transpBridgeP )
 
 import Agda.Utils.Either
 import Agda.Utils.Function
@@ -464,7 +464,7 @@ primTransHComp cmd ts nelims = do
         mGlue <- getPrimitiveName' builtinGlue
         mId   <- getBuiltinName' builtinId
         pathV <- pathView'
-
+        bridgeV <- bridgeView'
         -- By cases on the family, determine what Kan operation we defer
         -- to:
         case famThing t of
@@ -506,6 +506,9 @@ primTransHComp cmd ts nelims = do
           -- Only compute the Kan operation if there's >0 eliminations.
           d | PathType _ _ _ bA x y <- pathV (El __DUMMY_SORT__ d) -> do
             if nelims > 0 then doPathPKanOp operation l ((bA, x, y) <$ t) else fallback
+
+          d | BridgeType _ _ _ bA x y <- bridgeV (El __DUMMY_SORT__ d), DoTransp <- cmd -> do
+            if nelims > 0 then transpBridgeP (famThing l) (bA, x, y) sphi u0  else fallback          
 
           -- Identity types:
           Def q [Apply _ , Apply bA , Apply x , Apply y] | Just q == mId -> do
