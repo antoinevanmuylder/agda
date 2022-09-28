@@ -41,7 +41,7 @@ import Agda.TypeChecking.Substitute
 import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Telescope
-import Agda.TypeChecking.Primitive.Bridges ( transpBridgeP )
+import Agda.TypeChecking.Primitive.Bridges ( transpBridgeP , transpGel )
 
 import Agda.Utils.Either
 import Agda.Utils.Function
@@ -462,6 +462,7 @@ primTransHComp cmd ts nelims = do
 
         mHComp <- getPrimitiveName' builtinHComp
         mGlue <- getPrimitiveName' builtinGlue
+        mGel <- getPrimitiveName' builtinGel
         mId   <- getBuiltinName' builtinId
         pathV <- pathView'
         bridgeV <- bridgeView'
@@ -493,6 +494,12 @@ primTransHComp cmd ts nelims = do
           Def q [Apply la, Apply lb, Apply bA, Apply phi', Apply bT, Apply e] | Just q == mGlue -> do
             maybe fallback redReturn =<< doGlueKanOp
               operation ((la, lb, bA, phi', bT, e) <$ t) Head
+
+          -- transporting at Gel types
+          Def q [Apply lgel, Apply bA0, Apply bA1, Apply bR, Apply bvar]
+            | Just q == mGel, DoTransp <- cmd -> do
+              maybe fallback redReturn =<<
+                transpGel (famThing l) (lgel , bA0, bA1, bR, bvar) sphi u0
 
           -- Formal homogeneous compositions in the universe: Our family
           -- is @hcomp {A = Type l}@, so we defer to the implementation

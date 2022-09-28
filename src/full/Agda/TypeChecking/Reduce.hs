@@ -437,7 +437,7 @@ instance Reduce PlusLevel where
 
 instance (Subst a, Reduce a) => Reduce (Abs a) where
   reduce' b@(Abs x _) =
-    reportSLn "tc.prim.extent" 60 ( "reduce: adding " ++ x ++ " to ctx as dummy" ) >>
+    reportSLn "tc.freshness" 60 ( "reduce: adding " ++ x ++ " to ctx as dummy" ) >>
     Abs x <$> underAbstraction_ b reduce' --TODO-antva: remove my reportS msg in that file
   reduce' (NoAbs x v) = NoAbs x <$> reduce' v
 
@@ -1061,7 +1061,7 @@ instance Simplify PlusLevel where
 
 instance (Subst a, Simplify a) => Simplify (Abs a) where
     simplify' a@(Abs x _) =
-      reportSLn "tc.prim.extent" 60 ("simplify: adding " ++ x ++ " to ctx as dummy") >>
+      reportSLn "tc.freshness" 60 ("simplify: adding " ++ x ++ " to ctx as dummy") >>
       Abs x <$> underAbstraction_ a simplify'
     simplify' (NoAbs x v) = NoAbs x <$> simplify' v
 
@@ -1241,7 +1241,7 @@ instance Normalise PlusLevel where
 
 instance (Subst a, Normalise a) => Normalise (Abs a) where
     normalise' a@(Abs x _) =
-      reportSLn "tc.prim.extent" 60 ("normalise: adding " ++ x ++ " to ctx as dummy") >>
+      reportSLn "tc.freshness" 60 ("normalise: adding " ++ x ++ " to ctx as dummy") >>
       Abs x <$> underAbstraction_ a normalise'
     normalise' (NoAbs x v) = NoAbs x <$> normalise' v
 
@@ -1472,7 +1472,7 @@ instance InstantiateFull a => InstantiateFull (Pattern' a) where
 
 instance (Subst a, InstantiateFull a) => InstantiateFull (Abs a) where
     instantiateFull' a@(Abs x _) =
-      reportSLn "tc.prim.extent" 60 ("instantiateFull: adding " ++ x ++ " to ctx as dummy") >>
+      reportSLn "tc.freshness" 60 ("instantiateFull: adding " ++ x ++ " to ctx as dummy") >>
       Abs x <$> underAbstraction_ a instantiateFull'
     instantiateFull' (NoAbs x a) = NoAbs x <$> instantiateFull' a
 

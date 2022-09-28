@@ -266,7 +266,7 @@ semiFreshForFvars fvs lki = do
     tyj <- typeOfBV j --problem: can yield dummy type when it should not
     resj <- isTimeless' tyj lki
     return $ not resj
-  reportSLn "tc.prim" 60 $ "semiFreshForFvars, timefullLkLaters: " ++ P.prettyShow timefullLkLaters
+  reportSLn "tc.freshness" 60 $ "semiFreshForFvars, timefullLkLaters: " ++ P.prettyShow timefullLkLaters
   return $ null timefullLkLaters
 
 -- | Formation rule (extentType) and computation rule for the extent primitive.
@@ -1909,3 +1909,90 @@ mixCombineSys' l ty xs = do
       (phi, c) <- combine xs
       (,) <$>  (pure mixedOr <@> psi <@> (pure phi) )<*> mkMpor l ty psi (pure phi) u (pure c) -- imax psi (pure phi)
   combine xs
+
+
+transpGel ::
+          PureTCM m
+          => Arg Term -- ^ l : I → Level
+          -> (Arg Term, Arg Term, Arg Term, Arg Term, Arg Term)
+          -- ^ lgel = i.l i, bA0 bA1 : i.Type(lgel), R : i. A0(i)→A1(i)→Type(lgel), i.r : BI
+          -> Blocked (Arg Term) -- ^ path cofib for transport
+          -> Arg Term -- ^ base u0 : Gel A0 A1 R r [i0/i]. may mention r.
+          -> m (Maybe Term)
+transpGel l (lgel, bA0, bA1, bR, r@(Arg rinfo rtm@(Var ri [])) ) phi u0 = do -- 
+  
+  reportSDocDocs "tc.prim.transp.gel" 40 (text "rule for transporting at Gel fired with args...") $
+    [ "transp __l__ :" <+> (return $ P.pretty l)
+    , "lgel = " <+> (return $ P.pretty lgel)
+    , "A0 is " <+> (return $ P.pretty bA0)
+    , "A1 is " <+> (return $ P.pretty bA1)
+    , "R is " <+> (return $ P.pretty bR)
+    , "r is " <+> (return $ P.pretty r)
+    , "phi is " <+> (return $ P.pretty $ ignoreBlocking phi)
+    , "base u0 is " <+> (return $ P.pretty u0) ]
+
+  let getTermLocal = getTerm "transport for Gel"
+  gel <- getTermLocal builtin_gel
+  ungel <- getTermLocal builtin_ungel
+  neg <- getTermLocal builtinINeg
+  max <- getTermLocal builtinIMax
+  bi0 <- getTermLocal builtinBIZero
+  bi1 <- getTermLocal builtinBIOne
+  trsp <- getTermLocal builtinTrans
+  i0 <- getTermLocal builtinIZero
+  i1 <- getTermLocal builtinIOne
+
+
+  
+  -- will be used for u0
+  let
+    ldArgInfo = setLock IsLock defaultArgInfo
+    captureIn m ri =
+      let sigma = ([var (i+1) | i <- [0 .. ri - 1] ] ++ [var 0]) ++# raiseS (ri + 2) in
+      Lam ldArgInfo $ Abs "r" $ applySubst sigma m
+
+  -- TODO-antva: we capture r in u0. is there some freshness side cond that must be checked??
+  
+  -- su0 <- reduceB u0
+  -- let fvu0 = allVars $ freeVarsIgnore IgnoreNot $ ignoreBlocking su0
+  -- reportSDocDocs "tc.prim.transp.gel" 40 (text "about to check semifreshness at fvu0 (ri - 1)")
+  --   [ "fv u0 = " <+> (return $ P.pretty fvu0)
+  --   , "ri = " <+> (return $ P.pretty ri)
+  --   , "ri -1 = " <+> (return $ P.pretty (ri - 1)) ]  
+  -- fresh <- semiFreshForFvars fvu0 (ri - 1)
+  -- case fresh of
+  --reportSDoc "tc.prim.transp.gel" 40 $ text "transport at Gel, semifresh!"
+
+  -- TODO-antva su0 instead?
+  -- ri - 1 because input r is under path abstraction (r appears in Gel line)
+  -- TODO-antva: is it always sound to do this? see right above.
+  let rBindsU0 = captureIn (unArg u0) (ri - 1) 
+
+  -- res :: Term
+  res <- runNamesT [] $ do
+
+    [l, phi, u0] <- mapM (open . unArg) [l, ignoreBlocking phi, u0]
+    [lgel, bA0, bA1, bR, r] <- mapM (\ a -> open . runNames [] $ lam "i" (const (pure $ unArg a))) [lgel, bA0, bA1, bR, r]
+    [gel, trsp, rU0, bi0, bi1, neg, max, ungel, i0, i1] <- mapM (open) [gel, trsp, rBindsU0, bi0, bi1, neg, max, ungel, i0, i1]
+
+    let gelLHS = trsp <#> l <@> bA0 <@> phi <@> (rU0 <@> bi0)
+        gelRHS = trsp <#> l <@> bA1 <@> phi <@> (rU0 <@> bi1)
+        gelRelPrf =
+          trsp <#> l <@> lam "y" (\y -> bR <@> y
+                            <@> ( trsp <#> l <@> bA0 <@> (max <@> (neg <@> y) <@> phi) <@> (rU0 <@> bi0) )
+                            <@> ( trsp <#> l <@> bA1 <@> (max <@> (neg <@> y) <@> phi) <@> (rU0 <@> bi1) ) )
+                     <@> phi
+                     <@> (ungel <@> rU0)
+
+    gel <#> (lgel <@> i1) <#> (bA0 <@> i1) <#> (bA1 <@> i1) <#> (bR <@> i1) -- TODO-antva: one day R will be an explicit arg of gel?
+        <@> gelLHS <@> gelRHS <@> gelRelPrf <@> (r <@> i1)
+
+  reportSDocDocs "tc.prim.transp.gel" 40
+    (text "transport at gel, results...")
+    [ prettyTCM $ toExplicitArgs res
+    , "r binds u is " <+> (return $ P.pretty rBindsU0)]
+
+  return $ Just res
+  
+transpGel _ _ _ _ = do
+  return Nothing
