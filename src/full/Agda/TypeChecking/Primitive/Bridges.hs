@@ -1951,48 +1951,52 @@ transpGel l (lgel, bA0, bA1, bR, r@(Arg rinfo rtm@(Var ri [])) ) phi u0 = do --
       let sigma = ([var (i+1) | i <- [0 .. ri - 1] ] ++ [var 0]) ++# raiseS (ri + 2) in
       Lam ldArgInfo $ Abs "r" $ applySubst sigma m
 
-  -- TODO-antva: we capture r in u0. is there some freshness side cond that must be checked??
-  
-  -- su0 <- reduceB u0
-  -- let fvu0 = allVars $ freeVarsIgnore IgnoreNot $ ignoreBlocking su0
-  -- reportSDocDocs "tc.prim.transp.gel" 40 (text "about to check semifreshness at fvu0 (ri - 1)")
-  --   [ "fv u0 = " <+> (return $ P.pretty fvu0)
-  --   , "ri = " <+> (return $ P.pretty ri)
-  --   , "ri -1 = " <+> (return $ P.pretty (ri - 1)) ]  
-  -- fresh <- semiFreshForFvars fvu0 (ri - 1)
-  -- case fresh of
-  --reportSDoc "tc.prim.transp.gel" 40 $ text "transport at Gel, semifresh!"
+  -- TODO-antva: we capture r in u0. Hence some freshness condition must be checked (Γ \ r , r ⊢ u0)
+  -- TODO-antva: we check freshness in whnf(u0). this is sound but not complete. something similar happens
+  --             in extent (although extent return a less computed term? sound??)
+  su0 <- reduceB u0
+  let fvu0 = allVars $ freeVarsIgnore IgnoreNot $ ignoreBlocking su0
+  reportSDocDocs "tc.prim.transp.gel" 40 (text "about to check semifreshness at fvu0 (ri - 1)")
+    [ "fv u0 = " <+> (return $ P.pretty fvu0)
+    , "ri = " <+> (return $ P.pretty ri)
+    , "ri -1 = " <+> (return $ P.pretty (ri - 1)) ]  
+  fresh <- semiFreshForFvars fvu0 (ri - 1) -- r must be shifted because it was under a path variable
+  case fresh of
+    False -> do
+      reportSDoc "tc.prim.transp.gel" 40 $ text "transport at Gel, semifreshness check failed"
+      return Nothing -- TODO-antva: how about returning warnings when freshness fails?
+      
+    True -> do
+      reportSDoc "tc.prim.transp.gel" 40 $ text "transport at Gel, semifreshness check passed"
+      
+      -- TODO-antva su0 instead? (same dilemma in extent)
+      let rBindsU0 = captureIn (unArg u0) (ri - 1)
 
-  -- TODO-antva su0 instead?
-  -- ri - 1 because input r is under path abstraction (r appears in Gel line)
-  -- TODO-antva: is it always sound to do this? see right above.
-  let rBindsU0 = captureIn (unArg u0) (ri - 1) 
+      -- res :: Term
+      res <- runNamesT [] $ do
 
-  -- res :: Term
-  res <- runNamesT [] $ do
+        [l, phi, u0] <- mapM (open . unArg) [l, ignoreBlocking phi, u0]
+        [lgel, bA0, bA1, bR, r] <- mapM (\ a -> open . runNames [] $ lam "i" (const (pure $ unArg a))) [lgel, bA0, bA1, bR, r]
+        [gel, trsp, rU0, bi0, bi1, neg, max, ungel, i0, i1] <- mapM (open) [gel, trsp, rBindsU0, bi0, bi1, neg, max, ungel, i0, i1]
 
-    [l, phi, u0] <- mapM (open . unArg) [l, ignoreBlocking phi, u0]
-    [lgel, bA0, bA1, bR, r] <- mapM (\ a -> open . runNames [] $ lam "i" (const (pure $ unArg a))) [lgel, bA0, bA1, bR, r]
-    [gel, trsp, rU0, bi0, bi1, neg, max, ungel, i0, i1] <- mapM (open) [gel, trsp, rBindsU0, bi0, bi1, neg, max, ungel, i0, i1]
+        let gelLHS = trsp <#> l <@> bA0 <@> phi <@> (rU0 <@> bi0)
+            gelRHS = trsp <#> l <@> bA1 <@> phi <@> (rU0 <@> bi1)
+            gelRelPrf =
+              trsp <#> l <@> lam "y" (\y -> bR <@> y
+                                <@> ( trsp <#> l <@> bA0 <@> (max <@> (neg <@> y) <@> phi) <@> (rU0 <@> bi0) )
+                                <@> ( trsp <#> l <@> bA1 <@> (max <@> (neg <@> y) <@> phi) <@> (rU0 <@> bi1) ) )
+                         <@> phi
+                         <@> (ungel <@> rU0)
 
-    let gelLHS = trsp <#> l <@> bA0 <@> phi <@> (rU0 <@> bi0)
-        gelRHS = trsp <#> l <@> bA1 <@> phi <@> (rU0 <@> bi1)
-        gelRelPrf =
-          trsp <#> l <@> lam "y" (\y -> bR <@> y
-                            <@> ( trsp <#> l <@> bA0 <@> (max <@> (neg <@> y) <@> phi) <@> (rU0 <@> bi0) )
-                            <@> ( trsp <#> l <@> bA1 <@> (max <@> (neg <@> y) <@> phi) <@> (rU0 <@> bi1) ) )
-                     <@> phi
-                     <@> (ungel <@> rU0)
+        gel <#> (lgel <@> i1) <#> (bA0 <@> i1) <#> (bA1 <@> i1) <#> (bR <@> i1) -- TODO-antva: one day R will be an explicit arg of gel?
+            <@> gelLHS <@> gelRHS <@> gelRelPrf <@> (r <@> i1)
 
-    gel <#> (lgel <@> i1) <#> (bA0 <@> i1) <#> (bA1 <@> i1) <#> (bR <@> i1) -- TODO-antva: one day R will be an explicit arg of gel?
-        <@> gelLHS <@> gelRHS <@> gelRelPrf <@> (r <@> i1)
+      reportSDocDocs "tc.prim.transp.gel" 40
+        (text "transport at gel, results...")
+        [ prettyTCM $ toExplicitArgs res
+        , "r binds u is " <+> (return $ P.pretty rBindsU0)]
 
-  reportSDocDocs "tc.prim.transp.gel" 40
-    (text "transport at gel, results...")
-    [ prettyTCM $ toExplicitArgs res
-    , "r binds u is " <+> (return $ P.pretty rBindsU0)]
-
-  return $ Just res
+      return $ Just res
   
 transpGel _ _ _ _ = do
   return Nothing
