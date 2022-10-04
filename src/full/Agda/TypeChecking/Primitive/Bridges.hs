@@ -1038,6 +1038,7 @@ primMHComp' = do
       mHComp <- getPrimitiveName' builtinHComp
       mMhocom <- getPrimitiveName' builtinMHComp
       mGlue <- getPrimitiveName' builtinGlue
+      mGel <- getPrimitiveName' builtinGel
       mId   <- getBuiltinName' builtinId
       pathV <- pathView'
       bridgeV <- bridgeView'
@@ -1057,6 +1058,10 @@ primMHComp' = do
         -- Glue {ℓA ℓB} (A : Set ℓA) {φ' : I} (T : Partial φ' (Set ℓB)) (e: PartialP φ' (λ o → T o ≃ A)) : Set ℓB
         Def q [Apply la, Apply lb, Apply bA, Apply phi', Apply bT, Apply e] | Just q == mGlue -> do
           maybe fallback redReturn =<< mhcompGlue zeta u u0 (la, lb, bA, phi', bT, e) Head
+
+        -- mhocom {ℓ} {Gel A0 A1 R x} {ζ} u u0
+        Def q [Apply lgel, Apply bA0, Apply bA1, Apply bR, Apply x] | Just q == mGel -> do
+          maybe fallback redReturn =<< mhcompGel (lgel, bA0, bA1, bR, x) sZeta u u0
 
         -- total (cubical) call is
         -- hcomp {ℓ} {hcomp {-} {Type ℓ} {φ'} (T : ∀ i → Partial φ' (Type ℓ))(A : Type ℓ)} {φ}
@@ -2147,7 +2152,7 @@ primAllMCstr' = do
     fallback sabszeta = return $ NoReduction [reduced sabszeta]
 
 
--- | ∀-mcstr-ε : {absζ : @BI → MCstr} → MHolds (∀-mcstr absζ) → (x : @BI) → MHolds (absζ x)
+-- | ∀-mcstr-ε : {absζ : @BI → MCstr} → .MHolds (∀-mcstr absζ) → (x : @BI) → MHolds (absζ x)
 primAllMCstrCounit' :: TCM PrimitiveImpl
 primAllMCstrCounit' = do
   requireBridges "in primAllMCstrCounit'"
@@ -2169,3 +2174,148 @@ primAllMCstrCounit' = do
       
   where
     mholds = fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinMHolds
+
+
+mhcompGel :: PureTCM m =>
+          (Arg Term, Arg Term, Arg Term, Arg Term, Arg Term)
+          -- ^ gel args. (l:Level) (A0, A1 : TYpe) (R : A0 -> A1 ->Type l) (x:BI)
+          -> Blocked (Arg Term) -- ^ simplified ambient constraint zeta
+          -> Arg Term -- ^ adjustment u : ∀ i -> MPartial zeta (Gel A0 A1 R x)
+          -> Arg Term -- ^ u0 : Gel A0 A1 R x
+          -> m (Maybe Term)
+mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
+  ctx <- getContext
+  reportSDocDocs "tc.prim.mhcom.gel" 30 (text "rule for mhocom at Gel (maybe) firing with args...")
+    [ "l  = " <+> prettyTCM l
+    , "A0 = " <+> prettyTCM bA0
+    , "A1 = " <+> prettyTCM bA1
+    , "bR = " <+> prettyTCM bR
+    , "x  = " <+> prettyTCM x
+    , "zeta=" <+> prettyTCM (ignoreBlocking szeta)
+    , "u  = " <+> prettyTCM u
+    , "u0 = " <+> prettyTCM u0
+    , "ambient ctx" <+> prettyTCM ctx]
+
+  -- we need to capture x in tm = zeta, u0 and u (or u applied)
+  -- we can soundly do this only if x is semifresh in tm
+  -- TODO-antva: as usual, we soundly check semifreshness in whnf(tm), but this is not
+  -- computationally complete wrt CH type thy.
+  -- also if tm is reduced a certain way (tm -> tm'), then only tm' should be used
+  -- in reduction results(?). TODO-antva: the latter often fails in reduction rules
+  -- where semifreshness checks occur.
+
+  su <- reduceB u -- TODO-antva: u is a lambda...thus reducing it changes nothing
+  su0 <- reduceB u0
+
+  let [fvZeta, fvU, fvU0] = map (allVars . (freeVarsIgnore IgnoreNot) . unArg . ignoreBlocking) [szeta, su, su0]
+
+  semiFreshZeta <- semiFreshForFvars fvZeta dbi
+  semiFreshU    <- semiFreshForFvars fvU dbi
+  semiFreshU0   <- semiFreshForFvars fvU0 dbi
+
+  reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "in mhocom at Gel, semifreshness analysis...")
+    [ "fvZeta = " <+> (return $ P.pretty fvZeta)
+    , "semiFreshZeta = " <+> (text $ show semiFreshZeta)
+    , "fvU = " <+> (return $ P.pretty fvU)
+    , "semiFreshU = " <+> (text $ show semiFreshU)
+    , "fvU0 = " <+> (return $ P.pretty fvU0)
+    , "semiFreshU0 = " <+> (text $ show semiFreshU0) ]
+
+  case (semiFreshZeta && semiFreshU && semiFreshU0) of
+    False -> return Nothing
+    True -> do
+
+      -- for capturing (its now sound)
+      let
+        captureIn m ri =
+          let sigma = ([var (i+1) | i <- [0 .. ri - 1] ] ++ [var 0]) ++# raiseS (ri + 2) in
+          Lam lkDefaultArgInfo $ Abs "r" $ applySubst sigma m
+
+        xBindedZeta = captureIn (unArg $ ignoreBlocking szeta) dbi
+        xBindedU0 = captureIn (unArg $ ignoreBlocking su0) dbi
+
+      
+
+      res <- runNamesT [] $ do
+        let getTermLocal = \ str -> do
+              res <- getTerm "in mhocom at Gel" str
+              open res
+        gel <- getTermLocal builtin_gel
+        mhocom <- getTermLocal builtinMHComp
+        l <- open $ unArg l
+        bA0 <- open $ unArg bA0
+        bA1 <- open $ unArg bA1
+        bR <- open $ unArg bR
+        xBindedZeta <- open $ xBindedZeta
+        bi0 <- getTermLocal builtinBIZero
+        bi1 <- getTermLocal builtinIZero
+        u <- open $ unArg $ ignoreBlocking su
+        xBindedU0 <- open $ xBindedU0
+        mhecom <- mkMhecom "in mhocom at Gel"
+        allMCstr <- getTermLocal builtinAllMCstr
+        embd <- getTermLocal builtinEmbd
+        ineg <- getTermLocal builtinINeg
+        mpor <- getTermLocal builtin_mpor
+        iand <- getTermLocal builtinIMin
+        ungel <- getTermLocal builtin_ungel
+        epsi <- getTermLocal builtinAllMCstrCounit
+        mor <- getTermLocal builtinMixedOr --different than mkmc. mor : MCstr -> MCstr -> MCstr
+        x <- open $ unArg x
+        
+
+        -- assume Γ ⊢ u
+        --  Γ' ⊢ i:I. Below, gives Γ' ⊢ <x> (u i)
+        -- lamn = size Γ' - size Γ, ie under how many extra lambdas are we applying u
+        -- TODO-antva: could do the semifreshness check for u here instead?
+        let captureUat i lamn = do
+              ui <- u <@> i -- Term
+              return $ captureIn ui (dbi + lamn)
+
+            -- needed for gelPrf adjustment
+            captureUat' i o lamn = do
+              uio <- u <@> i <..> o
+              return $  captureIn uio (dbi + lamn)
+
+            bA bl = case bl of
+              False -> bA0              
+              True -> bA1
+
+            bi bl = case bl of
+              False -> bi0
+              True -> bi1
+
+            -- mhocom {} {Gel A0 A1 R x} {zeta} u u0 = gel (gelSide False) (gelSide True) gelPrf x
+            -- where gelPrf is a mixed het. comp along λ y . R (Pline0 y) (Pline1 y)  and where
+            -- Pline0, Pline1 are mhocom fillers at y
+            
+            gelSide (bl :: Bool) = mhocom <#> l <#> (bA bl) <#> (xBindedZeta <@> (bi bl))
+              <@> (lam "i" $ \i -> (captureUat i 1) <@> (bi bl))
+              <@> (xBindedU0 <@> (bi bl))
+
+            -- pline (y:I) defines a path from (<x>u0 biε) to gelSide (which is mhocom ... (<x>u0 biε))
+            -- hence pline is a mhocom filler.
+            pline (bl :: Bool) y = mhocom <#> l <#> (bA bl) <#> (mor <@> (xBindedZeta <@> (bi bl)) <@> (embd <@> (ineg <@> y)))
+              <@> (lam "z" $ \z -> mpor <#> l <@> (xBindedZeta <@> (bi bl)) <@> (embd <@> (ineg <@> y))
+                                     <#> (ilam "o" $ \ _ -> bA bl)
+                                     <@> ( (captureUat (iand <@> y <@> z) 2) <@> (bi bl) )
+                                     <@> (ilam "o" $ \ _ -> xBindedU0 <@> (bi bl)) )
+              <@> ( xBindedU0 <@> (bi bl) )
+
+            gelPrf = mhecom
+              (lam "il" $ \ _ -> l)
+              (lam "y" $ \ y -> bR <@> (pline False y) <@> (pline True y))
+              (allMCstr <@> xBindedZeta)
+              (lam "i" $ \ i -> ilam "oall" $ \ oall -> ungel <#> l <#> bA0 <#> bA1 <#> bR
+                    <@> (captureUat' i (epsi <#> xBindedZeta <..> oall <@> x) 2) {-  i, oall ⊢ <x>  u i ε(oall) -} )
+              (ungel <#> l <#> bA0 <#> bA1 <#> bR <@> xBindedU0)
+
+            res = gel <#> l <#> bA0 <#> bA1 <#> bR <@> (gelSide False) <@> (gelSide True)
+              <@> gelPrf <@> x
+
+        res
+
+      return $ Just res
+  
+mhcompGel _ _ _ _ = do
+  return Nothing
+    
