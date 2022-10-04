@@ -168,10 +168,11 @@ gApply' info a b = do
     y <- b
     pure $ x `apply` [Arg info y]
 
-(<@>),(<#>),(<..>) :: Applicative m => m Term -> m Term -> m Term
+(<@>),(<#>),(<..>),(<@*>) :: Applicative m => m Term -> m Term -> m Term
 (<@>) = gApply NotHidden
 (<#>) = gApply Hidden
 (<..>) = gApply' (setRelevance Irrelevant defaultArgInfo)
+(<@*>) a b = gApply' (setHiding NotHidden lkDefaultArgInfo) a b
 
 (<@@>) :: Applicative m => m Term -> (m Term,m Term,m Term) -> m Term
 t <@@> (x,y,r) = do

@@ -140,13 +140,19 @@ data CorBsplit
 
 instance PrettyTCM CorBsplit where prettyTCM = text . show
 
+-- | @dnfMixedCstr zeta@ builds a list of dnf clauses of zeta
+--   For each clause we get to know: if its a path or bridge clause
+--   The conjunction as an IntMap Bool
+--   The remaining blocked terms
+--
+--   /!\ what if zeta is a Var dbi []. precond: zeta is mkmc, mno or myes?
 dnfMixedCstr :: (HasBuiltins m , MonadDebug m, MonadReduce m) => Term -> m [ (CorBsplit, IntMap Bool, [Term]) ]
 dnfMixedCstr zeta = do
   viewZeta <- mcstrView zeta
   case viewZeta of
     Mno -> return [] -- there are 0 DNF clauses.
     Myes -> return [ (CSPLIT , IntMap.empty , [] ) ]
-    OtherMCstr tm -> return [ (BSPLIT, IntMap.empty, [tm]) ]
+    OtherMCstr tm -> return [ (BSPLIT, IntMap.empty, [tm]) ] -- TODO-antva: fixed that for data types. is it sound
     Mkmc (Arg _ phi) (Arg _ psi) -> do
       dnfPhi_0 <- decomposeInterval phi
       -- :: [ (IntMap Bool, [Term]) ]
@@ -837,7 +843,7 @@ primReflectMCstr' = do
     elSSet $ cl isOne <@> phi
   return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 2 $ \ [Arg _ phi , _] -> do
     yes <- getTerm "" builtinItIsOne --reflectMCstr is a constant function.
-    redReturn yes
+    redReturn yes -- TODO-antva: sound?
   where
     isOne = fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinIsOne
     iota phi = cl primMkmc <@> phi <@> cl primBno
@@ -2000,3 +2006,166 @@ transpGel l (lgel, bA0, bA1, bR, r@(Arg rinfo rtm@(Var ri [])) ) phi u0 = do --
   
 transpGel _ _ _ _ = do
   return Nothing
+
+
+getMCstrBack :: PureTCM m => String -> [ (CorBsplit, IntMap Bool) ] -> m Term
+getMCstrBack msg clauses = do
+  zeta <- getMCstrBack' msg clauses
+  szeta <- reduce zeta
+  return szeta
+
+-- | Converts a list of clauses to an MCstr term. IntMap Bool denotes a conjunction.
+--   You may want to reduce the resulting constraint (see getMCstrBack)
+getMCstrBack' :: PureTCM m => String -> [ (CorBsplit, IntMap Bool) ] -> m Term
+getMCstrBack' msg [] = do
+  let getTermLocal = getTerm msg
+  mno <- getTermLocal builtinMno
+  return mno
+getMCstrBack' msg  ( (skind, conjBools) : rest ) = do
+  let getTermLocal = getTerm msg
+  i1 <- getTermLocal builtinIOne
+  i0 <- getTermLocal builtinIZero
+  bi0 <- getTermLocal builtinBIZero
+  mkmc <- getTermLocal builtinMkmc
+  mixedOr <- getTermLocal builtinMixedOr
+  neg <- getTermLocal builtinINeg
+  iand <- getTermLocal builtinIMin
+  bisone <- getTermLocal builtinBisone
+  biszero <- getTermLocal builtinBiszero
+  byes <- getTermLocal builtinByes
+  bno <- getTermLocal builtinBno
+
+  let
+    -- gives j, or ~j for j db index, in CSPLIT case
+    -- else: j =bi1 or j =bi0
+    keyBoolAsCstr :: CorBsplit -> (Int, Bool) -> Term
+    keyBoolAsCstr CSPLIT ( dbi , bl ) = 
+      case bl of
+        True -> Var dbi []
+        False -> neg `apply` [argN $ Var dbi [] ]
+    keyBoolAsCstr BSPLIT ( dbi , bl ) = 
+      case bl of
+        True -> bisone `apply` [argN $ Var dbi [] ]
+        False -> biszero `apply` [argN $ Var dbi [] ]
+
+    -- neutral of conjunction
+    neutral :: CorBsplit -> Term
+    neutral CSPLIT = i1
+    neutral BSPLIT = byes
+
+    -- for foldr call below
+    builderCsplit :: (Int,Bool) -> Term -> Term
+    builderCsplit  (dbi, bl) prev =
+      iand `apply` [argN prev, argN $ keyBoolAsCstr CSPLIT (dbi , bl)]
+
+    iota :: CorBsplit -> Term -> Term
+    iota CSPLIT phi = mkmc `apply` [argN phi, argN bno]
+    iota BSPLIT psi = mkmc `apply` [argN i0, argN psi]
+
+    -- foldr :: ( (Int, Bool)  -> Term -> Term) -> Term -> [(Int, Bool)] -> Term
+    conjBoolsAsCstr =
+      case skind of
+        CSPLIT -> foldr builderCsplit (neutral CSPLIT) (IntMap.toList conjBools)
+        BSPLIT -> case (IntMap.toList conjBools) of
+          [] -> neutral BSPLIT
+          [ (dbi , bl) ] -> keyBoolAsCstr BSPLIT (dbi, bl)
+          _ -> __IMPOSSIBLE__
+
+    asMCstr = iota skind conjBoolsAsCstr
+
+  restMCstr <- getMCstrBack' msg rest
+  return $ mixedOr `apply` [argN asMCstr, argN $ restMCstr]         
+      
+  
+
+-- | ∀-mcstr : ((@tick x : BI) → MCstr) → MCstr
+--   deletes all clauses mentionning x:BI from input.
+primAllMCstr' :: TCM PrimitiveImpl
+primAllMCstr' = do
+  requireBridges "in primAllMCstr'"
+  typ <- (primBridgeIntervalType -->* primMCstrType) --> primMCstrType
+  
+  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 1 $ \ [ absZeta ]  -> do
+    let getTermLocal = getTerm "in primAllMCstr'"
+    biType <- getTermLocal builtinBridgeInterval
+
+    mMkmc <- getPrimitiveName' builtinMkmc
+    mMno <- getPrimitiveName' builtinMno
+    mMyes <- getPrimitiveName' builtinMyes -- Maybe QName
+    
+    sAbsZeta <- reduceB absZeta
+    
+    ctx <- getContext
+    reportSDocDocs "tc.prim.allmcstr" 30 (text "Calling ∀-mcstr reduction  with args...")
+      [ "absZeta is  " <+> (return $ P.pretty absZeta)
+      , "sAbsZeta is " <+> (return $ P.pretty (ignoreBlocking sAbsZeta))
+      , "ambient ctx " <+> (return $ P.pretty ctx) ]
+    
+    case (unArg $ ignoreBlocking sAbsZeta) of
+      
+      Lam inf bod -> underAbstractionAbs (defaultNamedArgDom inf (absName bod) (El LockUniv biType)) bod $ \ body -> do
+        sBody <- reduceB body
+
+        ctx <- getContext
+        reportSDocDocs "tc.prim.allmcstr" 30 (text "absZeta is a lambda")
+          [ "ambient ctx " <+> (return $ P.pretty ctx)
+          , "sBody       " <+> (return $ P.pretty $ ignoreBlocking sBody) ]
+        
+        case sBody of
+          Blocked{} -> fallback sAbsZeta
+          _ -> do
+            case (ignoreBlocking sBody) of
+              Def q [ _ , _ ] | Just q == mMkmc || Just q == mMno || Just q == mMyes -> do
+                clauses <- dnfMixedCstr $ ignoreBlocking sBody
+                -- the res should retain the clauses:
+                --   whose conjBools do not mention db var @0
+                --   :: [ (CorBsplit, IntMap Bool, [Term]) ]
+                let remainingClauses =
+                      flip filter clauses $ \ (skind, conjBools, blks) ->
+                        if not (blks == []) then __IMPOSSIBLE__ else
+                          case (IntMap.lookup 0 conjBools) of
+                            Just _ -> False -- current clause mentions db var @0
+                            Nothing -> True
+
+                reportSDocDocs "tc.prim.allmcstr" 30 (text "remainingClauses") $
+                  flip map remainingClauses $ \ (skind, conjBools, blks) -> (text $ show skind) <+> " ; "  <+> (return $ P.pretty conjBools) <+> " ; " <+>  (return $ P.pretty blks)
+                -- we have to strengthen the resulting MCstr (which does not mention @0 bvar by construction)
+                res0 <- getMCstrBack "in primAllMCstr'" (map (\ (skind, conjBools, blks) -> (skind, conjBools)) remainingClauses)
+                let res  = strengthenS impossible 1 `applySubst` res0
+                reportSDoc "tc.prim.allmcstr" 30 $ "reduction result is " <+> (return $ P.pretty res)
+                redReturn res
+
+              mcstrVar@(Var dbj []) | dbj > 0 -> do -- body does not depend on db var @0
+                redReturn $ strengthenS impossible 1 `applySubst` mcstrVar
+
+              _ -> fallback sAbsZeta
+
+      _ -> fallback sAbsZeta
+
+  where
+
+    fallback sabszeta = return $ NoReduction [reduced sabszeta]
+
+
+-- | ∀-mcstr-ε : {absζ : @BI → MCstr} → MHolds (∀-mcstr absζ) → (x : @BI) → MHolds (absζ x)
+primAllMCstrCounit' :: TCM PrimitiveImpl
+primAllMCstrCounit' = do
+  requireBridges "in primAllMCstrCounit'"
+  typ <- runNamesT [] $
+    hPi' "absζ" (cl $ primBridgeIntervalType -->* primMCstrType) $ \absZeta ->
+    mpPi' "oall" ((cl  primAllMCstr) <@> absZeta) $ \oall ->
+    lPi' "x" (cl primBridgeIntervalType) $ \x -> --NamesT _ Type
+    elSSet $ (cl mholds) <@> (absZeta <@*> x)
+    
+  -- TODO-antva: prsv, reflect, and this prim. sound impl?
+  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 3 $ \ [ absZeta , oall , x ] -> do
+    mitholds <- getTerm "in primAllMCstrCounit'" builtinMitHolds
+    sAbsZeta <- reduceB absZeta
+    sAbsZetaX <- reduce $ (unArg $ ignoreBlocking sAbsZeta) `apply` [x]
+    v <- mcstrView sAbsZetaX
+    case v of
+      Myes -> redReturn mitholds
+      _ -> return $ NoReduction [reduced sAbsZeta, notReduced oall, notReduced x]
+      
+  where
+    mholds = fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinMHolds
