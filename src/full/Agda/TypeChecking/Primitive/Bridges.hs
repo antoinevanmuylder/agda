@@ -270,9 +270,9 @@ semiFreshForFvars fvs lki = do
   let lkLaters = filter (<= lki) (VSet.toList fvs) -- lk-laters, including lk itself and timeless vars
   timefullLkLaters <- flip filterM lkLaters $ \ j -> do
     tyj <- typeOfBV j --problem: can yield dummy type when it should not
-    resj <- isTimeless' tyj lki
+    resj <- isTimeless' tyj lki -- for instance (@j : MHolds (zeta(@lki:BI)) is bad (resj=false)
     return $ not resj
-  reportSLn "tc.freshness" 60 $ "semiFreshForFvars, timefullLkLaters: " ++ P.prettyShow timefullLkLaters
+  reportSLn "tc.freshness" 40 $ "semiFreshForFvars, timefullLkLaters: " ++ P.prettyShow timefullLkLaters
   return $ null timefullLkLaters
 
 -- | Formation rule (extentType) and computation rule for the extent primitive.
@@ -2185,7 +2185,7 @@ mhcompGel :: PureTCM m =>
           -> m (Maybe Term)
 mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
   ctx <- getContext
-  reportSDocDocs "tc.prim.mhcom.gel" 30 (text "rule for mhocom at Gel (maybe) firing with args...")
+  reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "rule for mhocom at Gel (maybe) firing with args...")
     [ "l  = " <+> prettyTCM l
     , "A0 = " <+> prettyTCM bA0
     , "A1 = " <+> prettyTCM bA1
@@ -2210,16 +2210,30 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
   let [fvZeta, fvU, fvU0] = map (allVars . (freeVarsIgnore IgnoreNot) . unArg . ignoreBlocking) [szeta, su, su0]
 
   semiFreshZeta <- semiFreshForFvars fvZeta dbi
-  semiFreshU    <- semiFreshForFvars fvU dbi
   semiFreshU0   <- semiFreshForFvars fvU0 dbi
+  semiFreshU    <- semiFreshForFvars fvU dbi
 
-  reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "in mhocom at Gel, semifreshness analysis...")
-    [ "fvZeta = " <+> (return $ P.pretty fvZeta)
+  reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "in mhocom at Gel, semifreshness analyses of zeta, u0...")
+    [ text "----"
+    , "szeta  = " <+> (return $ P.pretty $ ignoreBlocking szeta)
+    , "fvZeta = " <+> (return $ P.pretty fvZeta)
     , "semiFreshZeta = " <+> (text $ show semiFreshZeta)
-    , "fvU = " <+> (return $ P.pretty fvU)
-    , "semiFreshU = " <+> (text $ show semiFreshU)
+    , text "----"
+    , "su0  = " <+> (return $ P.pretty $ ignoreBlocking su0)
     , "fvU0 = " <+> (return $ P.pretty fvU0)
     , "semiFreshU0 = " <+> (text $ show semiFreshU0) ]
+
+  -- cint <- primIntervalType
+  -- semiFreshU <- addContext ("i" :: String, defaultDom cint) $ forallMixedFaces (unArg $ ignoreBlocking szeta) (\ _ _ _ -> return False) $ \ sigm -> do
+  --   ctx <- getContext  --problem: forallMixedFaces comes from Conversion.hs, and Conversion needs reduction rules -> loop...
+  --   reportSDoc "tc.prim.mhcomP.gel" 30 $ "u sfresh, ambient ctx = " <+> (prettyTCM ctx)
+  --   return False
+
+  reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "semifreshness for u...")
+    [ "u  = " <+> (return $ P.pretty u)
+    , "su = " <+> (return $ P.pretty $ ignoreBlocking su)
+    , "fvU = " <+> (return $ P.pretty fvU)
+    , "semiFreshU = " <+> (text $ show semiFreshU) ]
 
   case (semiFreshZeta && semiFreshU && semiFreshU0) of
     False -> return Nothing
@@ -2248,7 +2262,7 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
         bR <- open $ unArg bR
         xBindedZeta <- open $ xBindedZeta
         bi0 <- getTermLocal builtinBIZero
-        bi1 <- getTermLocal builtinIZero
+        bi1 <- getTermLocal builtinBIOne
         u <- open $ unArg $ ignoreBlocking su
         xBindedU0 <- open $ xBindedU0
         mhecom <- mkMhecom "in mhocom at Gel"
@@ -2292,6 +2306,8 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
               <@> (lam "i" $ \i -> (captureUat i 1) <@> (bi bl))
               <@> (xBindedU0 <@> (bi bl))
 
+
+
             -- pline (y:I) defines a path from (<x>u0 biε) to gelSide (which is mhocom ... (<x>u0 biε))
             -- hence pline is a mhocom filler.
             pline (bl :: Bool) y = mhocom <#> l <#> (bA bl) <#> (mor <@> (xBindedZeta <@> (bi bl)) <@> (embd <@> (ineg <@> y)))
@@ -2309,10 +2325,24 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
                     <@> (captureUat' i (epsi <#> xBindedZeta <..> oall <@> x) 2) {-  i, oall ⊢ <x>  u i ε(oall) -} )
               (ungel <#> l <#> bA0 <#> bA1 <#> bR <@> xBindedU0)
 
-            res = gel <#> l <#> bA0 <#> bA1 <#> bR <@> (gelSide False) <@> (gelSide True)
-              <@> gelPrf <@> x
+        mzer <- gelSide False
+        mone <- gelSide True
+        plineZer <- lam "y" $ \y -> pline False y
+        plineOne <- lam "y" $ \y -> pline True y
+        u0P <- (ungel <#> l <#> bA0 <#> bA1 <#> bR <@> xBindedU0) -- modify this if you modify gelPrf
+        uP <- (lam "i" $ \ i -> ilam "oall" $ \ oall -> ungel <#> l <#> bA0 <#> bA1 <#> bR
+                    <@> (captureUat' i (epsi <#> xBindedZeta <..> oall <@> x) 2) )
+        reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "gelSide's ...")
+          [ "mzer = " <+> (prettyTCM $ toExplicitArgs mzer)
+          , "mone = " <+> (prettyTCM $ toExplicitArgs mone)
+          , "pline0 = " <+> (prettyTCM $ toExplicitArgs plineZer)
+          , "pline1 = " <+> (prettyTCM $ toExplicitArgs plineOne)
+          , "u0P = " <+> (prettyTCM $ toExplicitArgs u0P)
+          , "uP = " <+> (prettyTCM $ toExplicitArgs uP) ]
 
-        res
+        gel <#> l <#> bA0 <#> bA1 <#> bR <@> (gelSide False) <@> (gelSide True) <@> gelPrf <@> x
+
+      reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "mhocom at Gel, results...") [ prettyTCM $ toExplicitArgs res ]
 
       return $ Just res
   
