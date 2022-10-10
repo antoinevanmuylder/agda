@@ -1129,7 +1129,7 @@ checkMSystemCoverage f n t cs = do
             , prettyTCM sigma ] -- I think ~PrettyTCM Substitution~ is broken. better to use P.pretty sigma.
             -- Context's and Substitution's are print in reversed std order when displayed with prettyTCM
 
-          -- TODO-antva: the addBindgins and hence resolved may be useless.
+          -- TODO-antva: the addBindings and hence resolved may be useless.
           resolved <- forM clAn12' $ \ (i,t) -> ( (,) <$> (lookupBV i) ) <*> return (sigma `applySubst`  t)
           -- resolved :: [(Dom(Name,Type) , Term)]
           -- clAn12' adapted for @addBindings@

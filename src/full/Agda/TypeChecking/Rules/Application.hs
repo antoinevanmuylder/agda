@@ -22,6 +22,7 @@ import Data.Maybe
 import Data.Void
 import qualified Data.Foldable as Fold
 import qualified Data.IntSet   as IntSet
+import qualified Data.IntMap   as IntMap
 
 import Agda.Interaction.Highlighting.Generate
   ( storeDisambiguatedConstructor, storeDisambiguatedProjection )
@@ -63,10 +64,12 @@ import Agda.Utils.Lens
 import Agda.Utils.List  ( (!!!), groupOn, initWithDefault )
 import Agda.Utils.List1 ( List1, pattern (:|) )
 import qualified Agda.Utils.List1 as List1
+import qualified Data.List as List ( sort )
 import Agda.Utils.Maybe
 import Agda.Utils.Monad
 import Agda.Utils.Null
 import Agda.Utils.Pretty ( prettyShow )
+import qualified Agda.Utils.Pretty as P
 import Agda.Utils.Size
 import Agda.Utils.Tuple
 
@@ -479,6 +482,8 @@ checkHeadApplication cmp e t hd args = do
   pTrans <- getNameOfConstrained builtinTrans
   mglue  <- getNameOfConstrained builtin_glue
   mglueU  <- getNameOfConstrained builtin_glueU
+  mMHComp <- getNameOfConstrained builtinMHComp
+  mMpor   <- getNameOfConstrained builtin_mpor
   case hd of
     A.Def' c s | c == nameOfSet      -> checkSet cmp e t c s args
     A.Def' c s | c == nameOfProp     -> checkProp cmp e t c s args
@@ -498,6 +503,8 @@ checkHeadApplication cmp e t hd args = do
     A.Def c | Just c == pOr   -> defaultResult' $ Just $ checkPOr c
     A.Def c | Just c == mglue -> defaultResult' $ Just $ check_glue c
     A.Def c | Just c == mglueU -> defaultResult' $ Just $ check_glueU c
+    A.Def c | Just c == mMHComp -> defaultResult' $ Just $ checkPrimMHComp c
+    A.Def c | Just c == mMpor -> defaultResult' $ Just $ checkMpor c
 
     _ -> defaultResult
   where
@@ -1470,6 +1477,29 @@ checkPrimHComp c rs vs _ = do
       return $ l : a : phi : u : a0 : rest
     _ -> typeError . GenericDocError =<< prettyTCM c <+> "must be fully applied"
 
+
+-- | @primMHComp : ∀ {ℓ} {A : Set ℓ} {ζ : I} (u : ∀ i → Partial φ A) (u0 : A) → A@
+--
+--   Check:  @u i0 = (λ _ → u0) : MPartial ζ A@.
+--
+checkPrimMHComp :: QName -> MaybeRanges -> Args -> Type -> TCM Args
+checkPrimMHComp c rs vs _ = do
+  case vs of
+    -- WAS: [l, a, zeta, u, u0] -> do
+    l : a : zeta : u : u0 : rest -> do
+      -- iz = i0
+      iz <- Arg defaultArgInfo <$> intervalUnview IZero
+      -- ty = MPartial ζ A
+      ty <- el's (pure (unArg l)) $ primMPartial <#> pure (unArg l) <@> pure (unArg zeta) <@> pure (unArg a)
+      -- (λ _ → a) = u i0 : ty
+      bA <- el' (pure $ unArg l) (pure $ unArg a)
+      u0 <- blockArg bA (rs !!! 4) u0 $ do
+        equalTerm ty -- (El (getSort t1) (apply (unArg a) [iz]))
+            (Lam defaultArgInfo $ NoAbs "_" $ unArg u0)
+            (apply (unArg u) [iz])
+      return $ l : a : zeta : u : u0 : rest
+    _ -> typeError . GenericDocError =<< prettyTCM c <+> "must be fully applied"
+
 -- | @transp : ∀{ℓ} (A : (i : I) → Set (ℓ i)) (φ : I) (a0 : A i0) → A i1@
 --
 --   Check:  If φ, then @A i = A i0 : Set (ℓ i)@ must hold for all @i : I@.
@@ -1552,6 +1582,178 @@ checkPOr c rs vs _ = do
         equalTermOnFace phi t1 (unArg u) (unArg v)
       return $ l : phi1 : phi2 : a : u : v : rest
    _ -> typeError . GenericDocError =<< prettyTCM c <+> "must be fully applied"
+
+-- The following comment contains silly ' escapes to calm CPP about ∨ (\vee).
+-- May not be haddock-parseable.
+
+-- ' @prim^mpor : ∀ {ℓ} (ζ₁ ζ₂ : I) {A : MPartial (ζ₁ ∨∨ ζ₂) (Set ℓ)}
+-- '            → (u : MPartialP ζ₁ (λ (o : MHolds φ₁) → A (MHolds1 ζ₁ ζ₂ o)))
+-- '            → (v : MPartialP ζ₂ (λ (o : MHolds φ₂) → A (MHolds2 ζ₁ ζ₂ o)))
+-- '            → MPartialP (ζ₁ ∨∨ ζ₂) A@
+-- '
+-- ' Checks: @u = v : MPartialP (ζ₁ ∨ ζ₂) A@ whenever " @MHolds (ζ₁ ∧ ζ₂)@ "
+checkMpor :: QName -> MaybeRanges -> Args -> Type -> TCM Args
+checkMpor c rs vs _ = do
+  case vs of
+   l : zeta1 : zeta2 : a : u : v : rest -> do
+      -- t1 = PartialP (φ1 ∨ φ2) A, tv = PartialP φ2 (λ o → (A $ IsOne2 φ1 φ2 o))
+      (t1, tbis, tv, tter) <-
+        runNamesT [] $ do
+          -- let getTermLocal = \ str -> do
+          --       res <- getTerm "in prim^mpor coherence chk" str
+          --       open res
+          -- mixOr <- getTermLocal builtinMixedOr
+          [l,a, zeta1, zeta2] <- mapM (open . unArg) [l,a,zeta1,zeta2]
+          let zeta = cl primMixedOr <@> zeta1 <@> zeta2
+          -- not all results are used. I have doubts about which one to use.
+          t1 <- mpPi' "o" zeta  $ \ o -> el' l (a <..> o) 
+          tbis  <- el's l $ primMPartialP <#> l <@> zeta <@> (ilam "o" (\ o -> (a <..> o)))
+          tv <- mpPi' "o" zeta2 $ \ o -> el' l (a <..> (cl primMHolds2 <@> zeta1 <@> zeta2 <@> o))
+          tter <- el's l $ primMPartialP <#> l <@> zeta1 <@> (ilam "o" $ \ o -> (a <..> (cl primMHolds1 <@> zeta1 <@> zeta2 <@> o)))
+          return (t1, tbis, tv, tter)
+
+      v <- blockArg tv (rs !!! 5) v $ do
+        cohMpor tter u v zeta1 zeta2
+        
+      return $ l : zeta1 : zeta2 : a : u : v : rest
+   _ -> typeError . GenericDocError =<< prettyTCM c <+> "must be fully applied"
+   
+  where
+
+    (+*+) :: [a] -> [b] -> [(a,b)]
+    (+*+) alist blist = do
+      x <- alist
+      y <- blist
+      return (x,y)
+    
+    -- | "ζ1 ∧ ζ2" ⊢ u = v : MpartialP (ζ1 ∨∨ ζ2) A
+    --   This means that both ζi must be concrete (must be dnfs of path/bridge vars)? TODO-antva
+    cohMpor :: Type -> (Arg Term) -> (Arg Term) -> (Arg Term) -> (Arg Term) -> TCM ()
+    cohMpor ty u v zeta1 zeta2 = do
+      z1 <- reduceB zeta1
+      z2 <- reduceB zeta2
+      z1DNF <- dnfMixedCstr $ unArg $ ignoreBlocking z1
+      z2DNF <- dnfMixedCstr $ unArg $ ignoreBlocking z2
+      -- ζ1 = chi11 ∨ chi12 ∨ ...
+      -- ζ2 = chi21 ∨ chi22 ∨ ...
+      -- chi_bj = conjBools_b at j
+      forM_ (z1DNF +*+ z2DNF) $ \ ( (skind1 , conjBools1, blks1) , (skind2 , conjBools2, blks2) ) -> do
+
+      -- forM_ (initWithDefault __IMPOSSIBLE__ $
+      --   initWithDefault __IMPOSSIBLE__ $ List.tails zetasCsAlphas) $ \ ( (skind1, conjBools1, blks1) : dnfRest ) -> do
+      --     forM_ zetasCsAlphasRest $ \ (zeta2 , cl2 , splitKind2, clAn2) -> do -- we must compare clauseBody cl_i i = 1,2 when zeta1,zeta2 overlap.
+
+        reportSDocDocs "tc.app.mpor" 30 (text "mpor coh. check, infos")
+          [ "zeta1 is " <+> prettyTCM zeta1
+          , "zeta2 is " <+> prettyTCM zeta2
+          , "zeta1 current cls as bools: " <+> (return $ P.pretty conjBools1)
+          , "zeta2 current cls as bools: " <+> (return $ P.pretty conjBools2) ]
+
+        
+        case (blks1 == [] && blks2 == []) of
+          
+          False -> do
+            typeError . GenericDocError =<<
+              ("prim^mpor coh. check fails because of blocked mixed cstrs:" <+> (prettyTCM z1) <+> (prettyTCM z2))
+
+          -- conjBools_i represents a (mb conjunctive) dnf clause. we must check equality of u,v when conjBools1 & conjBools2 holds.
+          True -> do
+            i0 <- primIZero
+            i1 <- primIOne
+            bi0 <- primBIZero
+            bi1 <- primBIOne
+            bno <- primBno
+            mkmc <- primMkmc
+            mno <- primMno
+            ineg <- primINeg
+            bisone <- primBisone
+            biszero <- primBiszero
+            iand <- primIMin
+            
+            let 
+                -- (dbi, 0 or 1) mapsto a path ( :I) or bdg ( :BCstr) constraint.
+                boolToUnmixCstr :: CorBsplit -> (Int,Bool) -> Term
+                boolToUnmixCstr CSPLIT (dbi,True) = Var dbi []
+                boolToUnmixCstr CSPLIT (dbi, False) = ineg `apply` [argN $ Var dbi []]
+                boolToUnmixCstr BSPLIT (dbi, True) = bisone `apply` [argN $ Var dbi []]
+                boolToUnmixCstr BSPLIT (dbi, False) = biszero `apply` [argN $ Var dbi []]
+
+                -- handles several bools in CSPLIT case.
+                boolsToUnmixCstr :: CorBsplit -> [(Int, Bool)] -> Term
+                boolsToUnmixCstr CSPLIT [] = i1
+                boolsToUnmixCstr CSPLIT ( (dbi,bl) : others ) = iand `apply` [argN (boolToUnmixCstr CSPLIT (dbi,bl)) , argN $ boolsToUnmixCstr CSPLIT others]
+                boolsToUnmixCstr BSPLIT [] = __IMPOSSIBLE__ --TODO-antva not sure this is never reached
+                boolsToUnmixCstr BSPLIT [ (dbi,bl) ] = boolToUnmixCstr BSPLIT (dbi,bl)
+                boolsToUnmixCstr BSPLIT _ = __IMPOSSIBLE__
+
+                boolsToMixCstr :: CorBsplit -> [(Int,Bool)] -> Term
+                boolsToMixCstr CSPLIT bls = mkmc `apply` [argN unmix , argN bno ]
+                  where
+                    unmix = boolsToUnmixCstr CSPLIT bls
+                boolsToMixCstr BSPLIT bls = mkmc `apply` [argN i0, argN unmix]
+                  where
+                    unmix = boolsToUnmixCstr BSPLIT bls
+
+                chi1 = boolsToMixCstr skind1 (IntMap.toAscList conjBools1)
+                chi2 = boolsToMixCstr skind2 (IntMap.toAscList conjBools2)
+
+            emptymeet <- hasEmptyMeet chi1 chi2
+            
+            reportSDoc "tc.app.mpor" 30 $ nest 2 $ vcat
+              [ "conjBools1 mapsto chi1: " <+> prettyTCM chi1
+              , "conjBools2 mapsto chi2: " <+> prettyTCM chi2
+              , "empty meet: " <+> prettyTCM emptymeet ]
+            
+            unless emptymeet $ do --if the meet is empty, theres nothing to check.
+
+            let boolToInt :: CorBsplit -> Bool -> Term --used?
+                boolToInt CSPLIT False = i0
+                boolToInt CSPLIT True = i1
+                boolToInt BSPLIT False = bi0
+                boolToInt BSPLIT True = bi1
+
+                alist1 = IntMap.toList conjBools1
+                alist2 = IntMap.toList conjBools2
+                temp1 = zip3 (map fst alist1) (map snd alist1) (repeat skind1)
+                temp2 = zip3 (map fst alist2) (map snd alist2) (repeat skind2)
+                -- [ (dbi :: Int  ,   dir :: Bool  ,  skind :: CorBsplit) ]
+                temp12 = List.sort $ temp1 ++ temp2 -- sort by variable db index.
+                -- for ex, fcs == [ (j@1, i0)  , (r@2, bi0) , (i@3, i1) ]
+                fcs = flip map temp12 $ \ (var , dir , skind) ->
+                  (var , boolToInt skind dir)
+
+            reportSDoc "tc.app.mpor" 30 $ nest 2 $ vcat
+              [ "fcs " <+> prettyTCM fcs ]
+
+            -- sigma : ctx'=ctx[face/var] -> ctx
+            ctx <- getContext
+            (ctx' , sigma ) <- substContextN ctx fcs
+
+            reportSDocDocs "tc.app.mpor" 30 (text "mpor coh. check, nonempty meet of mcstr clauses")
+              [ "ctx = " <+> (return $ P.pretty ctx)
+              , "ctx'= " <+> (return $ P.pretty ctx')
+              , "sigma: ctx' -> ctx is " <+> (return $ P.pretty sigma) ]
+            
+            resolved <- forM fcs $ \ (dbi,t) -> ( (,) <$> (lookupBV dbi) ) <*> return (sigma `applySubst`  t)
+            updateContext sigma (const ctx') $ addBindings resolved $ do
+            
+            let pullBackTy = sigma `applySubst` ty
+                pullBackU  = sigma `applySubst` u
+                pullBackV  = sigma `applySubst` v
+
+            reportSDocDocs "tc.app.mpor" 30 (text "comparing u and v in shorter ctx")
+              [ "raw pb ty " <+> (return $ P.pretty pullBackTy)
+              , "    pb ty " <+> (prettyTCM pullBackTy)
+              , "raw pb u  " <+> (return $ P.pretty pullBackU)
+              , "    pb u  " <+> (prettyTCM pullBackU)
+              , "raw pb v  " <+> (return $ P.pretty pullBackV)
+              , "    pb v  " <+> (prettyTCM pullBackV) ]
+
+            equalTerm pullBackTy (unArg pullBackU) (unArg pullBackV)
+            
+                    
+      
+      
 
 -- | @prim^glue : ∀ {ℓ ℓ'} {A : Set ℓ} {φ : I}
 --              → {T : Partial φ (Set ℓ')} → {e : PartialP φ (λ o → T o ≃ A)}

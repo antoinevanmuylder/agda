@@ -885,7 +885,7 @@ equalityUnview (IdiomType t) = t
 equalityUnview (EqualityType s equality l t lhs rhs) =
   El s $ Def equality $ map Apply (l ++ [t, lhs, rhs])
 
--- | Primitives with typechecking constrants.
+-- | Primitives with typechecking constrants generated when tc-ing an application
 constrainedPrims :: [String]
 constrainedPrims =
   [ builtinConId
@@ -893,8 +893,10 @@ constrainedPrims =
   , builtinComp
   , builtinHComp
   , builtinTrans
-  , builtin_glue --TODO-antva extent, Gel, gel, ungel should be in that list?
+  , builtin_glue
   , builtin_glueU
+  , builtinMHComp
+  , builtin_mpor
   ]
 
 getNameOfConstrained :: HasBuiltins m => String -> m (Maybe QName)
