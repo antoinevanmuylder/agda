@@ -41,7 +41,7 @@ import Agda.TypeChecking.Substitute
 import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Telescope
-import Agda.TypeChecking.Primitive.Bridges ( transpBridgeP , transpGel )
+import Agda.TypeChecking.Primitive.Bridges ( transpBridgeP , transpGel , transpMHComp , mcstrView , bcstrView , BCstrView(..), MCstrView(..))
 
 import Agda.Utils.Either
 import Agda.Utils.Function
@@ -463,6 +463,7 @@ primTransHComp cmd ts nelims = do
         mHComp <- getPrimitiveName' builtinHComp
         mGlue <- getPrimitiveName' builtinGlue
         mGel <- getPrimitiveName' builtinGel
+        mMhocom <- getPrimitiveName' builtinMHComp
         mId   <- getBuiltinName' builtinId
         pathV <- pathView'
         bridgeV <- bridgeView'
@@ -508,6 +509,37 @@ primTransHComp cmd ts nelims = do
             | Just q == mHComp, Sort (Type la) <- unArg s  -> do
             maybe fallback redReturn =<< doHCompUKanOp
               operation ((Level la <$ s, phi', bT, bA) <$ t) Head
+
+          -- we also have to explain how the transport at mhocom (from --bridges) computes.
+          -- For now we do that only for path-pure mhocoms
+          -- TODO-antva: for now transp at mhocom only fires for pure path mhocoms (not yet)
+          Def q [Apply _, Apply s, Apply phi', Apply bT, Apply bA]
+            | Just q == mMhocom, Sort (Type la) <- unArg s, DoTransp <- cmd -> __IMPOSSIBLE__
+                
+            -- phi' is a line of MCstr
+            -- cint <- primIntervalType
+            -- maybe fallback redReturn =<< addContext ("iLn" :: String, defaultDom cint) $ do
+            --   sphi' <- reduceB phi'
+            --   case sphi' of
+            --     Blocked{} -> return Nothing
+            --     NotBlocked _ phi' -> do
+            --       let throw = typeError $ NotImplemented "transp along \\ i -> mhocom ..zeta.. with zeta non path"
+            --       i0 <- getTerm "" builtinIZero
+            --       i1 <- getTerm "" builtinIOne
+            --       vphi' <- mcstrView $ unArg phi'
+            --       intCstr <- case vphi' of
+            --         Mno -> return $ argN i0
+            --         Myes -> return $ argN i1
+            --         Mkmc aphi apsi -> do
+            --           vapsi <- bcstrView $ unArg apsi
+            --           case vapsi of
+            --             Bno -> return aphi
+            --             _ -> throw
+            --         OtherMCstr _ -> throw
+            --       doHCompUKanOp operation ((Level la <$ s, intCstr, bT, bA) <$ t) Head
+                  
+              -- transpMHComp (famThing l) (s, phi', bT, bA) (sphi , u0)
+              -- operation ((Level la <$ s, phi', bT, bA) <$ t) Head
 
           -- PathP types have the same optimisation as for Pi types:
           -- Only compute the Kan operation if there's >0 eliminations.

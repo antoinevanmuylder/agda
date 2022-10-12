@@ -2348,4 +2348,34 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
   
 mhcompGel _ _ _ _ = do
   return Nothing
-    
+
+
+-- | Explains how to reduce
+--   @transp {l:I→Level} (λ iLn . line iLn) (psi:I) (u0:line i0)@ where line is
+--   @λ iLn . mhocom {l iLn} {Set (l iLn)} {φ iLn} (T iLn) (A iLn)@
+transpMHComp :: PureTCM m =>
+                (Arg Term) -- ^ l:I->Lvl,
+                -> (Arg Term, Arg Term, Arg Term, Arg Term)
+                -- ^ mhocom args:  iLn ⊢ s:sSet(li), phi:I, T:∀i→..., A:line(i0)
+                --   iLn ⊢ mhocom {l iLn} {Set (l iLn)} {φ iLn} (T iLn) (A iLn)
+                -> (Blocked (Arg Term), Arg Term)
+                -- ^ transport path cofib psi, transport base u0                
+                -> m (Maybe Term)
+transpMHComp l (s, phi, bT, bA) (spsi, u0) = do
+  cint0 <- getTerm "" builtinInterval
+  let cint :: Type
+      cint = El IntervalUniv cint0
+  ctx <- getContext
+  reportSDocDocs "tc.prim.transp.mhcomp" 30 (text "transporting along mhocom line. args:")
+    [ text "transp {l:I→Level} (λ iLn . line iLn) (psi:I) (u0:line i0)"
+    , "psi  = " <+> (prettyTCM $ ignoreBlocking spsi)
+    , "u0   = " <+> prettyTCM u0
+    , "l   = " <+> (prettyTCM $ unArg l)
+    , "_ctx_⊢transp = "  <+> (return $ P.pretty ctx)
+    , text "line = λ iLn . mhocom {l iLn} {Set (l iLn)} {φ iLn} (T iLn) (A iLn)"
+    , "iLn⊢s(l iLn) = " <+> (addContext ("iLn" :: String, defaultDom cint) $ prettyTCM $ unArg s)
+    , "iLn⊢phi    = " <+> (addContext ("iLn" :: String, defaultDom cint) $ prettyTCM $ unArg phi)
+    , "iLn⊢T      = " <+> (addContext ("iLn" :: String, defaultDom cint) $ prettyTCM $ unArg bT)
+    , "iLn⊢A      = " <+> (addContext ("iLn" :: String, defaultDom cint) $ prettyTCM $ unArg bA) ]
+
+  return Nothing
