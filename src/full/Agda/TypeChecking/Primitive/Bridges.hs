@@ -2363,6 +2363,7 @@ transpMHComp :: PureTCM m =>
                 -> m (Maybe Term)
 transpMHComp l (s, phi, bT, bA) (spsi, u0) = do
   cint0 <- getTerm "" builtinInterval
+  i1    <- getTerm "" builtinIOne
   let cint :: Type
       cint = El IntervalUniv cint0
   ctx <- getContext
@@ -2378,4 +2379,23 @@ transpMHComp l (s, phi, bT, bA) (spsi, u0) = do
     , "iLn⊢T      = " <+> (addContext ("iLn" :: String, defaultDom cint) $ prettyTCM $ unArg bT)
     , "iLn⊢A      = " <+> (addContext ("iLn" :: String, defaultDom cint) $ prettyTCM $ unArg bA) ]
 
+    -- , "headStop Head (phi i1) = " <+> ((return . P.pretty) =<< (headStop Head $ pure (unArg phi) <@> pure i1)) ] /!\ headStop works for path cstr
+
   return Nothing
+
+-- | phi m∨ bno ↦ Just phi
+unEmbd :: PureTCM m => Term -> m (Maybe Term)
+unEmbd zeta = do
+  szeta <- reduce zeta
+  i0 <- getTerm "" builtinIZero
+  i1 <- getTerm "" builtinIOne      
+  vzeta <- mcstrView zeta
+  case vzeta of
+    Mno ->  return $ Just i0
+    Myes -> return $ Just i1
+    Mkmc aphi apsi -> do
+      vpsi <- bcstrView $ unArg apsi
+      case vpsi of
+        Bno -> return $ Just $ unArg aphi
+        _ -> return Nothing
+    _ -> return Nothing

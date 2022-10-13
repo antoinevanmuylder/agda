@@ -41,7 +41,7 @@ import Agda.TypeChecking.Substitute
 import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Telescope
-import Agda.TypeChecking.Primitive.Bridges ( transpBridgeP , transpGel , transpMHComp , mcstrView , bcstrView , BCstrView(..), MCstrView(..))
+import Agda.TypeChecking.Primitive.Bridges ( transpBridgeP , transpGel , transpMHComp , mcstrView , bcstrView , BCstrView(..), MCstrView(..) , unEmbd)
 
 import Agda.Utils.Either
 import Agda.Utils.Function
@@ -512,9 +512,23 @@ primTransHComp cmd ts nelims = do
 
           -- we also have to explain how the transport at mhocom (from --bridges) computes.
           -- For now we do that only for path-pure mhocoms
-          -- TODO-antva: for now transp at mhocom only fires for pure path mhocoms (not yet)
+          -- TODO-antva: I think theres now way to adapt this for real mixed mhocoms
           Def q [Apply _, Apply s, Apply phi', Apply bT, Apply bA]
-            | Just q == mMhocom, Sort (Type la) <- unArg s, DoTransp <- cmd -> __IMPOSSIBLE__
+            | Just q == mMhocom, Sort (Type la) <- unArg s, DoTransp <- cmd -> do
+                maybe fallback redReturn =<< do -- ReduceM(Maybe Term)
+                  thephi' <- unEmbd $ unArg phi'
+                  case thephi' of
+                    Nothing -> return Nothing --phi' was not pure-path cstr
+                    Just thephi' -> do
+                      bTcub <- runNamesT [] $ do
+                        prsv <- open =<< getTerm "transp at pure-path mhocom" builtinPrsvMCstr
+                        thephi' <- open thephi'
+                        bTbdg <- open $ unArg bT -- ... j:I ⊢ T[j] : ∀ i → MPartial (φ'[j] m∨ bno) (Ty (l [j]))
+                        lam "i" $ \ i ->
+                          ilam "o'" $ \ o' ->
+                          bTbdg <@> i <..> (prsv <#> thephi' <@> o')
+                      doHCompUKanOp operation ((Level la <$ s, argN thephi', argN bTcub, bA) <$ t) Head
+                  -- transpMHComp (famThing l) (s, phi', bT, bA) (sphi , u0) -- __IMPOSSIBLE__
                 
             -- phi' is a line of MCstr
             -- cint <- primIntervalType

@@ -11,8 +11,12 @@ import Control.Monad.Except
 import Agda.Utils.Functor
 import Agda.Utils.Monad
 import Agda.Utils.Maybe
+import qualified Agda.Utils.Pretty as P ( pretty )
 
 import Agda.TypeChecking.Monad.Builtin
+import Agda.TypeChecking.Monad.Debug
+import Agda.TypeChecking.Pretty
+import Agda.TypeChecking.Monad.Context
 import Agda.TypeChecking.Monad.Base
 import Agda.TypeChecking.Monad.Pure
 import Agda.TypeChecking.Monad.Env
@@ -93,6 +97,25 @@ doHCompUKanOp (HCompOp psi u u0) (IsNot (la, phi, bT, bA)) tpos = do
 
 
 doHCompUKanOp (TranspOp psi u0) (IsFam (la, phi, bT, bA)) tpos = do
+
+  -- cxt <- getContext
+  reportSDoc "tc.prim.transp.hcomp" 30 (text "transporting along hcomp line with args...")
+  reportSDoc "tc.prim.transp.hcomp" 30 $ nest 2 $ vcat
+    [ text "transp {l:I→Level} (λ iLn . line iLn) (psi:I) (u0:line i0)"
+    , "psi  = " <+> (prettyTCM $ ignoreBlocking psi)
+    , "u0   = " <+> prettyTCM u0
+    -- , "l   = " <+> (prettyTCM $ unArg l)
+    -- , "_ctx_⊢transp = "  <+> (return $ P.pretty ctx)
+    , text "line = λ iLn . mhocom {l iLn} {Set (l iLn)} {φ iLn} (T iLn) (A iLn)"
+    , "iLn⊢ l iLn   = " <+> (addContext ("iLn" :: String, __DUMMY_DOM__) $ prettyTCM $ unArg la)
+    -- , "iLn⊢s(l iLn) = " <+> (addContext ("iLn" :: String, defaultDom cint) $ prettyTCM $ unArg s)
+    , "iLn⊢phi      = " <+> (addContext ("iLn" :: String, __DUMMY_DOM__) $ prettyTCM $ unArg phi)
+    , "iLn⊢T        = " <+> (addContext ("iLn" :: String, __DUMMY_DOM__) $ prettyTCM $ unArg bT)
+    , "iLn⊢A        = " <+> (addContext ("iLn" :: String, __DUMMY_DOM__) $ prettyTCM $ unArg bA)
+    , "tpos         = " <+> (text $ show tpos) ]
+
+    -- , "headStop Head (phi i1) = " <+> ((return . P.pretty) =<< (headStop Head $ pure (unArg phi) <@> pure i1)) ]
+  
   let
     localUse = builtinTrans ++ " for " ++ builtinHComp ++ " of Set"
     getTermLocal = getTerm localUse
@@ -147,6 +170,8 @@ doHCompUKanOp (TranspOp psi u0) (IsFam (la, phi, bT, bA)) tpos = do
         <#> (la <@> i) <#> (phi <@> i) <#> (bT <@> i)
         <#> bAS i <@> u0
 
+    flg <- headStop tpos (phi <@> pure io)
+    reportSDoc "tc.prim.transp.hcomp" 30 $ "headStop tpos (phi <@> pure io) == (tpos=Head and(phi i1)!=1) == " <+> (prettyTCM flg)
     ifM (headStop tpos (phi <@> pure io)) (return Nothing) $ Just <$> do
 
     let

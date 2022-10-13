@@ -281,6 +281,8 @@ data TermPosition
 --
 -- When should we care? When we're in the 'Head' 'TermPosition'. When
 -- will the type reduce further? When @φ@, its formula, is not i1.
+
+-- headStop tpos phi == True <-> (tpos=Head and phi!=1)
 headStop :: PureTCM m => TermPosition -> m Term -> m Bool
 headStop tpos phi
   | Head <- tpos = do
