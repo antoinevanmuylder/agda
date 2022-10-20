@@ -190,9 +190,9 @@ primHComp' = do
             iotaPhi = mkmc `apply` [ argN phitm , argN bno ]
         liftReflectU <- runNamesT [] $ -- :: Term
                         lam "i" $ \ i ->
-                        lam "mprf" $ \ mprf -> --write reflectMCstr mprf
+                        ilam "mprf" $ \ mprf -> --write reflectMCstr mprf
                         -- i:I, mprf:MHolds (i m∨ bno) ⊢ u i (reflect {phi} mprf)
-                        (pure $ raise 2 utm) <@> i <@> ( (pure reflct) <#> (pure $ raise 2 phitm) <@> mprf )
+                        (pure $ raise 2 utm) <@> i <..> ( (pure reflct) <#> (pure $ raise 2 phitm) <..> mprf )
         redReturn $ mixhcomp `apply` [l, bA, Arg infPhi iotaPhi, Arg infU liftReflectU, u0] -- defaultArgInfo
 
 -- | Construct a helper for CCHM composition, with a string indicating

@@ -841,9 +841,13 @@ primReflectMCstr' = do
     hPi' "φ" primIntervalType $ \ phi ->
     mpPi' "o" (iota phi) $ \ _ ->
     elSSet $ cl isOne <@> phi
-  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 2 $ \ [Arg _ phi , _] -> do
-    yes <- getTerm "" builtinItIsOne --reflectMCstr is a constant function.
-    redReturn yes -- TODO-antva: sound?
+  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 2 $ \ [phi , dot ] -> do
+    sphi <- reduceB phi
+    vphi <- intervalView $ unArg $ ignoreBlocking sphi
+    yes <- getTerm "" builtinItIsOne    
+    case vphi of
+      IOne -> redReturn yes
+      _ -> return $ NoReduction [ reduced sphi , notReduced dot ]
   where
     isOne = fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinIsOne
     iota phi = cl primMkmc <@> phi <@> cl primBno
@@ -857,9 +861,13 @@ primPrsvMCstr' = do
     hPi' "φ" primIntervalType $ \ phi ->
     pPi' "o" phi $ \ _ ->
     elSSet $ cl mholds <@> (iota phi)
-  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 2 $ \ [Arg _ phi , _] -> do
-    yes <- getTerm "" builtinMitHolds --reflectMCstr is a constant function.
-    redReturn yes
+  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 2 $ \ [phi , dot] -> do
+    sphi <- reduceB phi
+    vphi <- intervalView $ unArg $ ignoreBlocking sphi
+    yes <- getTerm "" builtinMitHolds
+    case vphi of
+      IOne -> redReturn yes
+      _ -> return $ NoReduction [ reduced sphi , notReduced dot ]
   where
     mholds = fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinMHolds
     iota phi = cl primMkmc <@> phi <@> cl primBno
