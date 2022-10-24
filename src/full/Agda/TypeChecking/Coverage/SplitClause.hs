@@ -61,6 +61,7 @@ import Agda.Utils.Monad
 import Agda.Utils.Null
 import Agda.Utils.Permutation
 import Agda.Utils.Pretty (prettyShow)
+import qualified Agda.Utils.Pretty as P ( pretty )
 import Agda.Utils.Singleton
 import Agda.Utils.Size
 import Agda.Utils.WithDefault
@@ -112,6 +113,21 @@ data UnifyEquiv = UE { infoTel0 :: Telescope          -- Γ0
                   deriving Show
 
 data IInfo = TheInfo UnifyEquiv | NoInfo deriving Show
+
+instance PrettyTCM IInfo where
+
+  prettyTCM NoInfo = text $ "NoInfo"
+  prettyTCM (TheInfo (UE gamma0 gamma' gamma0delta gamma0us gamma0vs infRho infTau infLeftInv)) =
+    "TheInfo ( UE ( " <+> (nest 2 $ vcat $
+      [ "Γ0 = " <+> (return $ P.pretty gamma0)
+      , "Γ' = " <+> (return $ P.pretty gamma')
+      , "Γ0 ⊢ Δ " <+> (addContext gamma0 $ prettyTCM gamma0delta)
+      , "Γ0 ⊢ us : Δ " <+> (return $ P.pretty gamma0us)
+      , "Γ0 ⊢ vs : Δ " <+> (return $ P.pretty gamma0vs)
+      , "Γ' ⊢ ρ : Γ0 " <+> (return $ P.pretty infRho)
+      , text "Γ = Γ0,(φ : I),(eqs : Paths Δ us vs)    and   Γ' ⊢ ρ,i1,refls : Γ"
+      , "Γ  ⊢ τ           : Γ' " <+> (return $ P.pretty infTau)
+      , "Γ | (i : I) ⊢ leftInv : Γ " <+> (return $ P.pretty infLeftInv) ] )
 
 -- | A @Covering@ is the result of splitting a 'SplitClause'.
 data Covering = Covering

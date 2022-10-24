@@ -13,10 +13,15 @@ import Agda.TypeChecking.Monad hiding (constructorForm)
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Reduce.Monad as RedM
 import Agda.TypeChecking.Substitute
+import Agda.TypeChecking.Pretty
+import Agda.TypeChecking.Names
+import Agda.TypeChecking.Primitive.Base
+
 
 import Agda.Utils.Maybe
 import Agda.Utils.Monad
 import Agda.Utils.Pretty (prettyShow)
+import qualified Agda.Utils.Pretty as P ( pretty )
 
 import Agda.Utils.Impossible
 
@@ -61,6 +66,12 @@ type Stack = [Frame]
 
 match' :: Stack -> ReduceM (Reduced (Blocked Elims) Term)
 match' ((c, es, patch) : stack) = do
+
+  reportSDoc "tc.cc.match" 50 $ text "entering match' with args..."
+  reportSDoc "tc.cc.match" 50 $ nest 2 $ vcat
+    [ "c::CompiledClauses    = " <+> (return $ P.pretty c)
+    , "es::MaybeReducedElims = " <+> (prettyTCM es) ]
+  
   let no blocking es = return $ NoReduction $ blocking $ patch $ map ignoreReduced es
       yes t          = flip YesReduction t <$> asksTC envSimplification
 
@@ -115,6 +126,48 @@ match' ((c, es, patch) : stack) = do
                     Reduced b  -> return $ e0 <$ b
                     NotReduced -> unfoldCorecursionE e0
             let e = ignoreBlocking eb
+
+            -- TODO-antva: IF es !! n is a pure-path mhocom
+            --                bs !! n is an hcomp branch
+            --             then refold es !! n to an hcomp.            
+            mMhocom <- getPrimitiveName' builtinMHComp
+            mMkmc <- getPrimitiveName' builtinMkmc
+            mMno <- getPrimitiveName' builtinMno
+            mMyes <- getPrimitiveName' builtinMyes
+            mHcomp <- getPrimitiveName' builtinHComp
+            mRefold :: Maybe Term <- case e of -- hcomp ... instead of mhocom ...
+              Apply (Arg _ (Def q [Apply l, Apply bA, Apply zeta, Apply u, Apply u0]  )) | Just q == mMhocom -> do
+                i0 <- getTerm "" builtinIZero
+                i1 <- getTerm "" builtinIOne
+                prsv <- getTerm "" builtinPrsvMCstr
+                hcomp <- getTerm "" builtinHComp
+                szeta <- reduce $ unArg zeta
+                mPhi <- case szeta of
+                  Def q2 [Apply phi, psi] | Just q2 == mMkmc -> return $ Just $ Arg (argInfo zeta) (unArg phi)
+                  Def q2 []         | Just q2 == mMno  -> return $ Just $ Arg defaultArgInfo i0
+                  Def q2 []         | Just q2 == mMyes -> return $ Just $ Arg defaultArgInfo i1
+                  _ -> return Nothing
+                caseMaybe mPhi (return Nothing) $ \ phi -> runNamesT [] $ do -- Arg Term
+                  u <- open $ unArg u
+                  phi <- open $ unArg phi
+                  prsv <- open prsv
+                  l <- open $ unArg l
+                  bA <- open $ unArg bA
+                  u0 <- open $ unArg u0
+                  hcomp <- open $ hcomp
+                  
+                  let refoldU =
+                        lam "i" $ \ i -> ilam "o" $ \ o -> u <@> i <..> (prsv <#> phi <..> o)
+
+                  res <- hcomp <#> l <#> bA <#> phi <@> refoldU <@> u0
+                  return $ Just res
+                  
+              _ -> return Nothing
+
+
+            -- TODO-antva: do we have an hcomp branch?
+
+            let
                 -- replace the @n@th argument by its reduced form
                 es' = es0 ++ [MaybeRed (Reduced $ () <$ eb) e] ++ es1
                 -- if a catch-all clause exists, put it on the stack
@@ -190,7 +243,7 @@ match' ((c, es, patch) : stack) = do
 
               -- Otherwise, we are stuck.  If we were stuck before,
               -- we keep the old reason, otherwise we give reason StuckOn here.
-              NotBlocked blocked e -> no (NotBlocked $ stuckOn e blocked) es'
+              NotBlocked blocked e -> no (NotBlocked $ stuckOn e blocked) es'   
 
 
 -- If we reach the empty stack, then pattern matching was incomplete
