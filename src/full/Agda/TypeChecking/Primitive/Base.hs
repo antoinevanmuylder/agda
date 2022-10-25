@@ -292,3 +292,26 @@ getSigmaKit = do
             }
         _ -> __IMPOSSIBLE__
 
+
+--helper for printing
+-- | try convert implicit to explicit arguments in a term.
+toExplicitArgs :: Term -> Term
+toExplicitArgs t = case t of
+  (Var i es) -> Var i (forElims es)
+  (Lam ai (Abs nm rest)) -> Lam (withArgInf ai) (Abs nm (toExplicitArgs rest))
+  (Lam ai (NoAbs nm rest)) -> Lam (withArgInf ai) (NoAbs nm (toExplicitArgs rest))  
+  (Def q es) -> Def q (forElims es)
+  (Con ch ci es) -> Con ch ci (forElims es)
+  (MetaV mid es) -> MetaV mid (forElims es)
+  (DontCare t) -> DontCare (toExplicitArgs t)
+  (Dummy s es) -> Dummy s (forElims es)
+  _ -> t
+  where
+    forElim :: Elim -> Elim
+    forElim (Apply (Arg ai t)) = Apply $ Arg (withArgInf ai) (toExplicitArgs t)
+    forElim other = other
+
+    forElims :: Elims -> Elims
+    forElims es = map forElim es
+
+    withArgInf = (setRelevance Relevant) . (setHiding NotHidden)

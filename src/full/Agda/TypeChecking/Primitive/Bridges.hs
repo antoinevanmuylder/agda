@@ -112,26 +112,6 @@ reportSDocDocs key lvl doc1 docList = do
       --   , "rphi12   = " <+> prettyTCM rphi12 ]
 
 
--- | try convert implicit to explicit arguments in a term.
-toExplicitArgs :: Term -> Term
-toExplicitArgs t = case t of
-  (Var i es) -> Var i (forElims es)
-  (Lam ai (Abs nm rest)) -> Lam (setHiding NotHidden ai) (Abs nm (toExplicitArgs rest))
-  (Lam ai (NoAbs nm rest)) -> Lam (setHiding NotHidden ai) (NoAbs nm (toExplicitArgs rest))  
-  (Def q es) -> Def q (forElims es)
-  (Con ch ci es) -> Con ch ci (forElims es)
-  (MetaV mid es) -> MetaV mid (forElims es)
-  (DontCare t) -> DontCare (toExplicitArgs t)
-  (Dummy s es) -> Dummy s (forElims es)
-  _ -> t
-  where
-    forElim :: Elim -> Elim
-    forElim (Apply (Arg ai t)) = Apply $ Arg (setHiding NotHidden ai) (toExplicitArgs t)
-    forElim other = other
-
-    forElims :: Elims -> Elims
-    forElims es = map forElim es
-
 
 data CorBsplit
   = CSPLIT

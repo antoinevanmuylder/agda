@@ -82,6 +82,7 @@ import Agda.Utils.Pretty
 import Agda.Utils.Size
 import Agda.Utils.Zipper
 import qualified Agda.Utils.SmallSet as SmallSet
+import Agda.Utils.Map (filterKeys)
 
 import Agda.Utils.Impossible
 
@@ -113,7 +114,8 @@ data CompactDefn
 
 data BuiltinEnv = BuiltinEnv
   { bZero, bSuc, bTrue, bFalse, bRefl :: Maybe ConHead
-  , bPrimForce, bPrimErase  :: Maybe QName }
+  , bPrimForce, bPrimErase  :: Maybe QName
+  , bHComp, bMHComp :: Maybe QName }
 
 -- | Compute a 'CompactDef' from a regular definition.
 compactDef :: BuiltinEnv -> Definition -> RewriteRules -> ReduceM CompactDef
@@ -431,8 +433,11 @@ fastReduce' norm v = do
   refl  <- fmap name <$> getBuiltin' builtinRefl
   force <- fmap primFunName <$> getPrimitive' "primForce"
   erase <- fmap primFunName <$> getPrimitive' "primErase"
+  hcomp  <- getPrimitiveName' builtinHComp
+  mhocom <- getPrimitiveName' builtinMHComp
   let bEnv = BuiltinEnv { bZero = zero, bSuc = suc, bTrue = true, bFalse = false, bRefl = refl,
-                          bPrimForce = force, bPrimErase = erase }
+                          bPrimForce = force, bPrimErase = erase,
+                          bHComp = hcomp, bMHComp = mhocom}
   allowedReductions <- asksTC envAllowedReductions
   rwr <- optRewriting <$> pragmaOptions
   constInfo <- unKleisli $ \f -> do
@@ -833,7 +838,8 @@ reduceTm rEnv bEnv !constInfo normalisation ReductionFlags{..} =
       | otherwise = const id
 
     -- Checking for built-in zero and suc
-    BuiltinEnv{ bZero = zero, bSuc = suc, bRefl = refl0 } = bEnv
+    -- TODO-antva: + hcomp, mhocom so that HIT elim at pure mhocom reduces.
+    BuiltinEnv{ bZero = zero, bSuc = suc, bRefl = refl0, bHComp = hcomp, bMHComp = mhocom } = bEnv
     conNameId = nameId . qnameName . conName
     isZero = case zero of
                Nothing -> const False
@@ -841,6 +847,13 @@ reduceTm rEnv bEnv !constInfo normalisation ReductionFlags{..} =
     isSuc  = case suc of
                Nothing -> const False
                Just s  -> (conNameId s ==) . conNameId
+    isHComp = case hcomp of -- NameId -> Bool.
+               Nothing -> const False
+               Just q -> \ cmp -> (nameId $ qnameName q) == cmp
+    isMhocom = case mhocom of -- NameId -> Bool.
+               Nothing -> const False
+               Just q -> \ cmp -> (nameId $ qnameName q) == cmp
+               
 
     -- If there's a non-standard equality (for instance doubly-indexed) we fall back to slow reduce
     -- for primErase and "unbind" refl.
@@ -1251,6 +1264,9 @@ reduceTm rEnv bEnv !constInfo normalisation ReductionFlags{..} =
           case splitAt n spine of
             -- If the nth elimination is not given, we're stuck.
             (_, []) -> done Underapplied
+            (spine0, Apply e : spine1)
+              | not (null ( filterKeys (isHComp) (fconBranches bs))) , Just _ <- (bMHComp bEnv) ->
+                  fallbackAM (evalClosure (Def f []) emptyEnv spine ctrl) 
             -- Apply elim: push the current match on the control stack and evaluate the argument
             (spine0, Apply e : spine1) ->
               evalPointerAM (unArg e) [] $ CaseK f (argInfo e) bs spine0 spine1 stack : ctrl

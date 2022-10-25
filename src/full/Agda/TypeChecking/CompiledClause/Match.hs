@@ -129,47 +129,31 @@ match' ((c, es, patch) : stack) = do
 
             -- TODO-antva: IF es !! n is a pure-path mhocom
             --                bs !! n is an hcomp branch
-            --             then refold es !! n to an hcomp.            
-            mMhocom <- getPrimitiveName' builtinMHComp
-            mMkmc <- getPrimitiveName' builtinMkmc
-            mMno <- getPrimitiveName' builtinMno
-            mMyes <- getPrimitiveName' builtinMyes
+            --             then refold es !! n to an hcomp.
+            --   this is a trick designed to TC cubical HIT code even with --bridges.
             mHcomp <- getPrimitiveName' builtinHComp
-            mRefold :: Maybe Term <- case e of -- hcomp ... instead of mhocom ...
-              Apply (Arg _ (Def q [Apply l, Apply bA, Apply zeta, Apply u, Apply u0]  )) | Just q == mMhocom -> do
-                i0 <- getTerm "" builtinIZero
-                i1 <- getTerm "" builtinIOne
-                prsv <- getTerm "" builtinPrsvMCstr
-                hcomp <- getTerm "" builtinHComp
-                szeta <- reduce $ unArg zeta
-                mPhi <- case szeta of
-                  Def q2 [Apply phi, psi] | Just q2 == mMkmc -> return $ Just $ Arg (argInfo zeta) (unArg phi)
-                  Def q2 []         | Just q2 == mMno  -> return $ Just $ Arg defaultArgInfo i0
-                  Def q2 []         | Just q2 == mMyes -> return $ Just $ Arg defaultArgInfo i1
-                  _ -> return Nothing
-                caseMaybe mPhi (return Nothing) $ \ phi -> runNamesT [] $ do -- Arg Term
-                  u <- open $ unArg u
-                  phi <- open $ unArg phi
-                  prsv <- open prsv
-                  l <- open $ unArg l
-                  bA <- open $ unArg bA
-                  u0 <- open $ unArg u0
-                  hcomp <- open $ hcomp
-                  
-                  let refoldU =
-                        lam "i" $ \ i -> ilam "o" $ \ o -> u <@> i <..> (prsv <#> phi <..> o)
+            mRefold <- maybeHCompRefold e
+            reportSDoc "tc.cc.match" 50 $ text "refolding hcomp in match'?..."
+            reportSDoc "tc.cc.match" 50 $ nest 2 $ vcat
+              [ "hcomp... = " <+>  (prettyTCM $ case mRefold of
+                                       Just (Apply atm) -> toExplicitArgs <$> Just (unArg atm)
+                                       _ -> Nothing )]
+            reportSDoc "tc.cc.match" 50 $ vcat $
+              [ "conBranches = " <+> (return $ P.pretty $ conBranches bs) ]
 
-                  res <- hcomp <#> l <#> bA <#> phi <@> refoldU <@> u0
-                  return $ Just res
-                  
-              _ -> return Nothing
-
-
-            -- TODO-antva: do we have an hcomp branch?
+            let (ee,eeb) = caseMaybe mHcomp (e,eb) $ \ name -> --Elim, Blocked Elim
+                             case ( Map.member name (conBranches bs) , mRefold ) of
+                               ( True , Just rf ) -> (rf , rf <$ eb)
+                               _ -> (e, eb)  
+            reportSDoc "tc.cc.match" 50 $ vcat $
+              [ "e        = " <+> (return $ P.pretty e)
+              , "eb       = " <+> (return $ P.pretty $ ignoreBlocking eb)
+              , "ee       = " <+> (return $ P.pretty ee)
+              , "eeb       = " <+> (return $ P.pretty $ ignoreBlocking eeb) ]
 
             let
                 -- replace the @n@th argument by its reduced form
-                es' = es0 ++ [MaybeRed (Reduced $ () <$ eb) e] ++ es1
+                es' = es0 ++ [MaybeRed (Reduced $ () <$ eeb) ee] ++ es1
                 -- if a catch-all clause exists, put it on the stack
                 catchAllFrame stack = maybe stack (\c -> (c, es', patch) : stack) (catchAllBranch bs)
                 -- If our argument is @Lit l@, we push @litFrame l@ onto the stack.
@@ -194,12 +178,12 @@ match' ((c, es, patch) : stack) = do
                     Just cc -> (content cc, es0 ++ es1, patchLit) : stack
                 -- The new patch function restores the @n@th argument to @v@:
                 -- In case we matched a literal, just put @v@ back.
-                patchLit es = patch (es0 ++ [e] ++ es1)
+                patchLit es = patch (es0 ++ [ee] ++ es1)
                   where (es0, es1) = splitAt n es
                 -- In case we matched constructor @c@ with @m@ arguments,
                 -- contract these @m@ arguments @vs@ to @Con c ci vs@.
 --                patchCon c ci m es = patch (es0 ++ [Con c ci vs <$ e] ++ es2)
-                patchCon f m es = patch (es0 ++ [f vs <$ e] ++ es2)
+                patchCon f m es = patch (es0 ++ [f vs <$ ee] ++ es2)
                   where (es0, rest) = splitAt n es
                         (es1, es2)  = splitAt m rest
                         vs          = es1
@@ -216,7 +200,7 @@ match' ((c, es, patch) : stack) = do
                  Apply a | c@Con{} <- unArg a -> Just c
                  _                            -> Nothing
             -- Now do the matching on the @n@ths argument:
-            case eb of
+            case eeb of
               -- In case of a literal, try also its constructor form
               NotBlocked _ (Apply (Arg info v@(Lit l))) -> performedSimplification $ do
                 cv <- constructorForm v
@@ -243,7 +227,43 @@ match' ((c, es, patch) : stack) = do
 
               -- Otherwise, we are stuck.  If we were stuck before,
               -- we keep the old reason, otherwise we give reason StuckOn here.
-              NotBlocked blocked e -> no (NotBlocked $ stuckOn e blocked) es'   
+              NotBlocked blocked ee -> no (NotBlocked $ stuckOn ee blocked) es'
+
+  where
+
+    maybeHCompRefold :: Elim -> ReduceM (Maybe Elim)
+    maybeHCompRefold e = do
+      mMhocom <- getPrimitiveName' builtinMHComp
+      mMkmc <- getPrimitiveName' builtinMkmc
+      mMno <- getPrimitiveName' builtinMno
+      mMyes <- getPrimitiveName' builtinMyes
+      case e of -- hcomp ... instead of mhocom ...
+        Apply (Arg ai (Def q [Apply l, Apply bA, Apply zeta, Apply u, Apply u0]  )) | Just q == mMhocom -> do
+          i0 <- getTerm "" builtinIZero
+          i1 <- getTerm "" builtinIOne
+          prsv <- getTerm "" builtinPrsvMCstr
+          hcomp <- getTerm "" builtinHComp
+          szeta <- reduce $ unArg zeta
+          mPhi <- case szeta of
+            Def q2 [Apply phi, psi] | Just q2 == mMkmc -> return $ Just $ unArg phi
+            Def q2 []         | Just q2 == mMno  -> return $ Just $ i0
+            Def q2 []         | Just q2 == mMyes -> return $ Just $ i1
+            _ -> return Nothing
+          caseMaybe mPhi (return Nothing) $ \ phi -> runNamesT [] $ do
+            u <- open $ unArg u
+            phi <- open phi
+            prsv <- open prsv
+            l <- open $ unArg l
+            bA <- open $ unArg bA
+            u0 <- open $ unArg u0
+            hcomp <- open $ hcomp
+
+            let refoldU =
+                  lam "i" $ \ i -> ilam "o" $ \ o -> u <@> i <..> (prsv <#> phi <..> o)
+
+            res <- hcomp <#> l <#> bA <#> phi <@> refoldU <@> u0
+            return $ Just $ Apply $ Arg ai res -- Elim
+        _ -> return Nothing
 
 
 -- If we reach the empty stack, then pattern matching was incomplete
