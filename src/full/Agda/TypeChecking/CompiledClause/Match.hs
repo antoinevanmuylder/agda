@@ -67,10 +67,15 @@ type Stack = [Frame]
 match' :: Stack -> ReduceM (Reduced (Blocked Elims) Term)
 match' ((c, es, patch) : stack) = do
 
+  let g :: Elim -> Elim
+      g (Apply (Arg inf t)) = Apply (Arg defaultArgInfo t)
+      g other = other
+
   reportSDoc "tc.cc.match" 50 $ text "entering match' with args..."
   reportSDoc "tc.cc.match" 50 $ nest 2 $ vcat
     [ "c::CompiledClauses    = " <+> (return $ P.pretty c)
-    , "es::MaybeReducedElims = " <+> (prettyTCM es) ]
+    , "es::MaybeReducedElims = " <+> (prettyTCM es)
+    , "es (no hiding) = " <+> (prettyTCM $ map (g  . ignoreReduced) es) ]
   
   let no blocking es = return $ NoReduction $ blocking $ patch $ map ignoreReduced es
       yes t          = flip YesReduction t <$> asksTC envSimplification

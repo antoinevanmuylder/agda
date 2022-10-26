@@ -66,6 +66,7 @@ import Agda.TypeChecking.Monad hiding (Closure(..))
 import Agda.TypeChecking.Reduce as R
 import Agda.TypeChecking.Rewriting (rewrite)
 import Agda.TypeChecking.Substitute
+import Agda.TypeChecking.Primitive.Base
 
 import Agda.Interaction.Options
 
@@ -115,7 +116,8 @@ data CompactDefn
 data BuiltinEnv = BuiltinEnv
   { bZero, bSuc, bTrue, bFalse, bRefl :: Maybe ConHead
   , bPrimForce, bPrimErase  :: Maybe QName
-  , bHComp, bMHComp :: Maybe QName }
+  , bHComp, bMHComp :: Maybe QName
+  , bRefoldMhocom :: Maybe Term}
 
 -- | Compute a 'CompactDef' from a regular definition.
 compactDef :: BuiltinEnv -> Definition -> RewriteRules -> ReduceM CompactDef
@@ -435,9 +437,10 @@ fastReduce' norm v = do
   erase <- fmap primFunName <$> getPrimitive' "primErase"
   hcomp  <- getPrimitiveName' builtinHComp
   mhocom <- getPrimitiveName' builtinMHComp
+  refoldMhocom <- getTerm' builtinRefoldMhocom
   let bEnv = BuiltinEnv { bZero = zero, bSuc = suc, bTrue = true, bFalse = false, bRefl = refl,
                           bPrimForce = force, bPrimErase = erase,
-                          bHComp = hcomp, bMHComp = mhocom}
+                          bHComp = hcomp, bMHComp = mhocom, bRefoldMhocom = refoldMhocom}
   allowedReductions <- asksTC envAllowedReductions
   rwr <- optRewriting <$> pragmaOptions
   constInfo <- unKleisli $ \f -> do
@@ -850,9 +853,9 @@ reduceTm rEnv bEnv !constInfo normalisation ReductionFlags{..} =
     isHComp = case hcomp of -- NameId -> Bool.
                Nothing -> const False
                Just q -> \ cmp -> (nameId $ qnameName q) == cmp
-    isMhocom = case mhocom of -- NameId -> Bool.
+    isMhocom = case mhocom of -- QName -> Bool.
                Nothing -> const False
-               Just q -> \ cmp -> (nameId $ qnameName q) == cmp
+               Just q -> \ cmp -> (nameId $ qnameName q) == (nameId $ qnameName cmp)
                
 
     -- If there's a non-standard equality (for instance doubly-indexed) we fall back to slow reduce
@@ -1260,16 +1263,21 @@ reduceTm rEnv bEnv !constInfo normalisation ReductionFlags{..} =
 
         -- Split on nth elimination in the spine. Can be either a regular split or a copattern
         -- split.
-        FCase n bs ->
+        FCase n bs -> -- TODO-antva: HIT elim at mhocom...
           case splitAt n spine of
             -- If the nth elimination is not given, we're stuck.
             (_, []) -> done Underapplied
-            (spine0, Apply e : spine1)
-              | not (null ( filterKeys (isHComp) (fconBranches bs))) , Just _ <- (bMHComp bEnv) ->
-                  fallbackAM (evalClosure (Def f []) emptyEnv spine ctrl) 
             -- Apply elim: push the current match on the control stack and evaluate the argument
-            (spine0, Apply e : spine1) ->
-              evalPointerAM (unArg e) [] $ CaseK f (argInfo e) bs spine0 spine1 stack : ctrl
+            (spine0, Apply e : spine1) -> do
+              let normalStuff = evalPointerAM (unArg e) [] $ CaseK f (argInfo e) bs spine0 spine1 stack : ctrl
+              caseMaybe (bRefoldMhocom bEnv) normalStuff $ \ refoldMhocom -> do
+                ecl <- derefPointer_ (unArg e)
+                case ecl of
+                  Closure eIsV eTm@(Def eq [_,_,_,_,_]) eEnv eSp | isMhocom eq, not (null ( filterKeys (isHComp) (fconBranches bs))) -> do
+                    newPtr <- createThunk $ Closure Unevaled (refoldMhocom `apply` [argN eTm]) eEnv eSp
+                    evalPointerAM (newPtr) [] $ CaseK f (argInfo e) bs spine0 spine1 stack : ctrl
+                    -- fallbackAM (evalClosure (Def f []) emptyEnv spine ctrl) --TODO-antva: this spine might actually be too small
+                  _ -> normalStuff
             -- Projection elim: in this case we must be in a copattern split and find the projection
             -- in the case tree and keep going. If it's not there it might be because it's not the
             -- original projection (issue #2265). If so look up the original projection instead.

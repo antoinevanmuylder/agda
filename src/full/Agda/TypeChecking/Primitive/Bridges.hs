@@ -2387,3 +2387,45 @@ unEmbd zeta = do
         Bno -> return $ Just $ unArg aphi
         _ -> return Nothing
     _ -> return Nothing
+
+-- | primRefoldMhocom : ∀ {ℓ} {A : Type ℓ} → A → A
+--   helper primitive to refold pure path mhocom into hcomps.
+--   Judgementally, its the identity. Syntactically it is not.
+--   Typically, terms that have such a head should be simplified in order to obtain an hcomp, not mhocom again.
+primRefoldMhocom' :: TCM PrimitiveImpl
+primRefoldMhocom' = do
+  requireBridges "in primRefoldMhocom'"  
+  typ :: Type <- runNamesT [] $
+         hPi' "l" (el $ cl primLevel) $ \ l ->
+         hPi' "A" (sort . tmSort <$> l) $ \ bA ->
+         (el' l bA) --> (el' l bA)
+  return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 3 $ \args@[l, bA, a] -> do
+    sa <- reduceB a
+    mhocom <- getPrimitiveName' builtinMHComp
+    case (unArg $ ignoreBlocking sa) of
+      Def q [Apply l, Apply bT, Apply zeta, Apply u, Apply u0] | Just q == mhocom -> do
+        i0 <- getTerm "" builtinIZero
+        i1 <- getTerm "" builtinIOne
+        prsv <- getTerm "" builtinPrsvMCstr
+        hcomp <- getTerm "" builtinHComp
+        mPhi <- unEmbd $ unArg zeta
+        caseMaybe mPhi (fallback sa) $ \ phi -> runNamesT [] $ do --pure path cstr
+          u <- open $ unArg u
+          phi <- open phi
+          prsv <- open prsv
+          l <- open $ unArg l
+          bT <- open $ unArg bT
+          u0 <- open $ unArg u0
+          hcomp <- open $ hcomp
+
+          let refoldU =
+                lam "i" $ \ i -> ilam "o" $ \ o -> u <@> i <..> (prsv <#> phi <..> o)
+
+          res <- hcomp <#> l <#> bT <#> phi <@> refoldU <@> u0
+          return $ YesReduction YesSimplification $ res          
+        
+      _ -> fallback sa
+
+  where
+
+    fallback sa = redReturn $ unArg $ ignoreBlocking sa
