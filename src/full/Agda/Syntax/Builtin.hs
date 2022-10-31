@@ -30,7 +30,7 @@ builtinNat, builtinSuc, builtinZero, builtinNatPlus, builtinNatMinus,
   builtinBHolds, builtinBitHolds, builtinBPartial,
   builtinMCstr, builtinMno, builtinMyes, builtinMkmc, builtinMHolds, builtinMitHolds, builtinMPartial,
   builtinMComp, builtinMHComp, builtinTestPrim, builtinReflectMCstr, builtinPrsvMCstr, builtinAllMCstr, builtinAllMCstrCounit,
-  builtinEmbd, builtinMixedOr, builtinMPartialP, builtinMHoldsEmpty, builtinMHolds1, builtinMHolds2, builtin_mpor, builtinRefoldMhocom,
+  builtinEmbd, builtinMixedOr, builtinMPartialP, builtinMHoldsEmpty, builtinMHolds1, builtinMHolds2, builtin_mpor,
   builtinSizeUniv, builtinSize, builtinSizeLt,
   builtinSizeSuc, builtinSizeInf, builtinSizeMax,
   builtinInf, builtinSharp, builtinFlat,
@@ -190,7 +190,6 @@ builtinMHolds2                           = "MHOLDS2"
 builtin_mpor                             = "prim^mpor"
 builtinAllMCstr                          = "primAllMCstr"
 builtinAllMCstrCounit                    = "primAllMCstrCounit"
-builtinRefoldMhocom                      = "primRefoldMhocom"
 builtinTestPrim                          = "primTestPrim"
 builtinSizeUniv                          = "SIZEUNIV"
 builtinSize                              = "SIZE"

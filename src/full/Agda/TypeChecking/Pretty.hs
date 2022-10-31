@@ -282,7 +282,7 @@ instance (PrettyTCM k, PrettyTCM v) => PrettyTCM (Map k v) where
 
 -- instance (Reify a e, ToConcrete e c, P.Pretty c, PrettyTCM a) => PrettyTCM (Elim' a) where
 instance PrettyTCM Elim where
-  prettyTCM (IApply x y v) = "I$" <+> prettyTCM v
+  prettyTCM (IApply x y v) = "I$" <+> prettyTCM (v,x,y)
   prettyTCM (Apply v) = "$" <+> prettyTCM v
   prettyTCM (Proj _ f)= "." <> prettyTCM f
 

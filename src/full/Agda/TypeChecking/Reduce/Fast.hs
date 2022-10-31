@@ -66,7 +66,6 @@ import Agda.TypeChecking.Monad hiding (Closure(..))
 import Agda.TypeChecking.Reduce as R
 import Agda.TypeChecking.Rewriting (rewrite)
 import Agda.TypeChecking.Substitute
-import Agda.TypeChecking.Primitive.Base
 
 import Agda.Interaction.Options
 
@@ -83,7 +82,6 @@ import Agda.Utils.Pretty
 import Agda.Utils.Size
 import Agda.Utils.Zipper
 import qualified Agda.Utils.SmallSet as SmallSet
-import Agda.Utils.Map (filterKeys)
 
 import Agda.Utils.Impossible
 
@@ -116,8 +114,7 @@ data CompactDefn
 data BuiltinEnv = BuiltinEnv
   { bZero, bSuc, bTrue, bFalse, bRefl :: Maybe ConHead
   , bPrimForce, bPrimErase  :: Maybe QName
-  , bHComp, bMHComp :: Maybe QName
-  , bRefoldMhocom :: Maybe Term}
+  , bHComp, bMHComp :: Maybe QName }
 
 -- | Compute a 'CompactDef' from a regular definition.
 compactDef :: BuiltinEnv -> Definition -> RewriteRules -> ReduceM CompactDef
@@ -437,10 +434,9 @@ fastReduce' norm v = do
   erase <- fmap primFunName <$> getPrimitive' "primErase"
   hcomp  <- getPrimitiveName' builtinHComp
   mhocom <- getPrimitiveName' builtinMHComp
-  refoldMhocom <- getTerm' builtinRefoldMhocom
   let bEnv = BuiltinEnv { bZero = zero, bSuc = suc, bTrue = true, bFalse = false, bRefl = refl,
                           bPrimForce = force, bPrimErase = erase,
-                          bHComp = hcomp, bMHComp = mhocom, bRefoldMhocom = refoldMhocom}
+                          bHComp = hcomp, bMHComp = mhocom }
   allowedReductions <- asksTC envAllowedReductions
   rwr <- optRewriting <$> pragmaOptions
   constInfo <- unKleisli $ \f -> do
@@ -1163,8 +1159,9 @@ reduceTm rEnv bEnv !constInfo normalisation ReductionFlags{..} =
           -- Case: literal
           Lit l -> matchLit l $ matchCatchall $ failedMatch f stack ctrl
 
+          -- Case: mhocom
           Def q [] | isMhocom q, Just hcomp <- bHComp bEnv, isJust $ lookupCon hcomp bs ->
-            fallbackAM $ Eval (Closure Unevaled (Def f []) emptyEnv (spine0 <> [Apply $ Arg i $ pureThunk cl] <> spine1)) ctrl -- TODO-antva
+            fallbackAM $ Eval (Closure Unevaled (Def f []) emptyEnv (spine0 <> [Apply $ Arg i $ pureThunk cl] <> spine1)) ctrl
           -- Case: hcomp
           Def q [] | isJust $ lookupCon q bs -> matchCon' q (length spine) $ matchCatchall $ failedMatch f stack ctrl
           Def q es | (isJust $ lookupCon q bs) || isMhocom q -> do -- next time: Def q []
@@ -1272,14 +1269,6 @@ reduceTm rEnv bEnv !constInfo normalisation ReductionFlags{..} =
             -- Apply elim: push the current match on the control stack and evaluate the argument
             (spine0, Apply e : spine1) ->
               evalPointerAM (unArg e) [] $ CaseK f (argInfo e) bs spine0 spine1 stack : ctrl
-              -- caseMaybe (bRefoldMhocom bEnv) normalStuff $ \ refoldMhocom -> do
-              --   ecl <- derefPointer_ (unArg e)
-              --   case ecl of
-              --     Closure eIsV eTm@(Def eq [_,_,_,_,_]) eEnv eSp | isMhocom eq, not (null ( filterKeys (isHComp) (fconBranches bs))) -> do
-              --       newPtr <- createThunk $ Closure Unevaled (refoldMhocom `apply` [argN eTm]) eEnv eSp
-              --       evalPointerAM (newPtr) [] $ CaseK f (argInfo e) bs spine0 spine1 stack : ctrl
-              --       -- fallbackAM (evalClosure (Def f []) emptyEnv spine ctrl) --TODO-antva: this spine might actually be too small
-              --     _ -> normalStuff
             -- Projection elim: in this case we must be in a copattern split and find the projection
             -- in the case tree and keep going. If it's not there it might be because it's not the
             -- original projection (issue #2265). If so look up the original projection instead.
@@ -1509,3 +1498,5 @@ instance Pretty (ControlFrame s) where
   prettyPrec p (ApplyK spine)           = mparens (p > 9) $ "ApplyK" <?> prettyList spine
   prettyPrec p NormaliseK               = "NormaliseK"
   prettyPrec p (ArgK cl _)              = mparens (p > 9) $ sep [ "ArgK" <+> prettyPrec 10 cl ]
+
+
