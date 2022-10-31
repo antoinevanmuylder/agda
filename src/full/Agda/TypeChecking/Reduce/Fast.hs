@@ -1163,11 +1163,11 @@ reduceTm rEnv bEnv !constInfo normalisation ReductionFlags{..} =
           -- Case: literal
           Lit l -> matchLit l $ matchCatchall $ failedMatch f stack ctrl
 
-          Def q [] | isMhocom q , Just hcomp <- bHComp bEnv, isJust $ lookupCon hcomp bs -> 
+          Def q [] | isMhocom q, Just hcomp <- bHComp bEnv, isJust $ lookupCon hcomp bs ->
             fallbackAM $ Eval (Closure Unevaled (Def f []) emptyEnv (spine0 <> [Apply $ Arg i $ pureThunk cl] <> spine1)) ctrl -- TODO-antva
           -- Case: hcomp
           Def q [] | isJust $ lookupCon q bs -> matchCon' q (length spine) $ matchCatchall $ failedMatch f stack ctrl
-          Def q es | isJust $ lookupCon q bs -> do
+          Def q es | (isJust $ lookupCon q bs) || isMhocom q -> do -- next time: Def q []
             spine' <- elimsToSpine env es
             runAM (evalValue blk (Def q []) emptyEnv (spine' <> spine) ctrl0)
 

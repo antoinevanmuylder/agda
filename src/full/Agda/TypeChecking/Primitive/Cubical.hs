@@ -526,7 +526,7 @@ primTransHComp cmd ts nelims = do
                         bTbdg <- open $ unArg bT -- ... j:I ⊢ T[j] : ∀ i → MPartial (φ'[j] m∨ bno) (Ty (l [j]))
                         lam "i" $ \ i ->
                           ilam "o'" $ \ o' ->
-                          bTbdg <@> i <..> (prsv <#> thephi' <@> o')
+                          bTbdg <@> i <..> (prsv <#> thephi' <..> o')
                       doHCompUKanOp operation ((Level la <$ s, argN thephi', argN bTcub, bA) <$ t) Head
                   -- transpMHComp (famThing l) (s, phi', bT, bA) (sphi , u0) -- __IMPOSSIBLE__
                 
