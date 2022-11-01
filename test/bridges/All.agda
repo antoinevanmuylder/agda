@@ -187,3 +187,23 @@ module _ {ℓA ℓB} (φ ψ : I) (A : Type ℓA) (T : Partial φ (Type ℓB)) (e
   anchor : Bool
   anchor = true
 
+primitive
+  primRefoldMhocom : ∀ {ℓ} {T : Type ℓ} → T → T
+module _ {ℓ : Level} {T : Type ℓ} {φ : I} (u : (i : I) → MPartial (φ m∨ bno) T) (u0 : T) where
+
+  postulate
+    thing : MHolds (embdI φ)
+  -- thing = {!!}
+
+  hole : T
+  hole = primRefoldMhocom (mhocom {ℓ = ℓ} {A = T} {ζ = φ m∨ bno} u (u i0 thing) )
+
+module _ {ℓ : Level} {T : Type ℓ} {φ : I} (@tick x : BI) (u : (i : I) → MPartial (φ m∨ (x =bi1)) T) (u0 : T) where
+
+  postulate
+    thing2 : MHolds (φ m∨ (x =bi1))
+  -- thing = {!!}
+
+  hole2 : T
+  hole2 = primRefoldMhocom (mhocom {ℓ = ℓ} {A = T} {ζ = φ m∨ (x =bi1)} u (u i0 thing2) )
+

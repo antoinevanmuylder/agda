@@ -224,6 +224,7 @@ primInteger, primIntegerPos, primIntegerNegSuc,
     primMCstr, primMno, primMyes, primMkmc, primMHolds, primMitHolds, primMPartial,
     primEmbd, primMixedOr, primMPartialP, primMHoldsEmpty, primMHolds1, primMHolds2, prim_mpor,
     primMHComp, primMComp, primTestPrim, primReflectMCstr, primPrsvMCstr, primAllMCstr, primAllMCstrCounit,
+    primRefoldMhocom,
     
     primNatPlus, primNatMinus, primNatTimes, primNatDivSucAux, primNatModSucAux,
     primNatEquality, primNatLess,
@@ -366,6 +367,7 @@ primMHolds2                           = getBuiltin builtinMHolds2
 prim_mpor                             = getPrimitiveTerm builtin_mpor
 primAllMCstr                          = getPrimitiveTerm builtinAllMCstr
 primAllMCstrCounit                    = getPrimitiveTerm builtinAllMCstrCounit
+primRefoldMhocom                      = getPrimitiveTerm builtinRefoldMhocom
 primNat                               = getBuiltin builtinNat
 primSuc                               = getBuiltin builtinSuc
 primZero                              = getBuiltin builtinZero
@@ -896,7 +898,7 @@ constrainedPrims =
   , builtin_glue
   , builtin_glueU
   , builtinMHComp
-  , builtin_mpor
+  , builtin_mpor --refoldMhocom as well?
   ]
 
 getNameOfConstrained :: HasBuiltins m => String -> m (Maybe QName)

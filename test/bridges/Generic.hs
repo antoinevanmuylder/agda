@@ -210,9 +210,9 @@ main = runTCMPrettyErrors $ do
   beInNiceTCState "./All.agda"
   addVerb "antvascript:0"
 
+  refoldingMhocom
   
-  hocomGlue
-
+  -- hocomGlue
   -- testMixedMeet
   -- decIntervalBotTop
   -- testMixedForall
@@ -635,7 +635,71 @@ hocomGlue = do
 
   -- how to make an [Arg Term] 
   -- primTransHComp DoHComp (_ : Arg Term)
+
+
+refoldingMhocom :: TCM ()
+refoldingMhocom = do
+  addVerb "tc.prim.bridges.refold:30"
+  addVerb "tc.prim.hcomp:20"
+
+  hole <- getTheTerm "hole"
+
+  printInTCM $ P.text "refold (mhocom), unsimpl"
+  printInTCM $ P.pretty $ hole
+
+  printInTCM $ P.text ""
+  printInTCM $ P.text "simplified:"
+  shole <- simplify hole
+  printInTCM $ P.pretty shole
+
+
+  hole2 <- getTheTerm "hole2"
+
+  printInTCM $ P.text "refold (mhocom), unsimpl"
+  printInTCM $ P.pretty $ hole2
+
+  printInTCM $ P.text ""
+  printInTCM $ P.text "simplified:"
+  shole2 <- simplify hole2
+  printInTCM $ P.pretty shole2
   
+-- testMixedMeet :: TCM ()
+-- testMixedMeet = do
+--   addVerb "tc.prim.bridges.hasEmptyMeet:50"
+  
+--   m1Tel <- clauseTel <$> getTheClause "mcstr1"
+--   m1 <- getTheTerm "mcstr1"
+--   m2 <- getTheTerm "mcstr2"
+--   oppositeKind <- addContext m1Tel $ hasEmptyMeet m1 m2
+--   printInTCM $ (P.<+>)
+--     (P.text  "Pure constraints of oppositve kind have empty meet (expecting False): ")
+--     (P.pretty oppositeKind)
+
+--   notj <- getTheTerm "notj"
+--   yesi <- getTheTerm "yesi"
+--   notjyesi <- addContext m1Tel $ hasEmptyMeet notj yesi
+--   printInTCM $ (P.<+>)
+--     (P.text  "Pure constraints of same kind whose comp. intersect, have empty meet (expecting False): ")
+--     (P.pretty notjyesi)
+
+--   notr <- getTheTerm "notr"
+--   yess <- getTheTerm "yess"
+--   notryess <- addContext m1Tel $ hasEmptyMeet notr yess
+--   printInTCM $ (P.<+>)
+--     (P.text  "Same but with bridge kind (expecting False): ")
+--     (P.pretty notryess)
+
+--   noti <- getTheTerm "noti"
+--   yesr <- getTheTerm "yesr"
+
+--   notryesr <- addContext m1Tel $ hasEmptyMeet notr yesr
+--   notiyesi <- addContext m1Tel $ hasEmptyMeet noti yesi
+--   printInTCM $ (P.<+>)
+--     (P.text  "Pure constraints of same kind whose comp. dont intersect, have empty meet (expecting True): ")
+--     (P.pretty notiyesi)
+--   printInTCM $ (P.<+>)
+--     (P.text  "Same but with bridge kind (expecting True): ")
+--     (P.pretty notryesr)
 
 {-
 best short at "declaring in .agda, working in .hs"

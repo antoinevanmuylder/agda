@@ -114,7 +114,8 @@ data CompactDefn
 data BuiltinEnv = BuiltinEnv
   { bZero, bSuc, bTrue, bFalse, bRefl :: Maybe ConHead
   , bPrimForce, bPrimErase  :: Maybe QName
-  , bHComp, bMHComp :: Maybe QName }
+  , bHComp, bMHComp :: Maybe QName
+  , bRefoldMhocom :: Maybe QName }
 
 -- | Compute a 'CompactDef' from a regular definition.
 compactDef :: BuiltinEnv -> Definition -> RewriteRules -> ReduceM CompactDef
@@ -434,9 +435,10 @@ fastReduce' norm v = do
   erase <- fmap primFunName <$> getPrimitive' "primErase"
   hcomp  <- getPrimitiveName' builtinHComp
   mhocom <- getPrimitiveName' builtinMHComp
+  refoldMhocom <- getPrimitiveName' builtinRefoldMhocom
   let bEnv = BuiltinEnv { bZero = zero, bSuc = suc, bTrue = true, bFalse = false, bRefl = refl,
                           bPrimForce = force, bPrimErase = erase,
-                          bHComp = hcomp, bMHComp = mhocom }
+                          bHComp = hcomp, bMHComp = mhocom , bRefoldMhocom = refoldMhocom }
   allowedReductions <- asksTC envAllowedReductions
   rwr <- optRewriting <$> pragmaOptions
   constInfo <- unKleisli $ \f -> do
@@ -1158,16 +1160,33 @@ reduceTm rEnv bEnv !constInfo normalisation ReductionFlags{..} =
 
           -- Case: literal
           Lit l -> matchLit l $ matchCatchall $ failedMatch f stack ctrl
-
-          -- Case: mhocom
-          Def q [] | isMhocom q, Just hcomp <- bHComp bEnv, isJust $ lookupCon hcomp bs ->
-            -- TODO-antva. Problem: the reconstructed spine may be too short.
-            fallbackAM $ Eval (Closure Unevaled (Def f []) emptyEnv (spine0 <> [Apply $ Arg i $ pureThunk cl] <> spine1)) ctrl
+         
           -- Case: hcomp
           Def q [] | isJust $ lookupCon q bs -> matchCon' q (length spine) $ matchCatchall $ failedMatch f stack ctrl
-          Def q es | (isJust $ lookupCon q bs) || isMhocom q -> do -- next time: Def q []
+          -- Case: hcomp before shifting es
+          Def q es | (isJust $ lookupCon q bs) -> do -- next time: Def q []
             spine' <- elimsToSpine env es
             runAM (evalValue blk (Def q []) emptyEnv (spine' <> spine) ctrl0)
+
+          -- Case: mhocom before shifting es.
+          -- We simplify (primRefoldMhocom (mhocom es...)).
+          -- If the mhocom is pure-path we get a folded hcomp. Else we get the same mhocom term.
+          -- This works because the hcomp->mhocom does not count as a simplification step, only as a reduction step.
+          -- Next time, we fall into the above @Def q []@ where q = hcomp;
+          -- Or we are stuck.
+          --
+          -- Before this, we were doing a bad fallback in a Def q [] case.
+          --   fallbackAM $ Eval (Closure Unevaled (Def f []) emptyEnv (spine0 <> [Apply $ Arg i $ pureThunk cl] <> spine1)) ctrl
+          -- The problem is that the above spine may not be big enough for f
+          expr@(Def q es@[Apply l , Apply bA , Apply zeta , Apply u , Apply u0] )
+            | isMhocom q, isJust $ lookupCon hcomp bs,
+              Just hcomp <- bHComp bEnv, Just qrefold <- bRefoldMhocom bEnv -> do
+                let refolding = (Def qrefold []) `apply` [l, bA, Arg defaultArgInfo expr] --simplify: get hcomp or mhocom
+                case (runReduce $ simplify refolding) of
+                  Def q' es'  -> do
+                    spine' <- elimsToSpine env es'
+                    runAM (evalValue blk (Def q []) emptyEnv (spine' <> spine) ctrl0)
+                  _ -> __IMPOSSIBLE__ --refold of a mhocom is always a Def.
 
           -- Case: not constructor or literal. In this case we are stuck.
           _ -> stuck
@@ -1484,9 +1503,10 @@ instance Pretty (MatchStack s) where
   pretty (ca :> _) = prettyList ca
 
 instance Pretty (ControlFrame s) where
-  prettyPrec p (CaseK f _ _ _ _ mc)       = mparens (p > 9) $ ("CaseK" <+> pretty (qnameName f)) <?> pretty mc
-  prettyPrec p (ForceK _ spine0 spine1)   = mparens (p > 9) $ "ForceK" <?> prettyList (spine0 <> spine1)
-  prettyPrec p (EraseK _ sp0 sp1 sp2 sp3) = mparens (p > 9) $ sep [ "EraseK"
+  prettyPrec p (CaseK f _ bs _ _ mc)       = mparens (p > 9) $
+    ("CaseK" <+> (pretty (qnameName f)) <+> (pretty $ Map.keys $ fconBranches bs) ) <?> pretty mc
+  prettyPrec p (ForceK _ spine0 spine1)    = mparens (p > 9) $ "ForceK" <?> prettyList (spine0 <> spine1)
+  prettyPrec p (EraseK _ sp0 sp1 sp2 sp3)  = mparens (p > 9) $ sep [ "EraseK"
                                                                   , nest 2 $ prettyList sp0
                                                                   , nest 2 $ prettyList sp1
                                                                   , nest 2 $ prettyList sp2
