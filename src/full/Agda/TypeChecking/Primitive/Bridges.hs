@@ -2404,6 +2404,10 @@ primRefoldMhocom' = do
   return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 3 $ \args@[l, bT, x] -> do
     sx <- reduceB x
     mhocom <- getPrimitiveName' builtinMHComp
+    reportSDocDocs "tc.prim.bridges.refold" 30 (text "Entering primRefoldMhocom'")
+      [ "l  = " <+> (prettyTCM l)
+      , "bT = " <+> (prettyTCM bT)
+      , "sx = " <+> (prettyTCM $ unArg $ ignoreBlocking sx) ]
     case (unArg $ ignoreBlocking sx) of
       Def q [Apply l, Apply bA, Apply zeta, Apply u, Apply u0] | Just q == mhocom -> do
         i0 <- getTerm "" builtinIZero
@@ -2424,13 +2428,14 @@ primRefoldMhocom' = do
                 lam "i" $ \ i -> ilam "o" $ \ o -> u <@> i <..> (prsv <#> phi <..> o)
 
           res <- hcomp <#> l <#> bA <#> phi <@> refoldU <@> u0
-          reportSDocDocs "tc.prim.bridges.refold" 30 (text "In refoldMhocom, ")
-            [ "princ arg = " <+> (prettyTCM $ toExplicitArgs $ unArg $ ignoreBlocking sx)
-            , "res       = " <+> (prettyTCM $ toExplicitArgs res) ]
+          reportSDocDocs "tc.prim.bridges.refold" 30 (text "In refoldMhocom, hcomp res")
+            [ "res       = " <+> (prettyTCM $ toExplicitArgs res) ]
 
           return $ YesReduction YesSimplification $ res   
         
-      _ -> fallback sx
+      _ -> do
+        reportSDoc "tc.prim.bridges.refold" 30 (text "In refoldMhocom, we did not return hcomp")
+        fallback sx
 
   where
 

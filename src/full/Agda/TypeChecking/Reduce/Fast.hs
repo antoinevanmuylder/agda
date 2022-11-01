@@ -1179,10 +1179,12 @@ reduceTm rEnv bEnv !constInfo normalisation ReductionFlags{..} =
           --   fallbackAM $ Eval (Closure Unevaled (Def f []) emptyEnv (spine0 <> [Apply $ Arg i $ pureThunk cl] <> spine1)) ctrl
           -- The problem is that the above spine may not be big enough for f
           expr@(Def q es@[Apply l , Apply bA , Apply zeta , Apply u , Apply u0] )
-            | isMhocom q, isJust $ lookupCon hcomp bs,
-              Just hcomp <- bHComp bEnv, Just qrefold <- bRefoldMhocom bEnv -> do
+            | Just hcomp <- bHComp bEnv, Just qrefold <- bRefoldMhocom bEnv,
+              isMhocom q, isJust $ lookupCon hcomp bs -> do
                 let refolding = (Def qrefold []) `apply` [l, bA, Arg defaultArgInfo expr] --simplify: get hcomp or mhocom
                 case (runReduce $ simplify refolding) of
+                  Def q' es' | isMhocom q' ->
+                    __IMPOSSIBLE__
                   Def q' es'  -> do
                     spine' <- elimsToSpine env es'
                     runAM (evalValue blk (Def q []) emptyEnv (spine' <> spine) ctrl0)
