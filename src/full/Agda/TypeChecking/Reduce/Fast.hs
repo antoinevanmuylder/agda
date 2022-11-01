@@ -1161,6 +1161,7 @@ reduceTm rEnv bEnv !constInfo normalisation ReductionFlags{..} =
 
           -- Case: mhocom
           Def q [] | isMhocom q, Just hcomp <- bHComp bEnv, isJust $ lookupCon hcomp bs ->
+            -- TODO-antva. Problem: the reconstructed spine may be too short.
             fallbackAM $ Eval (Closure Unevaled (Def f []) emptyEnv (spine0 <> [Apply $ Arg i $ pureThunk cl] <> spine1)) ctrl
           -- Case: hcomp
           Def q [] | isJust $ lookupCon q bs -> matchCon' q (length spine) $ matchCatchall $ failedMatch f stack ctrl
