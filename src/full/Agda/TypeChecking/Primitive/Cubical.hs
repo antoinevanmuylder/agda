@@ -193,7 +193,7 @@ primHComp' = do
                         ilam "mprf" $ \ mprf -> --write reflectMCstr mprf
                         -- i:I, mprf:MHolds (i m∨ bno) ⊢ u i (reflect {phi} mprf)
                         (pure $ raise 2 utm) <@> i <..> ( (pure reflct) <#> (pure $ raise 2 phitm) <..> mprf )
-        return $ YesReduction NoSimplification $ mixhcomp `apply` [l, bA, Arg infPhi iotaPhi, Arg infU liftReflectU, u0] -- defaultArgInfo
+        return $ YesReduction NoSimplification $ mixhcomp `apply` [l, bA, Arg infPhi iotaPhi, Arg infU liftReflectU, u0]
 
 -- | Construct a helper for CCHM composition, with a string indicating
 -- what function uses it.
