@@ -66,6 +66,8 @@ import Agda.TypeChecking.Monad hiding (Closure(..))
 import Agda.TypeChecking.Reduce as R
 import Agda.TypeChecking.Rewriting (rewrite)
 import Agda.TypeChecking.Substitute
+import Agda.TypeChecking.Monad.Debug ( reportSDoc )
+import qualified Agda.TypeChecking.Pretty as TCP
 
 import Agda.Interaction.Options
 
@@ -1139,6 +1141,19 @@ reduceTm rEnv bEnv !constInfo normalisation ReductionFlags{..} =
     -- one of the other branches.
     runAM' (Eval cl@(Closure (Value blk) t env spine) ctrl0@(CaseK f i bs spine0 spine1 stack : ctrl)) =
       {-# SCC "runAM.CaseK" #-}
+      -- TODO-antva: remove garbage
+      -- let garbage = runReduce $
+      --       case t of
+      --         Def q es -> do
+      --           reportSDoc "tc.prim.bridges.refold" 30 $ TCP.text "Eval Value t + CaseK, t = Def q es info"
+      --           reportSDoc "tc.prim.bridges.refold" 30 $ TCP.nest 2 $ TCP.vcat
+      --             [ "bHComp bEnv = " TCP.<+> (TCP.prettyTCM $ bHComp bEnv)
+      --             , "bRefoldMhocom bEnv = " TCP.<+> (TCP.prettyTCM $ bRefoldMhocom bEnv)
+      --             , "isMhocom q = " TCP.<+> (TCP.prettyTCM $ isMhocom q) ]
+      --           return True
+      --         _ -> return True
+      -- in
+      -- if garbage then
       case blk of
         Blocked{} | null [()|Con{} <- [t]] -> stuck -- we might as well check the blocking tag first
         _ -> case t of
@@ -1175,23 +1190,32 @@ reduceTm rEnv bEnv !constInfo normalisation ReductionFlags{..} =
           -- Next time, we fall into the above @Def q []@ where q = hcomp;
           -- Or we are stuck.
           --
-          -- Before this, we were doing a bad fallback in a Def q [] case.
-          --   fallbackAM $ Eval (Closure Unevaled (Def f []) emptyEnv (spine0 <> [Apply $ Arg i $ pureThunk cl] <> spine1)) ctrl
+          -- Before this, we were doing a bad fallback in a Def q [] case.   
+          --   fallbackAM $ Eval (Closure Unevaled (Def f []) emptyEnv
+          --   (spine0 <> [Apply $ Arg i $ pureThunk cl] <> spine1)) ctrl
           -- The problem is that the above spine may not be big enough for f
           expr@(Def q es@[Apply l , Apply bA , Apply zeta , Apply u , Apply u0] )
-            | Just hcomp <- bHComp bEnv, Just qrefold <- bRefoldMhocom bEnv,
+            | Just hcomp <- bHComp bEnv, Just qrefold <- bRefoldMhocom bEnv, --rmber to declare refold in some .agda
               isMhocom q, isJust $ lookupCon hcomp bs -> do
-                let refolding = (Def qrefold []) `apply` [l, bA, Arg defaultArgInfo expr] --simplify: get hcomp or mhocom
-                case (runReduce $ simplify refolding) of
+                let refolding = runReduce $ do
+                      reportSDoc "tc.prim.bridges.refold" 30 $ TCP.text
+                        "in fast machine, before simplify $ refold"
+                      res <- simplify $ (Def qrefold []) `apply` [l, bA, Arg defaultArgInfo expr]
+                      reportSDoc "tc.prim.bridges.refold" 30 $ TCP.vcat
+                        [ TCP.text "in fast machine, res= simplify $ refold is:"
+                        , TCP.nest 2 $ TCP.prettyTCM res ]
+                      return res
+                case refolding of
                   Def q' es' | isMhocom q' ->
                     __IMPOSSIBLE__
                   Def q' es'  -> do
                     spine' <- elimsToSpine env es'
-                    runAM (evalValue blk (Def q []) emptyEnv (spine' <> spine) ctrl0)
+                    runAM (evalValue blk (Def q' []) emptyEnv (spine' <> spine) ctrl0)
                   _ -> __IMPOSSIBLE__ --refold of a mhocom is always a Def.
 
           -- Case: not constructor or literal. In this case we are stuck.
           _ -> stuck
+      
       where
         -- If ffallThrough is set we take the catch-all (if any) rather than being stuck. I think
         -- this happens for partial functions with --cubical (@saizan: is this true?).
