@@ -997,7 +997,8 @@ primMHComp' = do
     , "A    = " <+> prettyTCM (unArg bA)
     , "zeta = " <+> prettyTCM (unArg zeta)
     , "u    = " <+> prettyTCM (unArg u)
-    , "u0   = " <+> prettyTCM (unArg u0) ]
+    , "u0   = " <+> prettyTCM (unArg u0)
+    , "nelims=" <+> (return $ P.pretty nelims) ]
   sZeta <- reduceB' zeta
   vZeta <- mcstrView $ unArg $ ignoreBlocking sZeta
   let clP s = getTerm (builtinMHComp) s
@@ -1084,11 +1085,12 @@ primMHComp' = do
         Def q es -> do
           info <- getConstInfo q
           let   lam_i = Lam defaultArgInfo . Abs "i"
-
+            
           case theDef info of
             r@Record{recComp = kit}
-                | nelims > 0, Just as <- allApplyElims es, Just mhocomR <- nameOfMHComp kit
-                       -> redReturn $ (Def mhocomR []) `apply`
+                | nelims > 0, Just as <- allApplyElims es, Just mhocomR <- nameOfMHComp kit -> do
+                    reportSDoc "tc.prim.mhcomp.rec" 40 $ text "about to compute mhocom at record"
+                    redReturn $ (Def mhocomR []) `apply`
                                       (as ++ [ignoreBlocking sZeta, u, u0])
                 | Just as <- allApplyElims es, [] <- recFields r -> mhcompData l as sbA sZeta u u0
 

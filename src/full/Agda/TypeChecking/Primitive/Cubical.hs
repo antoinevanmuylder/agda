@@ -584,8 +584,16 @@ primTransHComp cmd ts nelims = do
                      else redReturn $ Def transpR [] `apply` (map (fmap lam_i) as ++ [ignoreBlocking sphi, u0])
 
                 -- Records know how to hcomp themselves:
-                | nelims > 0, Just as <- allApplyElims es, DoHComp <- cmd, Just hCompR <- nameOfHComp kit ->
-                  redReturn $ Def hCompR [] `apply` (as ++ [ignoreBlocking sphi, fromMaybe __IMPOSSIBLE__ u,u0])
+                | nelims > 0, Just as <- allApplyElims es, DoHComp <- cmd, Just hCompR <- nameOfHComp kit -> do
+                    reportSDoc "tc.prim.hcomp.rec" 20 $ text "About to compute hcomp at record type"
+                    reportSDoc "tc.prim.hcomp.rec" 20 $ nest 2 $ vcat
+                      [ "record name:" <+> (return $ P.pretty $ defName info)
+                      , "record: " <+> (prettyTCM $ unArg $ famThing bA)
+                      , "constr: " <+> (prettyTCM $ unArg phi)
+                      , "adjust: " <+> (prettyTCM $ caseMaybe u __IMPOSSIBLE__ $ \u -> unArg u )
+                      , "base  : " <+> (prettyTCM $ unArg u0)
+                      , "nelims: " <+> (return $ P.pretty nelims) ]
+                    redReturn $ Def hCompR [] `apply` (as ++ [ignoreBlocking sphi, fromMaybe __IMPOSSIBLE__ u,u0])
 
                 -- If this is a record with no fields, then compData
                 -- will know what to do with it:

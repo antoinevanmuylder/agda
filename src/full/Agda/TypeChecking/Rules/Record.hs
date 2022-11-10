@@ -427,6 +427,9 @@ defineCompKitR name params fsT fns rect = do
         , builtinItIsOne
         ]
   bridges <- optBridges <$> pragmaOptions
+  -- TODO-antva: but records typechecked while --cubical enabled might also
+  -- need mixed composition when we call them from a --bridges file.
+  -- is this a problem??
   reportSDoc "tc.rec.cxt" 30 $ prettyTCM params
   reportSDoc "tc.rec.cxt" 30 $ prettyTCM fsT
   reportSDoc "tc.rec.cxt" 30 $ pretty rect
