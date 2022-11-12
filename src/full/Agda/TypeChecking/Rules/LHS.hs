@@ -96,6 +96,8 @@ import Agda.Utils.Size
 import Agda.Utils.Tuple
 
 import Agda.Utils.Impossible
+import Agda.Utils.WithDefault
+import Agda.TypeChecking.Free (freeIn)
 
 --UNUSED Liang-Ting Chen 2019-07-16
 ---- | Compute the set of flexible patterns in a list of patterns. The result is
@@ -672,10 +674,12 @@ data LHSResult = LHSResult
     -- (Issue 2303).
   , lhsPartialSplit :: IntMap PartialSplit -- IntSet
     -- ^ have we done partial splits? cubical or bridges?
+  , lhsIndexedSplit :: Bool
+    -- ^ have we split on an indexed type?
   }
 
 instance InstantiateFull LHSResult where
-  instantiateFull' (LHSResult n tel ps abs t sub as psplit) = LHSResult n
+  instantiateFull' (LHSResult n tel ps abs t sub as psplit ixsplit) = LHSResult n
     <$> instantiateFull' tel
     <*> instantiateFull' ps
     <*> instantiateFull' abs
@@ -683,6 +687,7 @@ instance InstantiateFull LHSResult where
     <*> instantiateFull' sub
     <*> instantiateFull' as
     <*> pure psplit
+    <*> pure ixsplit
 
 -- | Check a LHS. Main function.
 --
@@ -721,7 +726,7 @@ checkLeftHandSide call f ps a withSub' strippedPats =
       eqs0 = zipWith3 ProblemEq (map namedArg cps) (map var $ downFrom $ size tel) (flattenTel tel)
 
   let finalChecks :: LHSState a -> TCM a
-      finalChecks (LHSState delta qs0 (Problem eqs rps _) b psplit) = do
+      finalChecks (LHSState delta qs0 (Problem eqs rps _) b psplit ixsplit) = do
 
         reportSDoc "tc.lhs.top" 20 $ vcat
           [ "lhs: final checks with remaining equations"
@@ -733,6 +738,22 @@ checkLeftHandSide call f ps a withSub' strippedPats =
 
         addContext delta $ do
           mapM_ noShadowingOfConstructors eqs
+
+          -- When working --without-K or --cubical-compatible, we have
+          -- to check that the target type can be used at the “ambient”
+          -- modality. For --cubical-compatible, this just improves an
+          -- error message (printing the type rather than the generated
+          -- RHS). For --without-K, it implements the same check without
+          -- necessarily generating --cubical code.
+          -- The reason for this check is that a clause
+          --    foo : x ≡ y → ... → T y
+          --    foo refl ... = ...
+          -- in Cubical mode, gets elaborated to an extra clause of the
+          -- form
+          --    foo (transp p φ x) ... = transp (λ i → T (p i)) φ (foo x ...)
+          -- (approximately), where T is the target type. That is: to
+          -- implement the substitution T[y/x], we use an actual
+          -- transport. See #5448.
 
         arity_a <- arityPiPath a
         -- Compute substitution from the out patterns @qs0@
@@ -801,7 +822,7 @@ checkLeftHandSide call f ps a withSub' strippedPats =
 
         let hasAbsurd = not . null $ absurds
 
-        let lhsResult = LHSResult (length cxt) delta qs hasAbsurd b patSub asb $ buildIntMap psplit -- (IntSet.fromList $ catMaybes psplit)
+        let lhsResult = LHSResult (length cxt) delta qs hasAbsurd b patSub asb (buildIntMap psplit) ixsplit
 
         -- Debug output
         reportSDoc "tc.lhs.top" 10 $
@@ -860,6 +881,80 @@ checkLeftHandSide call f ps a withSub' strippedPats =
   (result, block) <- unsafeInTopContext $ runWriterT $ (`runReaderT` (size cxt)) $ checkLHS f st
   return result
 
+-- | Check that this split will generate a modality-correct internal
+-- clause when --cubical-compatible is used. This means that the type of
+-- anything which might be transported must be modality-correct. This is
+-- necessarily an approximate check. We assume that any argument which
+-- (a) comes after and (b) mentions a dotted argument will be
+-- transported, which is probably an overestimate.
+conSplitModalityCheck
+  :: Modality
+  -- ^ Modality to check at
+  -> PatternSubstitution
+  -- ^ Substitution resulting from index unification. @Γ ⊢ ρ : Δ'@,
+  -- where @Δ'@ is the context we're in, and @Γ@ is the clause telescope
+  -- before unification.
+  -> Int       -- ^ Variable x at which we split
+  -> Telescope -- ^ The telescope @Γ@ itself
+  -> Type      -- ^ Target type of the clause.
+  -> TCM ()
+conSplitModalityCheck mod rho blocking gamma target = do
+  reportSDoc "tc.lhs.top" 30 $ vcat
+    [ "LHS modality check for modality: " <+> prettyTCM mod
+    , "rho:    " <+> inTopContext (prettyTCM rho)
+    , "gamma:  " <+> inTopContext (prettyTCM gamma)
+    , "target: " <+> prettyTCM target
+    , "blocking:" <+> prettyTCM blocking
+    ]
+  case firstForced rho (length gamma) of
+    Just ix -> do
+      let
+        (gamma0, delta) = splitTelescopeAt (length gamma - ix) gamma
+        name = inTopContext . addContext gamma . nameOfBV
+      reportSDoc "tc.lhs.top" 30 $ vcat
+        [ "found forced argument!"
+        , "forced: " <+> prettyTCM ix
+        , "before: " <+> inTopContext (prettyTCM gamma0)
+        , "after:  " <+> inTopContext (addContext gamma0 (prettyTCM delta))
+        ]
+      forced <- name ix
+      forM_ (zip [ix - 1, ix - 2 ..] (telToList delta)) $ \(arg, d) -> do
+        -- Example: The first argument after the first forced variable. So
+        -- we have e.g.:
+        --   Γ = Γ₀.x.Δ
+        --   Δ' ⊢ ρ : Γ₀.x.Δ
+        --   Γ₀ ⊢ x : Type
+        -- but we need
+        --   Δ' ⊢ x : Type,
+        -- since Δ' is the context we are in. Then we have
+        --   Γ ⊢ x[wkS |Δ|] : Type
+        -- and consequently
+        --   Δ' ⊢ x[wkS |Δ][ρ] : Type
+        let rho' = composeS rho (wkS (arg + 1) idS)
+        argn <- name arg
+        when (ix `freeIn` applySubst (wkS (arg + 1) idS) (snd <$> d) && arg /= blocking) $
+          usableAtModality (IndexedClauseArg forced argn) mod (applyPatSubst rho'  (unEl (snd (unDom d))))
+    Nothing -> pure ()
+
+  -- ALways check the target clause type. Specifically, we check it both
+  -- in Δ' and in Γ. The check in Δ' will sometimes let slip by a
+  -- quantity violation which is masked by an indexed match (recall that
+  -- the unifier likes to replace @0-variables for @ω-variables). A
+  -- concrete case where this happens is #5468. Check in Δ' first since
+  -- that will have the forced variable names.
+  usableAtModality IndexedClause mod (unEl (applyPatSubst rho target))
+  inTopContext $ addContext gamma $ usableAtModality IndexedClause mod (unEl target)
+  where
+    -- Find the first dotted pattern in the substitution. "First" =
+    -- "earliest bound", so counts down from the length of the
+    -- telescope.
+    firstForced :: PatternSubstitution -> Int -> Maybe Int
+    firstForced pat level
+      | level >= 0 = case lookupS pat level of
+        DotP{} -> Just level
+        _ -> firstForced pat (level - 1)
+      | otherwise = Nothing
+
 -- | Determine which splits should be tried.
 splitStrategy :: [ProblemEq] -> [ProblemEq]
 splitStrategy = filter shouldSplit
@@ -909,7 +1004,7 @@ checkLHS mf = updateModality checkLHS_ where
   
     -- If the target type is irrelevant or in Prop,
     -- we need to check the lhs in irr. cxt. (see Issue 939).
- updateModality cont st@(LHSState tel ip problem target psplit) = do
+ updateModality cont st@(LHSState tel ip problem target psplit _) = do
       let m = getModality target
       applyModalityToContext m $ do
         cont $ over (lhsTel . listTel)
@@ -917,7 +1012,7 @@ checkLHS mf = updateModality checkLHS_ where
         -- Andreas, 2018-10-23, issue #3309
         -- the modalities in the clause telescope also need updating.
 
- checkLHS_ st@(LHSState tel ip problem target psplit) = do
+ checkLHS_ st@(LHSState tel ip problem target psplit ixsplit) = do
   reportSDoc "tc.lhs" 40 $ "in checkLHS_"
   reportSDoc "tc.lhs" 40 $ "tel is" <+> prettyTCM tel
   reportSDoc "tc.lhs" 40 $ "ip is" <+> pretty ip
@@ -1040,7 +1135,7 @@ checkLHS mf = updateModality checkLHS_ where
           ip'      = ip ++ [projP]
           -- drop the projection pattern (already splitted)
           problem' = over problemRestPats tail problem
-      liftTCM $ updateLHSState (LHSState tel ip' problem' target' psplit)
+      liftTCM $ updateLHSState (LHSState tel ip' problem' target' psplit ixsplit)
 
 
     -- | delegates splitting for cubical partial (Partial) or bridge partial (BPartial) or mixed partial (MPartial)
@@ -1081,7 +1176,7 @@ checkLHS mf = updateModality checkLHS_ where
                      -> ExceptT TCErr tcm (LHSState a)
     splitMPartial delta1 dom adelta2 ts = do
 
-      unless (domFinite dom) $ liftTCM $ addContext delta1 $
+      unless (domIsFinite dom) $ liftTCM $ addContext delta1 $
         softTypeError . GenericDocError =<<
         hsep [ "Not a finite domain:" , prettyTCM $ unDom dom ]
 
@@ -1190,7 +1285,7 @@ checkLHS mf = updateModality checkLHS_ where
           -- Compute the new state
           let problem' = set problemEqs eqs' problem
           -- reportSDoc "tc.lhs.split.partial" 60 $ text (show problem')
-          liftTCM $ updateLHSState (LHSState delta' ip' problem' target' (psplit ++ [Just $ MPsplit o_n]))
+          liftTCM $ updateLHSState (LHSState delta' ip' problem' target' (psplit ++ [Just $ MPsplit o_n]) ixsplit)
 
         True -> do--pattern matching on path constraints
           (gamma,sigma) <- liftTCM $ updateContext cpSub (const newContext) $ do
@@ -1223,7 +1318,7 @@ checkLHS mf = updateModality checkLHS_ where
              phi <- reduce phi
              reportSDoc "tc.lhs.split.partial" 10 $ text "phi (reduced) =" <+> prettyTCM phi
              refined <- forallFaceMaps phi (\ bs m t -> typeError $ GenericError $ "face blocked on meta")
-                                (\ sigma -> (,sigma) <$> getContextTelescope)
+                                (\ _ sigma -> (,sigma) <$> getContextTelescope)
              case refined of
                [(gamma,sigma)] -> return (gamma,sigma)
                []              -> typeError $ GenericError $ "The face constraint is unsatisfiable."
@@ -1268,8 +1363,7 @@ checkLHS mf = updateModality checkLHS_ where
           -- Compute the new state
           let problem' = set problemEqs eqs' problem
           reportSDoc "tc.lhs.split.partial" 60 $ text (show problem')
-          liftTCM $ updateLHSState (LHSState delta' ip' problem' target' (psplit ++ [Just $ MPsplit o_n]))
-
+          liftTCM $ updateLHSState (LHSState delta' ip' problem' target' (psplit ++ [Just $ MPsplit o_n]) ixsplit)
 
 
     -- | inspired from splitPartial
@@ -1280,7 +1374,7 @@ checkLHS mf = updateModality checkLHS_ where
                      -> ExceptT TCErr tcm (LHSState a)
     splitBPartial delta1 dom adelta2 ts = do
 
-      unless (domFinite dom) $ liftTCM $ addContext delta1 $
+      unless (domIsFinite dom) $ liftTCM $ addContext delta1 $
         softTypeError . GenericDocError =<<
         hsep [ "Not a finite domain:" , prettyTCM $ unDom dom ]
 
@@ -1380,7 +1474,7 @@ checkLHS mf = updateModality checkLHS_ where
       -- Compute the new state
       let problem' = set problemEqs eqs' problem
       -- reportSDoc "tc.lhs.split.partial" 60 $ text (show problem')
-      liftTCM $ updateLHSState (LHSState delta' ip' problem' target' (psplit ++ [Just $ BPsplit o_n whichCstr]))
+      liftTCM $ updateLHSState (LHSState delta' ip' problem' target' (psplit ++ [Just $ BPsplit o_n whichCstr]) ixsplit)
 
 
     -- Split a Partial.
@@ -1440,9 +1534,9 @@ checkLHS mf = updateModality checkLHS_ where
                  -> ExceptT TCErr tcm (LHSState a)
     splitPartial delta1 dom adelta2 ts = do
 
-      unless (domFinite dom) $ liftTCM $ addContext delta1 $
+      unless (domIsFinite dom) $ liftTCM $ addContext delta1 $
         softTypeError . GenericDocError =<<
-        hsep [ "Not a finite domain:" , prettyTCM $ unDom dom ]
+        vcat [ "Splitting on partial elements is only allowed at the type Partial, but the domain here is" , nest 2 $ prettyTCM $ unDom dom ]
 
       tInterval <- liftTCM $ primIntervalType
 
@@ -1506,7 +1600,7 @@ checkLHS mf = updateModality checkLHS_ where
          phi <- reduce phi
          reportSDoc "tc.lhs.split.partial" 10 $ text "phi (reduced) =" <+> prettyTCM phi
          refined <- forallFaceMaps phi (\ bs m t -> typeError $ GenericError $ "face blocked on meta")
-                            (\ sigma -> (,sigma) <$> getContextTelescope)
+                            (\_ sigma -> (,sigma) <$> getContextTelescope)
          case refined of
            [(gamma,sigma)] -> return (gamma,sigma)
            []              -> typeError $ GenericError $ "The face constraint is unsatisfiable."
@@ -1550,7 +1644,7 @@ checkLHS mf = updateModality checkLHS_ where
       -- Compute the new state
       let problem' = set problemEqs eqs' problem
       reportSDoc "tc.lhs.split.partial" 60 $ text (show problem')
-      liftTCM $ updateLHSState (LHSState delta' ip' problem' target' (psplit ++ [Just $ CPsplit o_n]))
+      liftTCM $ updateLHSState (LHSState delta' ip' problem' target' (psplit ++ [Just $ CPsplit o_n]) ixsplit)
 
 
     splitLit :: Telescope      -- The types of arguments before the one we split on
@@ -1589,7 +1683,7 @@ checkLHS mf = updateModality checkLHS_ where
 
       -- Compute the new state
       let problem' = set problemEqs eqs' problem
-      liftTCM $ updateLHSState (LHSState delta' ip' problem' target' psplit)
+      liftTCM $ updateLHSState (LHSState delta' ip' problem' target' psplit ixsplit)
 
 
     splitCon :: Telescope      -- The types of arguments before the one we split on
@@ -1631,6 +1725,15 @@ checkLHS mf = updateModality checkLHS_ where
 
       unlessM (splittableCohesion info) $
         addContext delta1 $ softTypeError $ SplitOnUnusableCohesion dom
+
+      -- Should we attempt to compute a left inverse for this clause? When
+      -- --cubical-compatible --flat-split is given, we don't generate a
+      -- left inverse (at all). This means that, when the coverage checker
+      -- gets to the clause this was in, it won't generate a (malformed!)
+      -- transpX clause for @♭ matching.
+      -- TODO(Amy): properly support transpX when @♭ stuff is in the
+      -- context.
+      let genTrx = boolToMaybe ((getCohesion info == Flat)) SplitOnFlat
 
       -- We should be at a data/record type
       (dr, d, pars, ixs) <- addContext delta1 $ isDataOrRecordType a
@@ -1744,7 +1847,7 @@ checkLHS mf = updateModality checkLHS_ where
       -- Andrea 2019-07-17 propagate the Cohesion to the equation telescope
       -- TODO: should we propagate the modality in general?
       -- See also Coverage checking.
-      da' <- do
+      da' <- addContext delta1Gamma $ do
              let updCoh = composeCohesion (getCohesion info)
              TelV tel dt <- telView da'
              return $ abstract (mapCohesion updCoh <$> tel) a
@@ -1752,7 +1855,7 @@ checkLHS mf = updateModality checkLHS_ where
       let stuck b errs = softTypeError $ SplitError $
             UnificationStuck b (conName c) (delta1 `abstract` gamma) cixs ixs' errs
 
-      liftTCM (withKIfStrict $ unifyIndices delta1Gamma flex da' cixs ixs') >>= \case
+      liftTCM (withKIfStrict $ unifyIndices genTrx delta1Gamma flex da' cixs ixs') >>= \case
 
         -- Mismatch.  Report and abort.
         NoUnify neg -> hardTypeError $ ImpossibleConstructor (conName c) neg
@@ -1842,9 +1945,15 @@ checkLHS mf = updateModality checkLHS_ where
                      Quantity1{} -> __IMPOSSIBLE__
                      Quantityω{} -> q
 
+          liftTCM $ addContext delta' $ do
+            withoutK <- collapseDefault . optWithoutK <$> pragmaOptions
+            cubical <- collapseDefault . optCubicalCompatible <$> pragmaOptions
+            when ((withoutK || cubical) && not (null ixs)) $
+              conSplitModalityCheck (getModality target) rho (length delta2) tel (unArg target)
+
           -- if rest type reduces,
           -- extend the split problem by previously not considered patterns
-          st' <- liftTCM $ updateLHSState $ LHSState delta' ip' problem' target'' psplit
+          st' <- liftTCM $ updateLHSState $ LHSState delta' ip' problem' target'' psplit (ixsplit || not (null ixs))
 
           reportSDoc "tc.lhs.top" 12 $ sep
             [ "new problem from rest"

@@ -21,7 +21,7 @@ import Agda.Utils.Permutation
 import Agda.Utils.Impossible
 
 instance EmbPrj a => EmbPrj (Dom a) where
-  icod_ (Dom a b c d e) = icodeN' Dom a b c d e
+  icod_ (Dom a c d e f) = icodeN' Dom a c d e f
 
   value = valueN Dom
 
@@ -369,11 +369,11 @@ instance EmbPrj EtaEquality where
     valu [1,a] = valuN Inferred a
     valu _     = malformed
 
+instance EmbPrj ProjectionLikenessMissing
+
 instance EmbPrj Defn where
   icod_ (Axiom       a)                                 = icodeN 0 Axiom a
-  icod_ (Function    a b s t (_:_) c d e f g h i j k)   = __IMPOSSIBLE__
-  icod_ (Function    a b s t []    c d e f g h i j k)   =
-    icodeN 1 (\ a b s -> Function a b s t []) a b s c d e f g h i j k
+  icod_ (Function    a b s t u c d e f g h i j k l)     = icodeN 1 (\ a b s -> Function a b s t) a b s u c d e f g h i j k l
   icod_ (Datatype    a b c d e f g h i j)               = icodeN 2 Datatype a b c d e f g h i j
   icod_ (Record      a b c d e f g h i j k l m)         = icodeN 3 Record a b c d e f g h i j k l m
   icod_ (Constructor a b c d e f g h i j)               = icodeN 4 Constructor a b c d e f g h i j
@@ -384,15 +384,15 @@ instance EmbPrj Defn where
   icod_ DataOrRecSig{}                                  = __IMPOSSIBLE__
 
   value = vcase valu where
-    valu [0, a]                                     = valuN Axiom a
-    valu [1, a, b, s, c, d, e, f, g, h, i, j, k]    = valuN (\ a b s -> Function a b s Nothing []) a b s c d e f g h i j k
-    valu [2, a, b, c, d, e, f, g, h, i, j]          = valuN Datatype a b c d e f g h i j
-    valu [3, a, b, c, d, e, f, g, h, i, j, k, l, m] = valuN Record   a b c d e f g h i j k l m
-    valu [4, a, b, c, d, e, f, g, h, i, j]          = valuN Constructor a b c d e f g h i j
-    valu [5, a, b, c, d, e]                         = valuN Primitive   a b c d e
-    valu [6, a, b]                                  = valuN PrimitiveSort a b
-    valu [7]                                        = valuN GeneralizableVar
-    valu _                                          = malformed
+    valu [0, a]                                        = valuN Axiom a
+    valu [1, a, b, s, u, c, d, e, f, g, h, i, j, k, l] = valuN (\ a b s -> Function a b s Nothing) a b s u c d e f g h i j k l
+    valu [2, a, b, c, d, e, f, g, h, i, j]             = valuN Datatype a b c d e f g h i j
+    valu [3, a, b, c, d, e, f, g, h, i, j, k, l, m]    = valuN Record   a b c d e f g h i j k l m
+    valu [4, a, b, c, d, e, f, g, h, i, j]             = valuN Constructor a b c d e f g h i j
+    valu [5, a, b, c, d, e]                            = valuN Primitive   a b c d e
+    valu [6, a, b]                                     = valuN PrimitiveSort a b
+    valu [7]                                           = valuN GeneralizableVar
+    valu _                                             = malformed
 
 instance EmbPrj LazySplit where
   icod_ StrictSplit = icodeN' StrictSplit
@@ -455,22 +455,13 @@ instance EmbPrj CompiledClauses where
     valu [2, a, b] = valuN Case a b
     valu _         = malformed
 
-instance EmbPrj WhenInjective where
-  icod_ AlwaysInjective = icodeN 0 AlwaysInjective
-  icod_ UnlessCubical   = icodeN 1 UnlessCubical
-
-  value = vcase valu where
-    valu [0] = valuN AlwaysInjective
-    valu [1] = valuN UnlessCubical
-    valu _   = malformed
-
 instance EmbPrj a => EmbPrj (FunctionInverse' a) where
   icod_ NotInjective = icodeN' NotInjective
-  icod_ (Inverse w a)  = icodeN' Inverse w a
+  icod_ (Inverse a)  = icodeN' Inverse a
 
   value = vcase valu where
     valu []  = valuN NotInjective
-    valu [w,a] = valuN Inverse w a
+    valu [a] = valuN Inverse a
     valu _   = malformed
 
 instance EmbPrj TermHead where

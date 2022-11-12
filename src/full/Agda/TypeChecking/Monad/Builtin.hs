@@ -130,7 +130,7 @@ getBuiltinRewriteRelations = fmap rels <$> getBuiltinThing builtinRewrite
     Prim{}    -> __IMPOSSIBLE__
     Builtin{} -> __IMPOSSIBLE__
 
-getBuiltin :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m)
+getBuiltin :: (HasBuiltins m, MonadTCError m)
            => String -> m Term
 getBuiltin x =
   fromMaybeM (typeError $ NoBindingForBuiltin x) $ getBuiltin' x
@@ -551,23 +551,18 @@ data SortKit = SortKit
   , nameOfSetOmega :: IsFibrant -> QName
   }
 
--- | Compute a 'SortKit' in an environment that supports failures. When
--- 'optLoadPrimitives' is set to 'False', 'sortKit' is a fallible
--- operation, so for the uses of 'sortKit' in fallible contexts (e.g.
--- 'TCM'), we report a type error rather than exploding.
+-- | Compute a 'SortKit' in an environment that supports failures.
+--
+-- When 'optLoadPrimitives' is set to 'False', 'sortKit' is a fallible operation,
+-- so for the uses of 'sortKit' in fallible contexts (e.g. 'TCM'),
+-- we report a type error rather than exploding.
 sortKit :: (HasBuiltins m, MonadTCError m, HasOptions m) => m SortKit
 sortKit = do
-  loadPrim <- optLoadPrimitives <$> pragmaOptions
-  let
-    -- When '--no-load-primitives', recover by throwing a TC error.
-    recover s
-      | not loadPrim = typeError (GenericDocError ("Agda will not function without a binding for BUILTIN " <> s))
-      | otherwise = __IMPOSSIBLE__
-  Def set      _  <- maybe (recover "TYPE") pure           =<< getBuiltin' builtinSet
-  Def prop     _  <- maybe (recover "PROP") pure           =<< getBuiltin' builtinProp
-  Def setomega _  <- maybe (recover "SETOMEGA") pure       =<< getBuiltin' builtinSetOmega
-  Def sset     _  <- maybe (recover "STRICTSET") pure      =<< getBuiltin' builtinStrictSet
-  Def ssetomega _ <- maybe (recover "STRICTSETOMEGA") pure =<< getBuiltin' builtinSSetOmega
+  Def set      _  <- getBuiltin builtinSet
+  Def prop     _  <- getBuiltin builtinProp
+  Def setomega _  <- getBuiltin builtinSetOmega
+  Def sset     _  <- getBuiltin builtinStrictSet
+  Def ssetomega _ <- getBuiltin builtinSSetOmega
   return $ SortKit
     { nameOfSet      = set
     , nameOfProp     = prop
@@ -881,11 +876,18 @@ equalityView t0@(El s t) = do
 --
 --   Postcondition: type is reduced.
 
-equalityUnview :: EqualityView -> Type
-equalityUnview (OtherType t) = t
-equalityUnview (IdiomType t) = t
-equalityUnview (EqualityType s equality l t lhs rhs) =
-  El s $ Def equality $ map Apply (l ++ [t, lhs, rhs])
+class EqualityUnview a where
+  equalityUnview :: a -> Type
+
+instance EqualityUnview EqualityView where
+  equalityUnview = \case
+    OtherType t -> t
+    IdiomType t -> t
+    EqualityViewType eqt -> equalityUnview eqt
+
+instance EqualityUnview EqualityTypeData where
+  equalityUnview (EqualityTypeData s equality l t lhs rhs) =
+    El s $ Def equality $ map Apply (l ++ [t, lhs, rhs])
 
 -- | Primitives with typechecking constrants generated when tc-ing an application
 constrainedPrims :: [String]

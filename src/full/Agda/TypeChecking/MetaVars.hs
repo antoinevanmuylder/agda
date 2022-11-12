@@ -628,26 +628,6 @@ problemType (CheckProjAppToKnownPrincipalArg _ _ _ _ _ t _ _ _ _) = t -- The tar
 problemType (CheckLambda _ _ _ t     ) = t
 problemType (DoQuoteTerm _ _ t)        = t
 
--- | Eta expand metavariables listening on the current meta.
-etaExpandListeners :: MetaId -> TCM ()
-etaExpandListeners m = do
-  ls <- getMetaListeners m
-  clearMetaListeners m  -- we don't really have to do this
-  mapM_ wakeupListener ls
-
--- | Wake up a meta listener and let it do its thing
-wakeupListener :: Listener -> TCM ()
-  -- Andreas 2010-10-15: do not expand record mvars, lazyness needed for irrelevance
-wakeupListener (EtaExpand x)         = etaExpandMetaSafe x
-wakeupListener (CheckConstraint _ c) = do
-  reportSDoc "tc.meta.blocked" 20 $ "waking boxed constraint" <+> prettyTCM c
-  modifyAwakeConstraints (c:)
-  solveAwakeConstraints
-
--- | Do safe eta-expansions for meta (@SingletonRecords,Levels@).
-etaExpandMetaSafe :: (MonadMetaSolver m) => MetaId -> m ()
-etaExpandMetaSafe = etaExpandMeta [SingletonRecords,Levels]
-
 -- | Eta-expand a local meta-variable, if it is of the specified kind.
 --   Don't do anything if the meta-variable is a blocked term.
 etaExpandMetaTCM :: [MetaKind] -> MetaId -> TCM ()
@@ -687,7 +667,7 @@ etaExpandMetaTCM kinds m = whenM ((not <$> isFrozen m) `and2M` asksTC envAssignM
         -- they go unsolved: conversion will compare them at the
         -- different cases for the domain, so it will not find the
         -- solution for the whole meta.
-        if any domFinite (flattenTel tel) then dontExpand else do
+        if any domIsFinite (flattenTel tel) then dontExpand else do
 
         -- Issue #3774: continue with the right context for b
         addContext tel $ do
@@ -1094,10 +1074,12 @@ assign dir x args v target = addOrUnblocker (unblockOnMeta x) $ do
       let success = killResult `elem` [PrunedSomething,PrunedEverything]
       reportSDoc "tc.meta.assign" 10 $
         "pruning" <+> prettyTCM x <+> do text $ if success then "succeeded" else "failed"
-      patternViolation (if success then alwaysUnblock  -- If pruning succeeded we want to retry right away
-                                   else unblockOnAnyMetaIn $ MetaV x $ map Apply args)
-                                        -- TODO: could be more precise: only unblock on metas
-                                        --       applied to offending variables
+      blocker <- if
+        | success   -> return alwaysUnblock  -- If pruning succeeded we want to retry right away
+        | otherwise -> unblockOnAnyMetaIn . MetaV x . map Apply <$> instantiateFull args
+             -- TODO: could be more precise: only unblock on metas
+             --       applied to offending variables
+      patternViolation blocker
 
 {- UNUSED
 -- | When faced with @_X us == D vs@ for an inert D we can solve this by

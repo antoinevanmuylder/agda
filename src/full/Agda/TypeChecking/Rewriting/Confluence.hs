@@ -487,7 +487,7 @@ makeHead def a = case theDef def of
   -- For record projections @f : R Δ → A@, we rely on the invariant
   -- that any clause is fully general in the parameters, i.e. it
   -- is quantified over the parameter telescope @Δ@
-  Function { funProjection = Just proj } -> do
+  Function { funProjection = Right proj } -> do
     let f          = projOrig proj
         r          = unArg $ projFromType proj
     rtype <- defType <$> getConstInfo r
@@ -873,7 +873,7 @@ instance AllHoles [PlusLevel] where
 instance AllHoles PlusLevel where
   type PType PlusLevel = ()
   allHoles _ (Plus n l) = do
-    la <- levelType
+    la <- levelType'
     fmap (Plus n) <$> allHoles la l
 
 

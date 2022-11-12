@@ -80,22 +80,24 @@ prettyHiding a parens =
     NotHidden  -> parens
 
 prettyRelevance :: LensRelevance a => a -> Doc -> Doc
-prettyRelevance a d =
-  if render d == "_" then d else pretty (getRelevance a) <> d
+prettyRelevance a = (pretty (getRelevance a) <>)
 
 prettyQuantity :: LensQuantity a => a -> Doc -> Doc
-prettyQuantity a d =
-  if render d == "_" then d else pretty (getQuantity a) <+> d
+prettyQuantity a = (pretty (getQuantity a) <+>)
 
 prettyErased :: Erased -> Doc -> Doc
 prettyErased = prettyQuantity . asQuantity
 
 prettyCohesion :: LensCohesion a => a -> Doc -> Doc
-prettyCohesion a d =
-  if render d == "_" then d else pretty (getCohesion a) <+> d
+prettyCohesion a = (pretty (getCohesion a) <+>)
 
 prettyTactic :: BoundName -> Doc -> Doc
 prettyTactic = prettyTactic' . bnameTactic
+
+prettyFiniteness :: BoundName -> Doc -> Doc
+prettyFiniteness name
+  | bnameIsFinite name = ("@finite" <+>)
+  | otherwise = id
 
 prettyTactic' :: TacticAttribute -> Doc -> Doc
 prettyTactic' Nothing  d = d
@@ -150,6 +152,28 @@ instance Pretty Modality where
     , pretty (getQuantity mod)
     , pretty (getCohesion mod)
     ]
+
+-- | Show the attributes necessary to recover a modality, in long-form
+-- (e.g. using at-syntax rather than dots). For the default modality,
+-- the result is at-ω (rather than the empty document). Suitable for
+-- showing modalities outside of binders.
+attributesForModality :: Modality -> Doc
+attributesForModality mod
+  | mod == defaultModality = text "@ω"
+  | otherwise = fsep $ catMaybes [relevance, quantity, cohesion]
+  where
+    relevance = case getRelevance mod of
+      Relevant   -> Nothing
+      Irrelevant -> Just "@irrelevant"
+      NonStrict  -> Just "@shape-irrelevant"
+    quantity = case getQuantity mod of
+      Quantity0{} -> Just "@0"
+      Quantity1{} -> Just "@1"
+      Quantityω{} -> Nothing
+    cohesion = case getCohesion mod of
+      Flat{}       -> Just "@♭"
+      Continuous{} -> Nothing
+      Squash{}     -> Just "@⊤"
 
 instance Pretty (OpApp Expr) where
   pretty (Ordinary e) = pretty e
@@ -216,8 +240,6 @@ instance Pretty Expr where
             Rec _ xs  -> sep ["record", bracesAndSemicolons (map pretty xs)]
             RecUpdate _ e xs ->
               sep ["record" <+> pretty e, bracesAndSemicolons (map pretty xs)]
-            ETel []  -> "()"
-            ETel tel -> fsep $ map pretty tel
             Quote _ -> "quote"
             QuoteTerm _ -> "quoteTerm"
             Unquote _  -> "unquote"
@@ -300,6 +322,7 @@ instance Pretty TypedBinding where
     pretty (TBind _ xs e) = fsep
       [ prettyRelevance y
         $ prettyHiding y parens
+        $ prettyFiniteness (binderName $ namedArg y)
         $ prettyCohesion y
         $ prettyQuantity y
         $ prettyTactic (binderName $ namedArg y) $
@@ -581,6 +604,8 @@ instance Pretty Pragma where
       hsep $ ["INJECTIVE", pretty i]
     pretty (InlinePragma _ True i) =
       hsep $ ["INLINE", pretty i]
+    pretty (NotProjectionLikePragma _ i) =
+      hsep $ ["NOT_PROJECTION_LIKE", pretty i]
     pretty (InlinePragma _ False i) =
       hsep $ ["NOINLINE", pretty i]
     pretty (ImpossiblePragma _ strs) =

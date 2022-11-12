@@ -31,6 +31,7 @@ import Prelude hiding ( null )
 
 import Control.Applicative ( (<|>) )
 import Control.Monad
+import Control.Monad.State
 
 import Data.Bifunctor (first, second)
 import Data.Char
@@ -168,6 +169,7 @@ import Agda.Utils.Impossible
     'NO_UNIVERSE_CHECK'       { TokKeyword KwNO_UNIVERSE_CHECK $$ }
     'NON_TERMINATING'         { TokKeyword KwNON_TERMINATING $$ }
     'NON_COVERING'            { TokKeyword KwNON_COVERING $$ }
+    'NOT_PROJECTION_LIKE'     { TokKeyword KwNOT_PROJECTION_LIKE $$ }
     'OPTIONS'                 { TokKeyword KwOPTIONS $$ }
     'POLARITY'                { TokKeyword KwPOLARITY $$ }
     'WARNING_ON_USAGE'        { TokKeyword KwWARNING_ON_USAGE $$ }
@@ -296,6 +298,7 @@ Token
     | 'NO_UNIVERSE_CHECK'       { TokKeyword KwNO_UNIVERSE_CHECK $1 }
     | 'NON_TERMINATING'         { TokKeyword KwNON_TERMINATING $1 }
     | 'NON_COVERING'            { TokKeyword KwNON_COVERING $1 }
+    | 'NOT_PROJECTION_LIKE'     { TokKeyword KwNOT_PROJECTION_LIKE $1 }
     | 'OPTIONS'                 { TokKeyword KwOPTIONS $1 }
     | 'POLARITY'                { TokKeyword KwPOLARITY $1 }
     | 'REWRITE'                 { TokKeyword KwREWRITE $1 }
@@ -854,7 +857,7 @@ LamBindings
   : LamBinds '->' {%
       case absurdBinding $1 of
         Just{}  -> parseError "Absurd lambda cannot have a body."
-        Nothing -> return $ List1.fromList __IMPOSSIBLE__ $ lamBindings $1
+        Nothing -> return $ List1.fromListSafe __IMPOSSIBLE__ $ lamBindings $1
       }
 
 AbsurdLamBindings :: { Either ([LamBinding], Hiding) (List1 Expr) }
@@ -1518,6 +1521,7 @@ DeclarationPragma
   | NonTerminatingPragma     { $1 }
   | NoTerminationCheckPragma { $1 }
   | NonCoveringPragma        { $1 }
+  | NotProjectionLikePragma  { $1 }
   | WarningOnUsagePragma     { $1 }
   | WarningOnImportPragma    { $1 }
   | MeasurePragma            { $1 }
@@ -1573,6 +1577,11 @@ NoInlinePragma :: { Pragma }
 NoInlinePragma
   : '{-#' 'NOINLINE' PragmaQName '#-}'
     { InlinePragma (getRange ($1,$2,$3,$4)) False $3 }
+
+NotProjectionLikePragma :: { Pragma }
+NotProjectionLikePragma
+  : '{-#' 'NOT_PROJECTION_LIKE' PragmaQName '#-}'
+    { NotProjectionLikePragma (getRange ($1,$2,$3,$4)) $3 }
 
 InjectivePragma :: { Pragma }
 InjectivePragma
@@ -2395,8 +2404,15 @@ instance SetRange Attr where
 
 -- | Parse an attribute.
 toAttribute :: Expr -> Parser Attr
-toAttribute x = maybe failure (return . Attr (getRange x) y) $ exprToAttribute x
+toAttribute x = do
+  attr <- maybe failure (return . Attr r y) $ exprToAttribute x
+  case theAttr attr of
+    CohesionAttribute{} ->
+      modify' (\s -> s { parseCohesion = (y, r) : parseCohesion s })
+    _                   -> return ()
+  return attr
   where
+  r = getRange x
   y = prettyShow x
   failure = parseErrorRange x $ "Unknown attribute: " ++ y
 

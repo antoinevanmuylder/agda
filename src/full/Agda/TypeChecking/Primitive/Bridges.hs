@@ -600,7 +600,7 @@ primBPartial' = do
           (El s (Pi d b)) <- runNamesT [] $ do
                              [l,a,psi] <- mapM (open . unArg) [l,a,psi]
                              elSSet (pure tbholds <@> psi) --> el' l a
-          redReturn $ Pi (setRelevance Irrelevant $ d { domFinite = True }) b
+          redReturn $ Pi (setRelevance Irrelevant $ d { domIsFinite = True }) b
       _ -> __IMPOSSIBLE__
 
 
@@ -806,7 +806,7 @@ primMPartial' = do
           (El s (Pi d b)) <- runNamesT [] $ do
                              [l, bA, ζ] <- mapM (open . unArg) [l, bA, ζ]
                              elSSet (pure mholds <@> ζ) --> el' l bA
-          redReturn $ Pi (setRelevance Irrelevant $ d { domFinite = True }) b
+          redReturn $ Pi (setRelevance Irrelevant $ d { domIsFinite = True }) b
       _ -> __IMPOSSIBLE__
 
 
@@ -914,7 +914,7 @@ primMPartialP' = do
         nPi' "A" (mpPi' "o" zeta $ \ _ -> el' (cl primLevelSuc <@> l) (Sort . tmSort <$> l)) $ \ bA ->
         (sort . tmSSort <$> l))
   let toFinitePi :: Type -> Term
-      toFinitePi (El _ (Pi d b)) = Pi (setRelevance Irrelevant $ d { domFinite = True }) b
+      toFinitePi (El _ (Pi d b)) = Pi (setRelevance Irrelevant $ d { domIsFinite = True }) b
       toFinitePi _               = __IMPOSSIBLE__
   v <- runNamesT [] $
         lam "l" $ \ l ->
@@ -1103,7 +1103,6 @@ primMHComp' = do
 
         _ -> fallback
         
-
 
 mhcompPi :: (Dom Type, Abs Type)
          -- ^ Γ ⊢ a, b. dom and cod of the Pi type at hand.
