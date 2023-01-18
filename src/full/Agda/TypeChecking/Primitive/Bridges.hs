@@ -451,9 +451,20 @@ prim_ungel' = do
               reportSLn "tc.prim.ungel" 30 $ "in prim_ungel': lam mgel case."
               reportSLn "tc.prim.ungel" 30 $ "in prim_ungel': here is absQ local body: " ++ psh (ignoreBlocking body')
               reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. absQ is x.gel, here is P before str: " ++ psh bP
-              let strP = applySubst (strengthenS impossible 1) $ unArg bP
+
+              -- were about to strenghten P. But it might contain easily solvable metas
+              -- that have a vaccuous dependency on db var @0 (bridge var from underAbstractionAbs).
+              -- So we first solve everything that can be, and then proceed to strengthening.
+              instaP <- traverseF instantiateFull bP
+              ctx <- getContextTelescope
+              reportSDoc "tc.prim.ungel" 30 $ "instaP ctx: " <+> (prettyTCM ctx)
+              reportSLn "tc.prim.ungel" 30 $ "instaP: " ++ psh instaP
+              reportSDoc "tc.prim.ungel" 30 $ "instaP pretty: " <+> (prettyTCM instaP)
+
+              let strP = applySubst (strengthenS __IMPOSSIBLE__ 1) $ unArg instaP
               reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. absQ is x.gel, here is P after str: " ++ psh strP
               redReturn strP
+              
             _ -> do
               reportSLn "tc.prim.ungel" 30 $ "in prim_ungel': lam no-mgel case."
               let lamBody' :: Blocked (Arg Term)
