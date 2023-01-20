@@ -1851,8 +1851,8 @@ transpBridgeP l (bA, x , y) phi u0 = do
                 [ (phiAsMixed phi, ilam "o" (\o -> u0 <@@> (x <@> pure iz, y <@> pure iz, j)))
                 -- Note that here we have lines of endpoints which we must
                 -- apply to fix the endpoints:
-                , (pure bisone <@> j, ilam "_" (const (y <@> i)))
-                , (pure biszero <@> j, ilam "_" (const (x <@> i)))
+                , (bvarOne j, ilam "_" (const (y <@> i))) -- pure bisone <@> j
+                , (bvarZero j, ilam "_" (const (x <@> i))) -- pure biszero <@> j
                 ])
               (u0 <@@> (x <@> pure iz, y <@> pure iz, j))
 

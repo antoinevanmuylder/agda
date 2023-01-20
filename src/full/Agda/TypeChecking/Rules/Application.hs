@@ -1484,6 +1484,7 @@ checkPrimHComp c rs vs _ = do
 --
 checkPrimMHComp :: QName -> MaybeRanges -> Args -> Type -> TCM Args
 checkPrimMHComp c rs vs _ = do
+  reportSDoc "tc.app.mhocom" 30 $ (text "mhocom side cond fires")
   case vs of
     -- WAS: [l, a, zeta, u, u0] -> do
     l : a : zeta : u : u0 : rest -> do
