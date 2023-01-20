@@ -2204,12 +2204,12 @@ mhcompGel :: PureTCM m =>
 mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
   ctx <- getContext
   reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "rule for mhocom at Gel (maybe) firing with args...")
-    [ "l  = " <+> prettyTCM l
+    [ "l  = " <+> (prettyTCM $ toExplicitArgs $ unArg l)
     , "A0 = " <+> prettyTCM bA0
     , "A1 = " <+> prettyTCM bA1
     , "bR = " <+> prettyTCM bR
     , "x  = " <+> prettyTCM x
-    , "zeta=" <+> prettyTCM (ignoreBlocking szeta)
+    , "zeta=" <+> (prettyTCM $ toExplicitArgs $ unArg (ignoreBlocking szeta))
     , "u  = " <+> prettyTCM u
     , "u0 = " <+> prettyTCM u0
     , "ambient ctx" <+> prettyTCM ctx]
@@ -2350,13 +2350,16 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
         u0P <- (ungel <#> l <#> bA0 <#> bA1 <#> bR <@> xBindedU0) -- modify this if you modify gelPrf
         uP <- (lam "i" $ \ i -> ilam "oall" $ \ oall -> ungel <#> l <#> bA0 <#> bA1 <#> bR
                     <@> (captureUat' i (epsi <#> xBindedZeta <..> oall <@> x) 2) )
+        gp <- gelPrf
         reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "gelSide's ...")
-          [ "mzer = " <+> (prettyTCM $ toExplicitArgs mzer)
+          [ "ctx = " <+> {- TCM Telescope -> TCM Doc -} ((getContextTelescope) >>= prettyTCM)
+          , "mzer = " <+> (prettyTCM $ toExplicitArgs mzer)
           , "mone = " <+> (prettyTCM $ toExplicitArgs mone)
           , "pline0 = " <+> (prettyTCM $ toExplicitArgs plineZer)
           , "pline1 = " <+> (prettyTCM $ toExplicitArgs plineOne)
           , "u0P = " <+> (prettyTCM $ toExplicitArgs u0P)
-          , "uP = " <+> (prettyTCM $ toExplicitArgs uP) ]
+          , "uP = " <+> (prettyTCM $ toExplicitArgs uP)
+          , "gelPrf " <+> (prettyTCM $ toExplicitArgs gp) ]
 
         gel <#> l <#> bA0 <#> bA1 <#> bR <@> (gelSide False) <@> (gelSide True) <@> gelPrf <@> x
 
