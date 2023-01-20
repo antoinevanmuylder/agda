@@ -441,28 +441,37 @@ prim_ungel' = do
     let absQtm' = unArg $ ignoreBlocking $ absQ' --should care for metas, as usual
     case absQtm' of
       Lam qinfo qbody -> do --case: λ x → bla x.  we do hit that case sometimes
-        reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. lam case. here is absQ :" ++ psh absQtm'
+        logInContext "prim_ungel', lam case, reduced absQ" (absQtm')
+        -- reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. lam case. here is absQ :" ++ psh absQtm'
         underAbstractionAbs (defaultNamedArgDom qinfo (absName qbody) bintervalTyp) qbody $ \body -> do
           --body already comes wkn
           body' <- reduceB' body --should care for metas as usual
           case ignoreBlocking body' of
             Def qnm [Apply _, Apply _, Apply _, Apply _,Apply _, Apply _, Apply bP, Apply _]
              | Just qnm == mgel -> do
-              reportSLn "tc.prim.ungel" 30 $ "in prim_ungel': lam mgel case."
-              reportSLn "tc.prim.ungel" 30 $ "in prim_ungel': here is absQ local body: " ++ psh (ignoreBlocking body')
-              reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. absQ is x.gel, here is P before str: " ++ psh bP
+
+              logInContext "prim_ungel', \\x -> gel case, reduced body" (ignoreBlocking body')
+              logInContext "just P arg before str"  (bP)
+              
+              -- reportSLn "tc.prim.ungel" 30 $ "in prim_ungel': lam mgel case."
+              -- reportSLn "tc.prim.ungel" 30 $ "in prim_ungel': here is absQ local body: " ++ psh (ignoreBlocking body')
+              -- reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. absQ is x.gel, here is P before str: " ++ psh bP
 
               -- were about to strenghten P. But it might contain easily solvable metas
               -- that have a vaccuous dependency on db var @0 (bridge var from underAbstractionAbs).
               -- So we first solve everything that can be, and then proceed to strengthening.
               instaP <- traverseF instantiateFull bP
-              ctx <- getContextTelescope
-              reportSDoc "tc.prim.ungel" 30 $ "instaP ctx: " <+> (prettyTCM ctx)
-              reportSLn "tc.prim.ungel" 30 $ "instaP: " ++ psh instaP
-              reportSDoc "tc.prim.ungel" 30 $ "instaP pretty: " <+> (prettyTCM instaP)
+
+              logInContext "instantiated P" (unArg instaP)
+              
+              -- reportSDoc "tc.prim.ungel" 30 $ "instaP ctx: " <+> (prettyTCM ctx)
+              -- reportSLn "tc.prim.ungel" 30 $ "instaP: " ++ psh instaP
+              -- reportSDoc "tc.prim.ungel" 30 $ "instaP pretty: " <+> (prettyTCM instaP)
 
               let strP = applySubst (strengthenS __IMPOSSIBLE__ 1) $ unArg instaP
-              reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. absQ is x.gel, here is P after str: " ++ psh strP
+
+              logInContext "P after strenghtening" (strP)
+              
               redReturn strP
               
             _ -> do
@@ -482,6 +491,14 @@ prim_ungel' = do
   where
     fallback l bA0 bA1 bR absQ' =
       return $ NoReduction $ map notReduced [l, bA0, bA1, bR] ++ [reduced absQ']
+
+    logInContext descr toLog = do
+      ctx <- getContextTelescope
+      reportSDocDocs "tc.prim.ungel" 30
+        (text $ descr ++ " in context:")
+        [ prettyTCM ctx
+        , prettyTCM toLog ]
+        
 
 
 -- in unglue:
@@ -1831,7 +1848,7 @@ transpBridgeP l (bA, x , y) phi u0 = do
             comp l (lam "i" $ \ i -> bA <@> i <@> j)
               (combineCstrs (phi) j)
               (lam "i'" $ \i -> mixCombineSys l (bA <@> i <@> j) -- i : I
-                [ (phi, ilam "o" (\o -> u0 <@@> (x <@> pure iz, y <@> pure iz, j)))
+                [ (phiAsMixed phi, ilam "o" (\o -> u0 <@@> (x <@> pure iz, y <@> pure iz, j)))
                 -- Note that here we have lines of endpoints which we must
                 -- apply to fix the endpoints:
                 , (pure bisone <@> j, ilam "_" (const (y <@> i)))
@@ -1886,7 +1903,7 @@ mixCombineSys
   -- that by definitional proof-irrelevance of @IsOne@, the actual
   -- injection can not matter here.
   -> NamesT m Term
-mixCombineSys l ty xs = snd <$> combineSys' l ty xs
+mixCombineSys l ty xs = snd <$> mixCombineSys' l ty xs
 
 -- | Builds a mixed partial element, and compute its extent. See 'combineSys'
 -- for the details.
@@ -1919,7 +1936,7 @@ mixCombineSys' l ty xs = do
     combine [(psi, u)] = (,) <$> psi <*> u
     combine ((psi, u):xs) = do
       (phi, c) <- combine xs
-      (,) <$>  (pure mixedOr <@> psi <@> (pure phi) )<*> mkMpor l ty psi (pure phi) u (pure c) -- imax psi (pure phi)
+      (,) <$>  (pure mixedOr <@> psi <@> (pure phi) )<*> mkMpor l ty psi (pure phi) u (pure c)
   combine xs
 
 
