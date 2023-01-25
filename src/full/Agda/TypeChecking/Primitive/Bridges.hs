@@ -11,6 +11,7 @@ import Prelude hiding (null, (!!))
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Trans ( lift )
+import Control.Monad.Trans.Maybe
 import Control.Exception
 import Data.Typeable
 import Data.String
@@ -2223,24 +2224,20 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
     , "u0 = " <+> prettyTCM u0
     , "ambient ctx" <+> prettyTCM ctx]
 
-  -- we need to capture x in tm = zeta, u0 and u (or u applied)
+  -- we need to capture x in tm = zeta, u0 and u applied to various stuff, in various contexts
   -- we can soundly do this only if x is semifresh in tm
   -- TODO-antva: as usual, we soundly check semifreshness in whnf(tm), but this is not
   -- computationally complete wrt CH type thy.
   -- also if tm is reduced a certain way (tm -> tm'), then only tm' should be used
-  -- in reduction results(?). TODO-antva: the latter often fails in reduction rules
+  -- in reduction results(?). TODO-antva: the latter is often not respected in reduction rules
   -- where semifreshness checks occur.
 
-  su <- reduceB u -- TODO-antva: u is a lambda...thus reducing it changes nothing
   su0 <- reduceB u0
 
-  let [fvZeta, fvU, fvU0] = map (allVars . (freeVarsIgnore IgnoreNot) . unArg . ignoreBlocking) [szeta, su, su0]
+  let [fvZeta, fvU0] = map (allVars . (freeVarsIgnore IgnoreNot) . unArg . ignoreBlocking) [szeta, su0]
 
   semiFreshZeta <- semiFreshForFvars fvZeta dbi
   semiFreshU0   <- semiFreshForFvars fvU0 dbi
-  -- TODO-antva: does this guarantee Γ i:I o:MHolds \x, x ⊢ u i o or rather (Γ, i:I)\x, x ⊢ u i
-  --             if not this maybe be a useless semifreshness check (not guaranteeing soundness)
-  semiFreshU    <- semiFreshForFvars fvU dbi
 
   reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "in mhocom at Gel, semifreshness analyses of zeta, u0...")
     [ text "----"
@@ -2252,27 +2249,17 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
     , "fvU0 = " <+> (return $ P.pretty fvU0)
     , "semiFreshU0 = " <+> (text $ show semiFreshU0) ]
 
-  -- cint <- primIntervalType
-  -- semiFreshU <- addContext ("i" :: String, defaultDom cint) $ forallMixedFaces (unArg $ ignoreBlocking szeta) (\ _ _ _ -> return False) $ \ sigm -> do
-  --   ctx <- getContext  --problem: forallMixedFaces comes from Conversion.hs, and Conversion needs reduction rules -> loop...
-  --   reportSDoc "tc.prim.mhcomP.gel" 30 $ "u sfresh, ambient ctx = " <+> (prettyTCM ctx)
-  --   return False
 
-  reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "semifreshness for u...")
-    [ "u  = " <+> (return $ P.pretty u)
-    , "su = " <+> (return $ P.pretty $ ignoreBlocking su)
-    , "fvU = " <+> (return $ P.pretty fvU)
-    , "semiFreshU = " <+> (text $ show semiFreshU) ]
-
-  case (semiFreshZeta && semiFreshU && semiFreshU0) of
+  case (semiFreshZeta && semiFreshU0) of -- local semifreshness checks of @u smth smth@ may still fail
     False -> return Nothing
-    True -> do
+    True -> do -- m (Maybe Term)
 
-      -- for capturing (its now sound)
+      -- I think its easier to do all local semifreshenss checks here, and build captured applied-u terms as well.
+
       let
-        --TODO-antva make this into a monadic computation?
-        -- | precond: Γ0 , r:BI , Γ1 ⊢ M : ... and (semiFreshForFvars M @r) then
-        --   postcond      Γ0, r:BI, Γ1 ⊢ (captureIn M @r) : (@tick r'' : BI) -> ...            
+        -- | Pure function used for (now sound) capturing in zeta, u0. Another function will be used for capturing in u applied to some elims.
+        --   precond: Γ0 , r:BI , Γ1 ⊢ M : ... and (semiFreshForFvars M @r) then
+        --   postcond      Γ0, r:BI, Γ1 ⊢ (captureIn M @r) : (@tick r'' : BI) -> ...
         captureIn m ri =
           let sigma = ([var (i+1) | i <- [0 .. ri - 1] ] ++ [var 0]) ++# raiseS (ri + 2) in
           Lam lkDefaultArgInfo $ Abs "r" $ applySubst sigma m
@@ -2281,14 +2268,74 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
         xBindedZeta = captureIn (unArg $ ignoreBlocking szeta) dbi
         xBindedU0 = captureIn (unArg $ ignoreBlocking su0) dbi
 
-        testXBindedU = captureIn (unArg $ ignoreBlocking su) dbi
 
-      reportSDocDocs "tc.prim.ungel" 30 (text "capturing in constraint zeta and base u0...")
+        -- | Let Γ = Γ0, x ,Γ1 the ambient ctx when starting mhcompGel. We have Γ ⊢ u (ie vars in u refers to things in Gamma)
+        --   The present func returns a term with capture:
+        --     Γ, Γ' ⊢ <x>(u arg1) or
+        --     Γ, Γ' ⊢ <x>(u arg1 arg2) if there is a second arg
+        --   where Γ, Γ' ⊢ arg1, arg2.
+        --
+        --   Pre: Γ, Γ' ⊢ arg1, arg2.
+        --   Pre: appropriate semifreshness checks have been performed (required for sound capturing)
+        --   Post: This function does not alter the current context
+        captureU :: PureTCM m =>
+             Int -- ^ size of Γ'
+          -> NamesT  m Term -- ^ arg1
+          -> Maybe (NamesT m Term) -- ^ marg2
+          -> NamesT m Term
+        captureU n arg1 marg2 = do
+          cur <- currentCxt
+          let wku = inCxt [] (unArg u) -- Γ, Γ' ⊢ u --TODO-antva I think dumb wk can not be mixed with NamesT m monad.
+              uApp0 = runNamesT cur $ case marg2 of --uApp :: PureTCM m => m Term
+                Nothing -> wku <@> arg1
+                Just arg2 -> wku <@> arg1 <..> arg2 --only need irrelevant arg if isJust marg2
+          uApp <- lift $ uApp0
+          let res = captureIn uApp (dbi + n)
+          reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "captureU results..")
+            [ "cur = " <+> (return $ P.pretty cur)
+            , "res = " <+> (return $ P.pretty res) ]      
+          return res
+
+      
+      --   -- some useful monadic operations in PureTCM m => NamesT ( MaybeT m )
+      --   -- Semifreshness checks for applied u must be performed in context
+      --   -- This may result in a failure, hence the Maybe layer.
+      --   getTermLocal :: PureTCM m => String -> NamesT (MaybeT m) (NamesT (MaybeT m) Term)
+      --   getTermLocal str = do
+      --     res <- getTerm "in mhocom at Gel" str
+      --     open res            
+          
+
+      -- resNew <- runMaybeT $ runNamesT [] $ do -- NamesT (MaybeT m) Term
+      --   gel <- getTermLocal builtin_gel
+      --   mhocom <- getTermLocal builtinMHComp
+      --   l <- open $ unArg l
+      --   bA0 <- open $ unArg bA0
+      --   bA1 <- open $ unArg bA1
+      --   bR <- open $ unArg bR
+      --   xBindedZeta <- open $ xBindedZeta
+      --   bi0 <- getTermLocal builtinBIZero
+      --   bi1 <- getTermLocal builtinBIOne
+      --   u <- open $ unArg $ u
+      --   xBindedU0 <- open $ xBindedU0
+      --   mhecom <- mkMhecom "in mhocom at Gel"
+      --   allMCstr <- getTermLocal builtinAllMCstr
+      --   embd <- getTermLocal builtinEmbd
+      --   ineg <- getTermLocal builtinINeg
+      --   mpor <- getTermLocal builtin_mpor
+      --   iand <- getTermLocal builtinIMin
+      --   ungel <- getTermLocal builtin_ungel
+      --   epsi <- getTermLocal builtinAllMCstrCounit
+      --   mor <- getTermLocal builtinMixedOr --different than mkmc. mor : MCstr -> MCstr -> MCstr
+      --   x <- open $ unArg x        
+      --   return $ Dummy "" []
+
+
+      reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "capturing in constraint zeta and base u0...")
         [ "Γ(\\x) ⊢ <x>zeta is  " <+> (return $ P.pretty xBindedZeta)
-        , "Γ(\\x) ⊢ <x>u0 is "   <+> (return $ P.pretty xBindedU0)
-        , "Γ(\\x) ⊢ <x>u is " <+> (prettyTCM testXBindedU) ]
+        , "Γ(\\x) ⊢ <x>u0 is "   <+> (return $ P.pretty xBindedU0) ]       
 
-      res <- runNamesT [] $ do
+      res <- runNamesT [] $ do --PureTCM m => namesT m (Maybe Term)
         let getTermLocal = \ str -> do
               res <- getTerm "in mhocom at Gel" str
               open res
@@ -2301,7 +2348,7 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
         xBindedZeta <- open $ xBindedZeta
         bi0 <- getTermLocal builtinBIZero
         bi1 <- getTermLocal builtinBIOne
-        u <- open $ unArg $ ignoreBlocking su
+        -- u <- open $ unArg $ u
         xBindedU0 <- open $ xBindedU0
         mhecom <- mkMhecom "in mhocom at Gel"
         allMCstr <- getTermLocal builtinAllMCstr
@@ -2313,22 +2360,23 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
         epsi <- getTermLocal builtinAllMCstrCounit
         mor <- getTermLocal builtinMixedOr --different than mkmc. mor : MCstr -> MCstr -> MCstr
         x <- open $ unArg x
-        
+              
+              
+        -- -- assume Γ0,x , Γ1 ⊢ u (ctx = Γ)
+        -- --  Γ, i:I ⊢ i:I. This function returns Γ, i ⊢ <x> (u i)
+        -- -- lamn = size Γ' - size Γ, ie under how many extra lambdas are we applying u
+        -- -- TODO-antva: must do the semifreshness check for u here instead (see captureIn precond)
+        -- let captureUat i lamn = do
+        --       -- u makes sense in Γ. i in Γ'. therefore its meaningless to simply apply u to i
+        --       ui <- u <@> i -- Term
+        --       return $ captureIn ui (dbi + lamn)
 
-        -- assume Γ ⊢ u
-        --  Γ' ⊢ i:I. Below, gives Γ' ⊢ <x> (u i)
-        -- lamn = size Γ' - size Γ, ie under how many extra lambdas are we applying u
-        -- TODO-antva: must do the semifreshness check for u here instead (see captureIn precond)
-        let captureUat i lamn = do
-              ui <- u <@> i -- Term
-              return $ captureIn ui (dbi + lamn)
 
-            --captureUatBETTER 
-
-            -- needed for gelPrf adjustment
-            captureUat' i o lamn = do
-              uio <- u <@> i <..> o
-              return $  captureIn uio (dbi + lamn)
+        --     -- needed for gelPrf adjustment
+        --     captureUat' i o lamn = do
+        --       uio <- u <@> i <..> o
+        --       return $  captureIn uio (dbi + lamn)
+        let
 
             bA bl = case bl of
               False -> bA0              
@@ -2344,47 +2392,46 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
 
             -- Γ ⊢ gelSide bl : Aeps
             gelSide (bl :: Bool) = mhocom <#> l <#> (bA bl) <#> (xBindedZeta <@> (bi bl))
-              <@> (lam "i" $ \i -> (captureUat i 1) <@> (bi bl))
+              <@> (lam "i" $ \i -> (captureU 1 i Nothing) <@> (bi bl))
               <@> (xBindedU0 <@> (bi bl))
 
 
 
             -- pline (y:I) defines a path from (<x>u0 biε) to gelSide (which is mhocom ... (<x>u0 biε))
             -- hence pline is a mhocom filler.
-            pline (bl :: Bool) =
-              lam "y" $ \ y ->
-                mhocom <#> l <#> (bA bl) <#> (mor <@> (xBindedZeta <@> (bi bl)) <@> (embd <@> (ineg <@> y)))
-                <@> (lam "z" $ \z -> mpor <#> l <@> (xBindedZeta <@> (bi bl)) <@> (embd <@> (ineg <@> y))
-                                       <#> (ilam "o" $ \ _ -> bA bl)
-                                       <@> ( (captureUat (iand <@> y <@> z) 2) <@> (bi bl) ) --TODO-antva why 3...
-                                       <@> (ilam "o" $ \ _ -> xBindedU0 <@> (bi bl)) )
-                <@> ( xBindedU0 <@> (bi bl) )
+            pline (bl :: Bool) y =
+              mhocom <#> l <#> (bA bl) <#> (mor <@> (xBindedZeta <@> (bi bl)) <@> (embd <@> (ineg <@> y)))
+              <@> (lam "z" $ \z -> mpor <#> l <@> (xBindedZeta <@> (bi bl)) <@> (embd <@> (ineg <@> y))
+                                     <#> (ilam "o" $ \ _ -> bA bl)
+                                     <@> ( (captureU 2 (iand <@> y <@> z) Nothing) <@> (bi bl) )
+                                     <@> (ilam "o" $ \ _ -> xBindedU0 <@> (bi bl)) )
+              <@> ( xBindedU0 <@> (bi bl) )
 
             gelPrf = mhecom
               (lam "il" $ \ _ -> l)
-              (lam "y" $ \ y -> bR <@> (pline False <@> y) <@> (pline True <@> y))
+              (lam "y" $ \ y -> bR <@> (pline False y) <@> (pline True y))
               (allMCstr <@> xBindedZeta)
               (lam "i" $ \ i -> ilam "oall" $ \ oall -> ungel <#> l <#> bA0 <#> bA1 <#> bR
-                    <@> (captureUat' i (epsi <#> xBindedZeta <..> oall <@> x) 2) {-  i, oall ⊢ <x>  u i ε(oall) -} ) --TODO antva why 3
+                    <@> (captureU 2 i (Just $ epsi <#> xBindedZeta <..> oall <@> x))  ) -- i, oall ⊢ <x>  u i ε(oall)
               (ungel <#> l <#> bA0 <#> bA1 <#> bR <@> xBindedU0)
 
-        mzer <- gelSide False
-        mone <- gelSide True
-        plineZer <- lam "y" $ \y -> pline False <@> y
-        plineOne <- lam "y" $ \y -> pline True <@> y
-        u0P <- (ungel <#> l <#> bA0 <#> bA1 <#> bR <@> xBindedU0) -- modify this if you modify gelPrf
-        uP <- (lam "i" $ \ i -> ilam "oall" $ \ oall -> ungel <#> l <#> bA0 <#> bA1 <#> bR
-                    <@> (captureUat' i (epsi <#> xBindedZeta <..> oall <@> x) 2) )
-        gp <- gelPrf
-        reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "gelSide's ...")
-          [ "ctx = " <+> {- TCM Telescope -> TCM Doc -} ((getContextTelescope) >>= prettyTCM)
-          , "mzer = " <+> (prettyTCM $ toExplicitArgs mzer)
-          , "mone = " <+> (prettyTCM $ toExplicitArgs mone)
-          , "pline0 = " <+> (prettyTCM $ toExplicitArgs plineZer)
-          , "pline1 = " <+> (prettyTCM $ toExplicitArgs plineOne)
-          , "u0P = " <+> (prettyTCM $ toExplicitArgs u0P)
-          , "uP = " <+> (prettyTCM $ toExplicitArgs uP)
-          , "gelPrf " <+> (prettyTCM $ toExplicitArgs gp) ]
+        -- mzer <- gelSide False
+        -- mone <- gelSide True
+        -- plineZer <- lam "y" $ \y -> pline False <@> y
+        -- plineOne <- lam "y" $ \y -> pline True <@> y
+        -- u0P <- (ungel <#> l <#> bA0 <#> bA1 <#> bR <@> xBindedU0) -- modify this if you modify gelPrf
+        -- uP <- (lam "i" $ \ i -> ilam "oall" $ \ oall -> ungel <#> l <#> bA0 <#> bA1 <#> bR
+        --             <@> (captureUat' i (epsi <#> xBindedZeta <..> oall <@> x) 2) )
+        -- gp <- gelPrf
+        -- reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "gelSide's ...")
+        --   [ "ctx = " <+> {- TCM Telescope -> TCM Doc -} ((getContextTelescope) >>= prettyTCM)
+        --   , "mzer = " <+> (prettyTCM $ toExplicitArgs mzer)
+        --   , "mone = " <+> (prettyTCM $ toExplicitArgs mone)
+        --   , "pline0 = " <+> (prettyTCM $ toExplicitArgs plineZer)
+        --   , "pline1 = " <+> (prettyTCM $ toExplicitArgs plineOne)
+        --   , "u0P = " <+> (prettyTCM $ toExplicitArgs u0P)
+        --   , "uP = " <+> (prettyTCM $ toExplicitArgs uP)
+        --   , "gelPrf " <+> (prettyTCM $ toExplicitArgs gp) ]
 
         gel <#> l <#> bA0 <#> bA1 <#> bR <@> (gelSide False) <@> (gelSide True) <@> gelPrf <@> x
 
