@@ -2239,6 +2239,17 @@ primAllMCstrCounit' = do
   where
     mholds = fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinMHolds
 
+-- | Helper data type for mhocom at Gel
+--   In the equation for mhocom at Gel (mhocom {Gel A0 A1 R x} {ζ} u u0),
+--   We need to capture (x:BI) in @u stuff@, in stuff extended contexts.
+--   The present type contains flags that correspond to each of those situations.
+--   Let Γ = Γ0, x:BI, Γ1 be the context at the start of this (mhocom at Gel) reduction.
+data CaptureVariant =
+  CapInUI -- ^ Γ ⊢ λ i:I . <x>(u i) : I -> (tick x' : BI) -> MPartial..
+  | CapInUIO -- ^ Γ ⊢ λ i o . <x>(u i (∀-mcstr-ε o x)) : I ->  MHolds(∀ <x>ζ)) -> (tick x' : BI) -> ...
+  | CapInUYZ -- ^ Γ ⊢ λ y z . <x>(u (y ∧ z)) : I -> I -> (tick x' : BI) -> ...
+  deriving Eq
+
 -- |  this reduction: mhocom {Gel A0 A1 R x} {ζ : MCstr} u u0 = gel M0 M1 P x
 -- 
 --    Γ ⊢ (l:Level), (A0, A1 : Type), (R : A0 -> A1 ->Type l) and we expect x to be fresh in them
@@ -2299,14 +2310,9 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
     False -> return Nothing
     True -> do -- m (Maybe Term)
 
-      let su0 = maybe __IMPOSSIBLE__ id msu0
-
-      -- I think its easier to do all local u semifreshenss checks here, and build captured applied-u terms separately
-      reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "several sFresh analyses for u applied at some args")
-        [ "ctx = " <+> (getContextTelescope >>= prettyTCM) ]
-          
-
       let
+        su0 = maybe __IMPOSSIBLE__ id msu0
+
         -- | Pure function used for (now sound) capturing in zeta, u0 (and u applied to stuff)
         --   precond: Γ0 , r:BI , Γ1 ⊢ (r:BI), (M : ...)    and    (semiFreshForFvars M @r) then
         --   postcond      Γ0, r:BI, Γ1 ⊢ (captureIn M @r) : (@tick r'' : BI) -> ...
@@ -2322,6 +2328,43 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
       reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "capturing in constraint zeta and base u0...")
         [ "Γ(\\x) ⊢ <x>zeta is  " <+> (return $ P.pretty xBindedZeta)
         , "Γ(\\x) ⊢ <x>u0 is "   <+> (return $ P.pretty xBindedU0) ]
+
+      let
+
+        -- | Γ ambient context of current equation.
+        --   This function returns Γ ⊢ λ ... . <x>(u arg1 [arg2])
+        --   see CaptureVariant for doc on all the variants.
+        --   Returns Nothing if a semi freshness check failed.
+        captureInU CapInUI = do
+          cint <- domCint
+          addContext ("pvar1" :: String, cint) $ do -- path var (pvar:I)
+            let uAtpvar1 = (raise 1 $ unArg u) `apply` [argN $ Var 0 []]
+            sfreshRes <- lazySFresh uAtpvar1 (dbi + 1)
+            let res = flip fmap sfreshRes $ \ bt {- reduced u :: Blocked Term -} ->
+                        captureIn (ignoreBlocking bt) (dbi + 1) -- TODO-antva: metas          
+            localSDocs (text "captureUIifSFresh info")
+              [ "ctx = " <+> (getContextTelescope >>= prettyTCM)
+              , "Γ0, x, Γ1, i:I ⊢ red(u i) = " <+> (prettyTCM uAtpvar1)
+              , "Γ0, x, Γ1, i:I ⊢ <x>(red(u i)) = " <+> (prettyTCM res) ]
+            return $ flip fmap res $ \ openU ->
+              Lam defaultArgInfo $ Abs "i" (openU) --no need to raise
+        captureInU CapInUIO = do
+          cint <- domCint
+          mholdsAllTm <- do
+            mholds <- getTermLocal builtinMHolds
+            allmcstr <- getTermLocal builtinAllMCstr
+            return $ mholds <@> (allmcstr <@> xBindedZeta)
+            
+          where
+            domCint = do
+              cint0 <- getTerm "" builtinInterval
+              let cint :: Type
+                  cint = El IntervalUniv cint0
+              return cint
+
+            getTermLocal = getTerm "in captureInU, mhocom at Gel"              
+      
+
 
       -- semifreshness check for gel sides adjustment.
       -- final res = gel (mhocom ... (λ i:I. <x>(u i) bi0) ... ) (mhocom .. (λ i:I. <x>(u i) bi1) ...) gelPrf
