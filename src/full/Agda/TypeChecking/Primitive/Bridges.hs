@@ -256,6 +256,46 @@ semiFreshForFvars fvs lki = do
   reportSLn "tc.freshness" 40 $ "semiFreshForFvars, timefullLkLaters: " ++ P.prettyShow timefullLkLaters
   return $ null timefullLkLaters
 
+-- | variant of lazySFresh, for Arg Term
+lazySFreshArg :: PureTCM m => Arg Term -> Int -> m (Maybe (Blocked (Arg Term)))
+lazySFreshArg at dbi = do
+  res <- lazySFresh (unArg at) dbi --Mb $ Blocked $ Arg Term
+  return $ case res of
+    Nothing -> Nothing
+    Just bt -> Just $ dmap (Arg (argInfo at)) bt
+
+-- | check semi freshness of x in t. if it works go on
+--   else check semi freshness of x in simpl(t). if it works return simpl(t)
+--   else check semi freshness in whnf v. if it works return whnf(t)
+--   else return nothing
+--
+--   We don't normalise as semifreshness checks would be too costly
+--   This gives a sound but incomplete equational thy for our dtt.
+--
+--   pre: Γ ⊢ t
+--        Γ ⊢ x@dbi
+--        Γ ambient context
+--   post: Either the result is Nothing, the sfresh check failed (possibly by a lack of norm)
+--         Or Just res, the sfresh check passed on res=a certain reduction of t.
+--                      Hence you pbly want to continue with res instead of t.
+lazySFresh :: PureTCM m => Term -> Int -> m (Maybe (Blocked Term))
+lazySFresh t dbi = do
+  let fv = allVars $ freeVarsIgnore IgnoreNot $ t
+  flag <- semiFreshForFvars fv dbi
+  if flag then (do return $ Just $ notBlocked $ t) else do
+  
+  simplT <- simplify t
+  let simplFv = allVars $ freeVarsIgnore IgnoreNot $ simplT
+  flag <- semiFreshForFvars simplFv dbi
+  if flag then (do return $ Just $ notBlocked simplT) else do
+  
+  whnfT <- reduceB $ simplT
+  let whnfFv = allVars $ freeVarsIgnore IgnoreNot $ ignoreBlocking whnfT
+  flag <- semiFreshForFvars whnfFv dbi
+  if flag then (do return $ Just $ whnfT) else do
+
+  return Nothing
+
 -- | Formation rule (extentType) and computation rule for the extent primitive.
 --   For extent this include a boundary (BIZero, BIOne case) and beta rule.
 primExtent' :: TCM PrimitiveImpl
@@ -2199,11 +2239,15 @@ primAllMCstrCounit' = do
   where
     mholds = fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinMHolds
 
--- |  Γ (\ x) ⊢ (l:Level), (A0, A1 : Type), (R : A0 -> A1 ->Type l)
+-- |  this reduction: mhocom {Gel A0 A1 R x} {ζ : MCstr} u u0 = gel M0 M1 P x
+-- 
+--    Γ ⊢ (l:Level), (A0, A1 : Type), (R : A0 -> A1 ->Type l) and we expect x to be fresh in them
 --    Γ ⊢ (x:BI)
---    Γ (\x, x) ⊢ (ζ : MCstr)
---    Γ (\x, x) ⊢ u0 : Gel A0 A1 R x
---    Γ  ⊢ u : ∀ i -> MPartial ζ (Gel A0 A1 R x) + ?semifreshness cond.
+--    Γ ⊢ (ζ : MCstr) and reduction fires only if x semi fresh in it ("Γ\x,x ⊢ ζ")
+--    Γ ⊢ u0 : Gel A0 A1 R x and reduction fires if x semi fresh in it
+--    Γ  ⊢ u : ∀ i -> MPartial ζ (Gel A0 A1 R x) + ?semifreshness cond
+--             and reduction fires if x semifresh in various applications @u arg1 arg2@
+--    We check semifreshness to capture x in those terms, in a sound way.
 mhcompGel :: PureTCM m =>
           (Arg Term, Arg Term, Arg Term, Arg Term, Arg Term)
           -- ^ gel args: l, A0, A1, R, x
@@ -2212,6 +2256,8 @@ mhcompGel :: PureTCM m =>
           -> Arg Term -- ^ u0 : Gel A0 A1 R x
           -> m (Maybe Term)
 mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
+  let localSDocs = reportSDocDocs "tc.prim.mhcomp.gel" 30
+  
   ctx <- getContext
   reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "rule for mhocom at Gel (maybe) firing with args...")
     [ "l  = " <+> (prettyTCM $ toExplicitArgs $ unArg l)
@@ -2232,12 +2278,12 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
   -- in reduction results(?). TODO-antva: the latter is often not respected in reduction rules
   -- where semifreshness checks occur.
 
-  su0 <- reduceB u0
-
-  let [fvZeta, fvU0] = map (allVars . (freeVarsIgnore IgnoreNot) . unArg . ignoreBlocking) [szeta, su0]
-
+  -- su0 <- reduceB u0
+  msu0 <- lazySFreshArg u0 dbi
+  let semiFreshU0 = isJust msu0
+  
+  let fvZeta = (allVars . (freeVarsIgnore IgnoreNot) . unArg . ignoreBlocking) szeta
   semiFreshZeta <- semiFreshForFvars fvZeta dbi
-  semiFreshU0   <- semiFreshForFvars fvU0 dbi
 
   reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "in mhocom at Gel, semifreshness analyses of zeta, u0...")
     [ text "----"
@@ -2245,8 +2291,7 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
     , "fvZeta = " <+> (return $ P.pretty fvZeta)
     , "semiFreshZeta = " <+> (text $ show semiFreshZeta)
     , text "----"
-    , "su0  = " <+> (return $ P.pretty $ ignoreBlocking su0)
-    , "fvU0 = " <+> (return $ P.pretty fvU0)
+    , "su0  = " <+> (return $ P.pretty $ fmap (ignoreBlocking) msu0)
     , "semiFreshU0 = " <+> (text $ show semiFreshU0) ]
 
 
@@ -2254,11 +2299,16 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
     False -> return Nothing
     True -> do -- m (Maybe Term)
 
-      -- I think its easier to do all local semifreshenss checks here, and build captured applied-u terms as well.
+      let su0 = maybe __IMPOSSIBLE__ id msu0
+
+      -- I think its easier to do all local u semifreshenss checks here, and build captured applied-u terms separately
+      reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "several sFresh analyses for u applied at some args")
+        [ "ctx = " <+> (getContextTelescope >>= prettyTCM) ]
+          
 
       let
-        -- | Pure function used for (now sound) capturing in zeta, u0. Another function will be used for capturing in u applied to some elims.
-        --   precond: Γ0 , r:BI , Γ1 ⊢ M : ... and (semiFreshForFvars M @r) then
+        -- | Pure function used for (now sound) capturing in zeta, u0 (and u applied to stuff)
+        --   precond: Γ0 , r:BI , Γ1 ⊢ (r:BI), (M : ...)    and    (semiFreshForFvars M @r) then
         --   postcond      Γ0, r:BI, Γ1 ⊢ (captureIn M @r) : (@tick r'' : BI) -> ...
         captureIn m ri =
           let sigma = ([var (i+1) | i <- [0 .. ri - 1] ] ++ [var 0]) ++# raiseS (ri + 2) in
@@ -2267,6 +2317,45 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
         -- precond respected thanks to previous semifreshness analyses.
         xBindedZeta = captureIn (unArg $ ignoreBlocking szeta) dbi
         xBindedU0 = captureIn (unArg $ ignoreBlocking su0) dbi
+
+  
+      reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "capturing in constraint zeta and base u0...")
+        [ "Γ(\\x) ⊢ <x>zeta is  " <+> (return $ P.pretty xBindedZeta)
+        , "Γ(\\x) ⊢ <x>u0 is "   <+> (return $ P.pretty xBindedU0) ]
+
+      -- semifreshness check for gel sides adjustment.
+      -- final res = gel (mhocom ... (λ i:I. <x>(u i) bi0) ... ) (mhocom .. (λ i:I. <x>(u i) bi1) ...) gelPrf
+      -- checks that x sfresh in Γ0, x, Γ1, i:I ⊢ u i and maybe returns the (abstracted) captured term Γ0, x, Γ1, ⊢ λ i:I . <x>u
+      captureUIifSFresh :: Maybe Term <- do
+        cint0 <- getTerm "" builtinInterval
+        let cint :: Type
+            cint = El IntervalUniv cint0        
+        addContext ("pvar1" :: String, defaultDom cint) $ do -- path var (pvar:I)
+          let uAtpvar1 = (raise 1 $ unArg u) `apply` [argN $ Var 0 []]
+          sfreshRes <- lazySFresh uAtpvar1 (dbi + 1)
+          let res = flip fmap sfreshRes $ \ bt {- reduced u :: Blocked Term -} ->
+                      captureIn (ignoreBlocking bt) (dbi + 1) -- TODO-antva: metas          
+          localSDocs (text "captureUIifSFresh info")
+            [ "ctx = " <+> (getContextTelescope >>= prettyTCM)
+            , "Γ0, x, Γ1, i:I ⊢ red(u i) = " <+> (prettyTCM uAtpvar1)
+            , "Γ0, x, Γ1, i:I ⊢ <x>(red(u i)) = " <+> (prettyTCM res) ]
+          return $ flip fmap res $ \ openU ->
+            Lam defaultArgInfo $ Abs "i" (openU) --no need to raise
+
+      localSDocs (text "captureUIifSFresh info2")
+        [ "ctx = " <+> (getContextTelescope >>= prettyTCM)
+        , "Γ0, x, Γ1 ⊢ λ i . <x>(u i) = " <+> (prettyTCM captureUIifSFresh) ]
+
+
+      if isNothing captureUIifSFresh then (return Nothing) else do
+
+      let xBindedUi = maybe __IMPOSSIBLE__ id captureUIifSFresh -- Γ0, x, Γ1, i:I ⊢ <x>u
+
+      reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "xBindedUi info")
+        [ "ctx = " <+> (getContextTelescope >>= prettyTCM)
+        , "Γ0, x, Γ1, i:I ⊢ <x>(u i) = " <+> (addContext ("i" :: String) $ prettyTCM xBindedUi) ]
+
+      let 
 
 
         -- | Let Γ = Γ0, x ,Γ1 the ambient ctx when starting mhcompGel. We have Γ ⊢ u (ie vars in u refers to things in Gamma)
@@ -2330,10 +2419,7 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
       --   x <- open $ unArg x        
       --   return $ Dummy "" []
 
-
-      reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "capturing in constraint zeta and base u0...")
-        [ "Γ(\\x) ⊢ <x>zeta is  " <+> (return $ P.pretty xBindedZeta)
-        , "Γ(\\x) ⊢ <x>u0 is "   <+> (return $ P.pretty xBindedU0) ]       
+       
 
       res <- runNamesT [] $ do --PureTCM m => namesT m (Maybe Term)
         let getTermLocal = \ str -> do
