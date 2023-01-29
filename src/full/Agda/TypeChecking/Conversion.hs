@@ -449,7 +449,14 @@ compareGelTm cmp a' args@[l, bA0@(Arg _ bA0tm), bA1@(Arg _ bA1tm),
                     bR@(Arg _ bRtm), r@(Arg rinfo rtm@(Var ri []))] m n = do --TODO-antva: metas in r, and in this function
   -- note: we already know that l, A0, A1, R are apart from r because @Gel {l} A1 A1 R r@ types ("by induction")
   -- the semi freshness of the Q arg (see CH gel eta) is checked by hand in this func
-  reportSLn "tc.conv.gel" 40 $ "comparing Gel members " ++ psh m ++ " and " ++ psh n
+
+  let localSDocsLow = reportSDocDocs "tc.conv.gel" 25
+      -- localSDocsHigh = reportSDocDocs "tc.conv.gel" 40
+
+  localSDocsLow (text "Compare Gel members")
+    [ "m = " <+> (prettyTCM m)
+    , "n = " <+> (prettyTCM n) ] --not reduced yet
+  
   (bm' , m') <- reduceWithBlocker m
   let fvm = allVars $ freeVarsIgnore IgnoreNot m' -- see extent beta for similar analysis
   mFresh <- semiFreshForFvars fvm ri
