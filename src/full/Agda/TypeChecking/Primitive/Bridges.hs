@@ -473,64 +473,74 @@ prim_ungelType = do
 prim_ungel' :: TCM PrimitiveImpl
 prim_ungel' = do
   requireBridges "in prim_ungel'"
+  let localSDocs = reportSDocDocs "tc.prim.ungel" 35
   typ <- prim_ungelType
   return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 5 $ \gelArgs@[l, bA0, bA1,
                                                                bR, absQ]-> do
     --goal ReduceM(Reduced MaybeReducedArgs Term)
-    reportSLn "tc.prim.ungel" 30 $ "in prim_ungel': beginning of primImpl"
+    reportSLn "tc.prim.ungel" 25 $ "ungel fires..."
+    localSDocs (text "with args")
+      [ "cxt = " <+> (getContextTelescope >>= prettyTCM)
+      , "A0 = " <+> (prettyTCM $ toExplicitArgs $ unArg bA0)
+      , "A1 = " <+> (prettyTCM $ toExplicitArgs $ unArg bA1)
+      , "R = " <+> (prettyTCM $ toExplicitArgs $ unArg bR)
+      , "absQ = " <+> (prettyTCM $ absQ) ]
     mgel <- getPrimitiveName' builtin_gel
     bintervalTm <- getTerm "prim_ungel" builtinBridgeInterval
     let bintervalTyp = El LockUniv bintervalTm
+
+    -- ungel (gel a0 a1 prf) = prf.
+    if (isAGel mgel (unArg $ absQ)) then (redReturn (getGelPrf mgel (unArg $ absQ))) else do
+    
     absQ' <- reduceB' absQ
     let absQtm' = unArg $ ignoreBlocking $ absQ' --should care for metas, as usual
+
+    reportSDocDocs "tc.prim.ungel" 27 (text "reduced absQ arg:")
+      [ "absQ = " <+> (prettyTCM $ absQtm') ]
+    
     case absQtm' of
+      
       Lam qinfo qbody -> do --case: λ x → bla x.  we do hit that case sometimes
-        logInContext "prim_ungel', lam case, reduced absQ" (absQtm')
-        -- reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. lam case. here is absQ :" ++ psh absQtm'
         underAbstractionAbs (defaultNamedArgDom qinfo (absName qbody) bintervalTyp) qbody $ \body -> do
           --body already comes wkn
-          body' <- reduceB' body --should care for metas as usual
+          
+          body' <- reduceB' body --TODO-antva: metas. could also skip this reduction sometimes.
           case ignoreBlocking body' of
             Def qnm [Apply _, Apply _, Apply _, Apply _,Apply _, Apply _, Apply bP, Apply _]
              | Just qnm == mgel -> do
 
               logInContext "prim_ungel', \\x -> gel case, reduced body" (ignoreBlocking body')
-              logInContext "just P arg before str"  (bP)
-              
-              -- reportSLn "tc.prim.ungel" 30 $ "in prim_ungel': lam mgel case."
-              -- reportSLn "tc.prim.ungel" 30 $ "in prim_ungel': here is absQ local body: " ++ psh (ignoreBlocking body')
-              -- reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. absQ is x.gel, here is P before str: " ++ psh bP
+              localSDocs "just P arg before str"  [prettyTCM $ unArg bP]
 
               -- were about to strenghten P. But it might contain easily solvable metas
               -- that have a vaccuous dependency on db var @0 (bridge var from underAbstractionAbs).
               -- So we first solve everything that can be, and then proceed to strengthening.
               instaP <- traverseF instantiateFull bP
 
-              logInContext "instantiated P" (unArg instaP)
+              localSDocs "instantiated P" [prettyTCM $ unArg instaP]
               
-              -- reportSDoc "tc.prim.ungel" 30 $ "instaP ctx: " <+> (prettyTCM ctx)
-              -- reportSLn "tc.prim.ungel" 30 $ "instaP: " ++ psh instaP
-              -- reportSDoc "tc.prim.ungel" 30 $ "instaP pretty: " <+> (prettyTCM instaP)
 
               let strP = applySubst (strengthenS __IMPOSSIBLE__ 1) $ unArg instaP
 
-              logInContext "P after strenghtening" (strP)
-              
+              localSDocs "P after strenghtening (in appropriate wkn context)"
+                [ "strP = " <+> (unsafeEscapeContext 1 $ prettyTCM strP) ]
               redReturn strP
               
             _ -> do
-              reportSLn "tc.prim.ungel" 30 $ "in prim_ungel': lam no-mgel case."
+              reportSLn "tc.prim.ungel" 35 $ "in prim_ungel': lam no-mgel case."
               let lamBody' :: Blocked (Arg Term)
                   lamBody' = case body' of
                     Blocked blkBody' ignBody' -> Blocked blkBody' $ Arg defaultArgInfo $ Lam qinfo $ Abs (absName qbody) ignBody'
                     NotBlocked nblkBody' ignBody' -> NotBlocked nblkBody'  $ Arg defaultArgInfo $ Lam qinfo $ Abs (absName qbody) ignBody'
               fallback l bA0 bA1 bR lamBody' --we fallback and specify the blocking info from body' instead of absQ'
-      Def qnm [Apply _, Apply _, Apply _, Apply _,Apply _, Apply _, Apply bP] | Just qnm == mgel -> do
-        reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. no-lam mgel case. here is absQ :" ++ psh absQtm'
-        reportSLn "tc.prim.ungel" 30 $ "  and here is the qname: " ++ psh qnm
-        redReturn $ unArg bP
+              
+      -- Def qnm [Apply _, Apply _, Apply _, Apply _,Apply _, Apply _, Apply bP] | Just qnm == mgel -> do
+      --   reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. no-lam mgel case. here is absQ :" ++ psh absQtm'
+      --   reportSLn "tc.prim.ungel" 30 $ "  and here is the qname: " ++ psh qnm
+      --   redReturn $ unArg bP
+        
       _ -> do
-        reportSLn "tc.prim.ungel" 30 $ "in prim_ungel'. no-lam no-mgel case. here is absQ :" ++ psh absQtm'
+        reportSLn "tc.prim.ungel" 35 $ "in prim_ungel'. no-lam no-mgel case."
         fallback l bA0 bA1 bR absQ'
   where
     fallback l bA0 bA1 bR absQ' =
@@ -538,10 +548,19 @@ prim_ungel' = do
 
     logInContext descr toLog = do
       ctx <- getContextTelescope
-      reportSDocDocs "tc.prim.ungel" 30
+      reportSDocDocs "tc.prim.ungel" 35
         (text $ descr ++ " in context:")
         [ prettyTCM ctx
         , prettyTCM toLog ]
+
+    isAGel mgel tm = case tm of
+      Def qnm [Apply _, Apply _, Apply _, Apply _,Apply _, Apply _, Apply bP] | Just qnm == mgel -> True
+      _ -> False
+
+    -- pre: isAGel mgel tm
+    getGelPrf mgel tm = case tm of
+      Def qnm [Apply _, Apply _, Apply _, Apply _,Apply _, Apply _, Apply bP] | Just qnm == mgel -> unArg bP
+      _ -> __IMPOSSIBLE__
         
 
 
@@ -1063,6 +1082,7 @@ primMHComp' = do
           (el' l bA --> el' l bA)
   -- nelims = # of additional elims (ie after u0)
   return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 $ \ ts@[l, bA, zeta@(Arg infZeta zetatm), u@(Arg infU utm), u0] nelims -> do
+  reportSDoc "tc.prim.mhcomp" 25 $ text "beginning of mhocom at ... equation"
   reportSDocDocs "tc.prim.mhcomp" 40
     (text "reducing in primMHComp with args...")
     [ "l    = " <+> prettyTCM (unArg l)
@@ -1106,15 +1126,15 @@ primMHComp' = do
       case (unArg $ ignoreBlocking sbA) of
         
         MetaV m _ -> do
-          reportSLn "tc.prim.mhcomp" 40 $ "in primMHComp, matched type has meta"
+          reportSLn "tc.prim.mhcomp" 25 $ "in primMHComp, matched type has meta"
           fallback' (blocked_ m *> sbA)
         
         Pi a b
           | nelims > 0  -> do
-              reportSLn "tc.prim.mhcomp" 40 $ "in primMHComp, type matched Pi and nelims > 0"
+              reportSLn "tc.prim.mhcomp" 25 $ "in primMHComp, type matched Pi and nelims > 0"
               maybe fallback redReturn =<< mhcompPi (a,b) (ignoreBlocking sZeta) u u0
           | otherwise -> do
-              reportSLn "tc.prim.mhcomp" 40 $ "in primMHComp, type matched Pi and nelims == 0"
+              reportSLn "tc.prim.mhcomp" 25 $ "in primMHComp, type matched Pi and nelims == 0"
               fallback
         -- Glue {ℓA ℓB} (A : Set ℓA) {φ' : I} (T : Partial φ' (Set ℓB)) (e: PartialP φ' (λ o → T o ≃ A)) : Set ℓB
         Def q [Apply la, Apply lb, Apply bA, Apply phi', Apply bT, Apply e] | Just q == mGlue -> do
@@ -1142,12 +1162,12 @@ primMHComp' = do
 
         -- Path/PathP
         d | PathType _ _ _ bA x y <- pathV (El __DUMMY_SORT__ d) -> do
-          reportSLn "tc.prim.mhcomp" 40 "in mhocom reduction, type casing matched PathP"
+          reportSLn "tc.prim.mhcomp" 25 "in mhocom reduction, type casing matched PathP"
           if nelims > 0 then mhcompPathP sZeta u u0 l (bA, x, y) else fallback
 
         -- BridgeP
         d | BridgeType _ _ _ bA x y <- bridgeV (El __DUMMY_SORT__ d) -> do
-          reportSLn "tc.prim.mhcomp" 40 "in mhocom reduction, type casing matched BridgeP"
+          reportSLn "tc.prim.mhcomp" 25 "in mhocom reduction, type casing matched BridgeP"
           if nelims > 0 then mhcompBridgeP sZeta u u0 l (bA, x, y) else fallback
 
         -- for now, it only reduces if zeta is path pure.
@@ -1161,14 +1181,14 @@ primMHComp' = do
           case theDef info of
             r@Record{recComp = kit}
                 | nelims > 0, Just as <- allApplyElims es, Just mhocomR <- nameOfMHComp kit -> do
-                    reportSDoc "tc.prim.mhcomp.rec" 40 $ text "about to compute mhocom at record"
+                    reportSDoc "tc.prim.mhcomp.rec" 25 $ text "about to compute mhocom at record"
                     redReturn $ (Def mhocomR []) `apply`
                                       (as ++ [ignoreBlocking sZeta, u, u0])
                 | Just as <- allApplyElims es, [] <- recFields r -> mhcompData l as sbA sZeta u u0
 
             Datatype{dataPars = pars, dataIxs = ixs, dataPathCons = pcons, dataTransp = mtrD}
               | null pcons && ixs == 0, Just as <- allApplyElims es -> do
-                reportSLn "tc.prim.mhcomp" 40 $ "rule for mhocom at data type (no hit, no index) fired"
+                reportSLn "tc.prim.mhcomp" 25 $ "rule for mhocom at data type (no hit, no index) fires"
                 mhcompData l as sbA sZeta u u0
 
             _ -> fallback
@@ -1187,7 +1207,7 @@ mhcompPi :: (Dom Type, Abs Type)
          -- ^ Γ ⊢ u0 : Pi a b
          -> ReduceM (Maybe Term)
 mhcompPi {- cmd t -} ab zeta u u0 = do
- reportSLn "tc.prim.mhcomp" 40 $ "in primMHComp, reduction for Pi type fired."
+ reportSLn "tc.prim.mhcomp" 25 $ "in primMHComp, reduction for Pi type fired."
  let getTermLocal = getTerm $ builtinMHComp ++ " for function types"
  -- tTrans <- getTermLocal builtinTrans
  tMHComp <- getTermLocal builtinMHComp
@@ -1244,7 +1264,7 @@ mhcompGlue :: PureTCM m =>
            -> TermPosition
            -> m (Maybe Term)
 mhcompGlue psi u u0 glueArgs@(la, lb, bA, phi, bT, e) tpos = do
-  reportSLn "tc.prim.mhcomp.glue" 40 $ "mhcompGlue was fired"
+  reportSLn "tc.prim.mhcomp.glue" 25 $ "mhcompGlue was fired"
   let getTermLocal = getTerm $ (builtinMHComp ++ " for " ++ builtinGlue)
   tmpor <- getTermLocal builtin_mpor
   tEmbd <- getTermLocal "primEmbd"
@@ -1314,7 +1334,7 @@ mhcompHCompU :: PureTCM m =>
            -> TermPosition
            -> m (Maybe Term)
 mhcompHCompU psi u u0 (la, phi, bT, bA) tpos = do
-  reportSLn "tc.prim.mhcomp.hcomp" 40
+  reportSLn "tc.prim.mhcomp.hcomp" 25
     "In primMHComp: case mhocom at hocom type. The inner one should have been reduced to a mhocom (lifted hocom)"
   __IMPOSSIBLE__
 
@@ -1426,7 +1446,7 @@ mhcompPathP ::
         -- ^ A : (i:I) → Type ℓ, x : A i0, y : A i1
         -> ReduceM (Reduced MaybeReducedArgs Term)
 mhcompPathP spsi u u0 l (bA,x,y) = do
-  reportSLn "tc.prim.mhcomp.pathp" 40 "Rule for mhocom at PathP fired."
+  reportSLn "tc.prim.mhcomp.pathp" 25 "Rule for mhocom at PathP fires."
   let getTermLocal = getTerm $ builtinMHComp ++ " for path types"
   iz <- getTermLocal builtinIZero
   tmhocom <- getTermLocal builtinMHComp
@@ -1588,7 +1608,7 @@ mhcompData ::
       -> Arg Term -- ^ u0
       -> ReduceM (Reduced MaybeReducedArgs Term)
 mhcompData l ps sc sphi u a0 = do
-  reportSDoc "tc.prim.mhcomp.data" 40 $ text "mhcompData with args"
+  reportSDoc "tc.prim.mhcomp.data" 25 $ text "mhcompData ..."
   reportSDoc "tc.prim.mhcomp.data" 40 $ nest 2 $ vcat
     [ "lvl" <+> (return $ P.pretty l)
     , "extra elims" <+> (return $ P.pretty ps)
@@ -1793,7 +1813,7 @@ mhcompBridgeP ::
         -- ^ A : (\@tick x:BI) → Type ℓ, x : A bi0, y : A bi1
         -> ReduceM (Reduced MaybeReducedArgs Term)
 mhcompBridgeP spsi u u0 l (bA,x,y) = do
-  reportSLn "tc.prim.mhcomp.bridgep" 40 "Rule for mhocom at BridgeP fired."
+  reportSLn "tc.prim.mhcomp.bridgep" 25 "Rule for mhocom at BridgeP fires"
   let getTermLocal = getTerm $ builtinMHComp ++ " for BridgeP types"
   iz <- getTermLocal builtinIZero
   biz <- getTermLocal builtinBIZero
@@ -1850,6 +1870,7 @@ transpBridgeP :: Arg Term -- ^ l : I→Level
               -> ReduceM (Reduced MaybeReducedArgs Term)
 -- transpBridgeP _ _ _ _ = __IMPOSSIBLE__              
 transpBridgeP l (bA, x , y) phi u0 = do
+  reportSLn "tc.prim.transp.bridge" 25 "transp at BridgeP fires"
   reportSDocDocs "tc.prim.transp.bridge" 40
     (text "rule for transporting at BridgeP fired with args...")
     [ "level l = " <+> (return $ P.pretty l)
@@ -1993,7 +2014,8 @@ transpGel ::
           -> Arg Term -- ^ base u0 : Gel A0 A1 R r [i0/i]. may mention r.
           -> m (Maybe Term)
 transpGel l (lgel, bA0, bA1, bR, r@(Arg rinfo rtm@(Var ri [])) ) phi u0 = do -- 
-  
+
+  reportSLn "tc.prim.transp.gel" 25 "transp at Gel fires"
   reportSDocDocs "tc.prim.transp.gel" 40 (text "rule for transporting at Gel fired with args...") $
     [ "transp __l__ :" <+> (return $ P.pretty l)
     , "lgel = " <+> (return $ P.pretty lgel)
@@ -2165,6 +2187,7 @@ primAllMCstr' = do
     sAbsZeta <- reduceB absZeta
     
     ctx <- getContext
+    reportSLn "tc.prim.allmcstr" 25 "∀-mcstr reduction fires"
     reportSDocDocs "tc.prim.allmcstr" 30 (text "Calling ∀-mcstr reduction  with args...")
       [ "absZeta is  " <+> (return $ P.pretty absZeta)
       , "sAbsZeta is " <+> (return $ P.pretty (ignoreBlocking sAbsZeta))
@@ -2268,6 +2291,8 @@ mhcompGel :: PureTCM m =>
           -> m (Maybe Term)
 mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
   let localSDocs = reportSDocDocs "tc.prim.mhcomp.gel" 30
+
+  reportSLn "tc.prim.mhcomp.gel" 25 "mhocom at Gel fires"
   
   ctx <- getContext
   reportSDocDocs "tc.prim.mhcomp.gel" 30 (text "rule for mhocom at Gel (maybe) firing with args...")
@@ -2513,6 +2538,7 @@ transpMHComp l (s, phi, bT, bA) (spsi, u0) = do
   let cint :: Type
       cint = El IntervalUniv cint0
   ctx <- getContext
+  reportSLn "tc.prim.transp.mhcomp" 25 "transp along mhocom fires"
   reportSDocDocs "tc.prim.transp.mhcomp" 30 (text "transporting along mhocom line. args:")
     [ text "transp {l:I→Level} (λ iLn . line iLn) (psi:I) (u0:line i0)"
     , "psi  = " <+> (prettyTCM $ ignoreBlocking spsi)
