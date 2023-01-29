@@ -2472,7 +2472,7 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
           mhocom <#> l <#> (bA bl) <#> (mor <@> (xBindedZeta <@> (bi bl)) <@> (embd <@> (ineg <@> y)))
           <@> (lam "z" $ \z -> mpor <#> l <@> (xBindedZeta <@> (bi bl)) <@> (embd <@> (ineg <@> y))
                                  <#> (ilam "o" $ \ _ -> bA bl)
-                                 <@> ( xBindedUYZ <@> (iand <@> y <@> z) <@> (bi bl) )
+                                 <@> ( xBindedUYZ <@> y <@> z <@> (bi bl) )
                                  <@> (ilam "o" $ \ _ -> xBindedU0 <@> (bi bl)) )
           <@> ( xBindedU0 <@> (bi bl) )
 
@@ -2486,7 +2486,9 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
 
     gel <#> l <#> bA0 <#> bA1 <#> bR <@> (gelSide False) <@> (gelSide True) <@> gelPrf <@> x
 
-  localSDocs (text "mhocom at Gel, results...") [ prettyTCM $ toExplicitArgs res ]
+  localSDocs (text "mhocom at Gel, results...")
+    [ "ctx = " <+> (getContextTelescope >>= prettyTCM)
+    , prettyTCM $ toExplicitArgs res ]
 
   return $ Just res
   
