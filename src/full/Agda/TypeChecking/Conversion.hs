@@ -617,6 +617,42 @@ compareAtom cmp t m n =
         blockIfMissingClauses b = b
     -- Andreas: what happens if I cut out the eta expansion here?
     -- Answer: Triggers issue 245, does not resolve 348
+    
+    -- TODO-antva: custom further syntactic check for record type conversion
+    -- if 2 records r1 p1, r2 p2 are being compared we simplify both param lists p1 and p2
+    -- and see if these simplified elims are syntactically equal.
+    let maybeFurtherSynRecordConv :: MonadConversion cm
+          => cm () -- ^ cont if success
+          -> cm () -- ^ cont if failure
+          -> cm ()
+        maybeFurtherSynRecordConv succ fb =
+          let localSDocs = reportSDocDocs "tc.conv.atom.synrec" 40 in
+          case (m , n) of
+            (Def f es , Def f' es') | length es == length es', f == f' -> do
+              isrec <- isRecord f
+              if isJust isrec then do
+                instm <- instantiateFull m
+                instn <- instantiateFull n
+                case (instm , instn) of
+                  (Def f es , Def f' es') -> do
+                    localSDocs (text "attempt further syntactic conversion for records r1 r2")
+                      [ "r1 = " <+> (prettyTCM instm)
+                      , "r2 = " <+> (prettyTCM instn) ]
+                    ses <- mapM simplify es --TODO-antva: could even whnf here?
+                    ses' <- mapM simplify es'
+                    syneqs <- forM (zip ses ses') $ \ (e , e') -> 
+                                SynEq.checkSyntacticEquality e e' (\ _ _ -> return True) $ \ u v -> do
+                                  localSDocs ("some simpl elims u/v of " <+> (prettyTCM f) <+> "are different")
+                                    [ "u = " <+> (return $ P.pretty $ toExplicitArgs $ unArg $ maybe __IMPOSSIBLE__ id (isApplyElim u))
+                                    , prettyTCM cmp
+                                    , "v = " <+> (return $ P.pretty $ toExplicitArgs $ unArg $ maybe __IMPOSSIBLE__ id (isApplyElim v)) ]
+                                  return False
+                    if (and syneqs) then succ else fb
+                  _ -> fb
+              else fb
+            _ -> fb
+    maybeFurtherSynRecordConv (whenProfile Profile.Sharing $ tick "equal terms") $ do
+    
     (mb',nb') <- do
       mb' <- etaExpandBlocked =<< reduceB m
       nb' <- etaExpandBlocked =<< reduceB n
