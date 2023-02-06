@@ -451,11 +451,15 @@ compareGelTm cmp a' args@[l, bA0@(Arg _ bA0tm), bA1@(Arg _ bA1tm),
   -- the semi freshness of the Q arg (see CH gel eta) is checked by hand in this func
 
   let localSDocsLow = reportSDocDocs "tc.conv.gel" 25
-      -- localSDocsHigh = reportSDocDocs "tc.conv.gel" 40
+      localSDocsHigh = reportSDocDocs "tc.conv.gel" 40
 
   localSDocsLow (text "Compare Gel members")
     [ "m = " <+> (prettyTCM m)
     , "n = " <+> (prettyTCM n) ] --not reduced yet
+
+  localSDocsHigh (text "Compare Gel members")
+    [ "m = " <+> (return $ P.pretty m)
+    , "n = " <+> (return $ P.pretty n) ] --not reduced yet
   
   (bm' , m') <- reduceWithBlocker m
   let fvm = allVars $ freeVarsIgnore IgnoreNot m' -- see extent beta for similar analysis
