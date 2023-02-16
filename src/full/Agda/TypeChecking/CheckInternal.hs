@@ -377,13 +377,24 @@ inferSpine' action t self self' (e : es) = do
     ]
   case e of
     IApply x y r -> do
-      (a, b) <- shouldBePath t
-      r' <- checkInternal' action r CmpLeq (unDom a)
-      izero <- primIZero
-      ione  <- primIOne
-      x' <- checkInternal' action x CmpLeq (b `absApp` izero)
-      y' <- checkInternal' action y CmpLeq (b `absApp` ione)
-      inferSpine' action (b `absApp` r) (self `applyE` [e]) (self' `applyE` [IApply x' y' r']) es
+      (a, b) <- shouldBePathBridge t
+      case ((getLock $ domInfo a) == defaultLock) of
+        True -> do -- t is a path type
+          reportSDoc "tc.infer.internal" 30 (text "path IApply case")
+          r' <- checkInternal' action r CmpLeq (unDom a)
+          izero <- primIZero
+          ione  <- primIOne
+          x' <- checkInternal' action x CmpLeq (b `absApp` izero)
+          y' <- checkInternal' action y CmpLeq (b `absApp` ione)
+          inferSpine' action (b `absApp` r) (self `applyE` [e]) (self' `applyE` [IApply x' y' r']) es
+        False -> do -- t is a bridge type
+          reportSDoc "tc.infer.internal" 30 (text "bridge IApply case")
+          r' <- checkInternal' action r CmpLeq (unDom a)
+          bizero <- primBIZero
+          bione  <- primBIOne
+          x' <- checkInternal' action x CmpLeq (b `absApp` bizero)
+          y' <- checkInternal' action y CmpLeq (b `absApp` bione)
+          inferSpine' action (b `absApp` r) (self `applyE` [e]) (self' `applyE` [IApply x' y' r']) es
     Apply (Arg ai v) -> do
       (a, b) <- shouldBePi t
       ai <- checkArgInfo action ai $ domInfo a
@@ -413,6 +424,14 @@ shouldBePath t = do
   case m of
     Just p  -> return p
     Nothing -> typeError $ ShouldBePath t
+
+shouldBePathBridge :: (MonadCheckInternal m) => Type -> m (Dom Type, Abs Type)
+shouldBePathBridge t = do
+  t <- abortIfBlocked t
+  m <- isPathBridge t
+  case m of
+    Just p  -> return p
+    Nothing -> typeError $ GenericError "Should be path/bridge type."
 
 shouldBePi :: (MonadCheckInternal m) => Type -> m (Dom Type, Abs Type)
 shouldBePi t = abortIfBlocked t >>= \ case

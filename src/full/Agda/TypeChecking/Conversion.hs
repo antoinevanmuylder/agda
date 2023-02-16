@@ -342,7 +342,7 @@ compareTerm' cmp a m n =
 
             else (do pathview <- pathView a'
                      bridgeview <- bridgeView a'
-                     equalPathBridge pathview bridgeview a' m n) --if not paths/bridges, calls cmpDef
+                     equalPathBridge' pathview bridgeview a' m n) --if not paths/bridges, calls cmpDef
         _ -> compareAtom cmp (AsTermsOf a') m n
   where
     -- equality at function type (accounts for eta)
@@ -363,7 +363,11 @@ compareTerm' cmp a m n =
       where
         (m',n') = raise 1 (m,n) `apply` [Arg info $ var 0]
     equalFun _ _ _ _ = __IMPOSSIBLE__
-
+    equalPathBridge' :: (MonadConversion m) => PathView -> BridgeView -> Type -> Term -> Term -> m ()
+    equalPathBridge' pv bv a m n = do
+      reportSDocDocs "tc.conv.pathbdg" 20 (text "equalPathBridge")
+        [ "a = " <+> (prettyTCM a) ]
+      equalPathBridge pv bv a m n
     equalPathBridge :: (MonadConversion m) => PathView -> BridgeView -> Type -> Term -> Term -> m ()
     equalPathBridge (PathType s _ l a x y) BOType{} _ m n = do --the provided type is a path type
         let name = "i" :: String
@@ -655,7 +659,7 @@ compareAtom cmp t m n =
                   _ -> fb
               else fb
             _ -> fb
-    maybeFurtherSynRecordConv (whenProfile Profile.Sharing $ tick "equal terms") $ do
+    -- maybeFurtherSynRecordConv (whenProfile Profile.Sharing $ tick "equal terms") $ do
     
     (mb',nb') <- do
       mb' <- etaExpandBlocked =<< reduceB m
