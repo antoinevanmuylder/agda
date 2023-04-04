@@ -349,7 +349,7 @@ compareTerm' cmp a m n =
 
             else (do pathview <- pathView a'
                      bridgeview <- bridgeView a'
-                     equalPathBridge pathview bridgeview a' m n) --if not paths/bridges, calls cmpDef
+                     equalPathBridge' pathview bridgeview a' m n) --if not paths/bridges, calls cmpDef
         _ -> compareAtom cmp (AsTermsOf a') m n
   where
     -- equality at function type (accounts for eta)
@@ -374,7 +374,11 @@ compareTerm' cmp a m n =
         (m',n') = raise 1 (m,n) `apply` [Arg info $ var 0]
 
     equalFun _ _ _ _ = __IMPOSSIBLE__
-
+    equalPathBridge' :: (MonadConversion m) => PathView -> BridgeView -> Type -> Term -> Term -> m ()
+    equalPathBridge' pv bv a m n = do
+      reportSDocDocs "tc.conv.pathbdg" 20 (text "equalPathBridge")
+        [ "a = " <+> (prettyTCM a) ]
+      equalPathBridge pv bv a m n
     equalPathBridge :: (MonadConversion m) => PathView -> BridgeView -> Type -> Term -> Term -> m ()
     equalPathBridge (PathType s _ l a x y) BOType{} _ m n = do --the provided type is a path type
         whenProfile Profile.Conversion $ tick "compare at path/bridge type"  
@@ -461,7 +465,18 @@ compareGelTm cmp a' args@[l, bA0@(Arg _ bA0tm), bA1@(Arg _ bA1tm),
                     bR@(Arg _ bRtm), r@(Arg rinfo rtm@(Var ri []))] m n = do --TODO-antva: metas in r, and in this function
   -- note: we already know that l, A0, A1, R are apart from r because @Gel {l} A1 A1 R r@ types ("by induction")
   -- the semi freshness of the Q arg (see CH gel eta) is checked by hand in this func
-  reportSLn "tc.conv.gel" 40 $ "comparing Gel members " ++ psh m ++ " and " ++ psh n
+
+  let localSDocsLow = reportSDocDocs "tc.conv.gel" 25
+      localSDocsHigh = reportSDocDocs "tc.conv.gel" 40
+
+  localSDocsLow (text "Compare Gel members")
+    [ "m = " <+> (prettyTCM m)
+    , "n = " <+> (prettyTCM n) ] --not reduced yet
+
+  localSDocsHigh (text "Compare Gel members")
+    [ "m = " <+> (return $ P.pretty m)
+    , "n = " <+> (return $ P.pretty n) ] --not reduced yet
+  
   (bm' , m') <- reduceWithBlocker m
   let fvm = allVars $ freeVarsIgnore IgnoreNot m' -- see extent beta for similar analysis
   mFresh <- semiFreshForFvars fvm ri
@@ -617,6 +632,42 @@ compareAtom cmp t m n =
 
     -- Andreas: what happens if I cut out the eta expansion here?
     -- Answer: Triggers issue 245, does not resolve 348
+    
+    -- TODO-antva: custom further syntactic check for record type conversion
+    -- if 2 records r1 p1, r2 p2 are being compared we simplify both param lists p1 and p2
+    -- and see if these simplified elims are syntactically equal.
+    let maybeFurtherSynRecordConv :: MonadConversion cm
+          => cm () -- ^ cont if success
+          -> cm () -- ^ cont if failure
+          -> cm ()
+        maybeFurtherSynRecordConv succ fb =
+          let localSDocs = reportSDocDocs "tc.conv.atom.synrec" 40 in
+          case (m , n) of
+            (Def f es , Def f' es') | length es == length es', f == f' -> do
+              isrec <- isRecord f
+              if isJust isrec then do
+                instm <- instantiateFull m
+                instn <- instantiateFull n
+                case (instm , instn) of
+                  (Def f es , Def f' es') -> do
+                    localSDocs (text "attempt further syntactic conversion for records r1 r2")
+                      [ "r1 = " <+> (prettyTCM instm)
+                      , "r2 = " <+> (prettyTCM instn) ]
+                    ses <- mapM simplify es --TODO-antva: could even whnf here?
+                    ses' <- mapM simplify es'
+                    syneqs <- forM (zip ses ses') $ \ (e , e') -> 
+                                SynEq.checkSyntacticEquality e e' (\ _ _ -> return True) $ \ u v -> do
+                                  localSDocs ("some simpl elims u/v of " <+> (prettyTCM f) <+> "are different")
+                                    [ "u = " <+> (return $ P.pretty $ toExplicitArgs $ unArg $ maybe __IMPOSSIBLE__ id (isApplyElim u))
+                                    , prettyTCM cmp
+                                    , "v = " <+> (return $ P.pretty $ toExplicitArgs $ unArg $ maybe __IMPOSSIBLE__ id (isApplyElim v)) ]
+                                  return False
+                    if (and syneqs) then succ else fb
+                  _ -> fb
+              else fb
+            _ -> fb
+    -- maybeFurtherSynRecordConv (whenProfile Profile.Sharing $ tick "equal terms") $ do
+    
     (mb',nb') <- do
       mb' <- etaExpandBlocked =<< reduceB m
       nb' <- etaExpandBlocked =<< reduceB n
