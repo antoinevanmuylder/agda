@@ -2419,7 +2419,7 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
             mholds <- getTermLocal builtinMHolds
             allmcstr <- getTermLocal builtinAllMCstr
             (pure mholds) <@> ((pure allmcstr) <@> (pure xBindedZeta))
-          return $ (defaultDom $ El (mkSSet 0) mholdsAllTm) { domFinite = True } -- TODO-antva: also setRelevance?
+          return $ (defaultDom $ El (mkSSet 0) mholdsAllTm) { domIsFinite = True } -- TODO-antva: also setRelevance?
 
         getTermLocal = getTerm "in captureInU, mhocom at Gel"
 
