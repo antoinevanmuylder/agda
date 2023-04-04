@@ -134,9 +134,9 @@ checkIApplyConfluence f cl = case cl of
 
             isCubicalVar <- addContext clTel $ do
               intval <- typeOfBV i
-              isInterval intval
+              isInterval intval  
             addContext clTel $ do
-              if isCubicalVar then (addContext clTel $ compareTermOnFace' k CmpEq phi trhs lhs body)
+              if isCubicalVar then (compareTermOnFace' k CmpEq phi trhs lhs body) -- (equalTermOnFace phi trhs lhs body) 
               else (equalTermOnBridgeFace i trhs lhs body)
 
             case body of
@@ -169,6 +169,9 @@ checkIApplyConfluence f cl = case cl of
                           then (\ kk -> forallFaceMaps phi  __IMPOSSIBLE__ $ \ _ -> kk)
                           else forallBridgeFaceMaps i
                     pathOrBridgeHandler $ \ alpha -> do
+
+                    -- let pathOrBridgeHandler = if isCubicalVar then (forallFaceMaps phi  __IMPOSSIBLE__) else (\ k -> forallBridgeFaceMaps i (k IntMap.empty))
+                    -- pathOrBridgeHandler $ \ _ alpha -> do
 
                     -- mTel.clTel' ⊢
                     -- mTel.clTel  ⊢ alpha : mTel.clTel'

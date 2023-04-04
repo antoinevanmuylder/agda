@@ -377,7 +377,7 @@ compareTerm' cmp a m n =
 
     equalPathBridge :: (MonadConversion m) => PathView -> BridgeView -> Type -> Term -> Term -> m ()
     equalPathBridge (PathType s _ l a x y) BOType{} _ m n = do --the provided type is a path type
-        whenProfile Profile.Conversion $ tick "compare at path type"  
+        whenProfile Profile.Conversion $ tick "compare at path/bridge type"  
         let name = "i" :: String
         interval <- el primInterval
         let (m',n') = raise 1 (m, n) `applyE` [IApply (raise 1 $ unArg x) (raise 1 $ unArg y) (var 0)]
@@ -2197,7 +2197,6 @@ forallFaceMaps t kb k = do
         tel <- getContextTelescope
         m <- currentModule
         sub <- getModuleParameterSub m
-
         reportSDoc "conv.forall" 30 $ vcat
           [ text (replicate 10 '-')
           , prettyTCM (envCurrentModule $ clEnv cl)

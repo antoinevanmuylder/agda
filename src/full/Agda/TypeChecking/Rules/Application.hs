@@ -877,8 +877,9 @@ checkArgumentsE'
                 addCheckedArgs us (getRange e) (IApply (unArg x) (unArg y) u) c $ -- IApply attaches endpoints to bridge var (or cst)
                   checkArgumentsE'
                     s{ sChecked = NotCheckedTarget
-                     , sFun = El sort $ unArg bA `apply` [argN u]
+                     , sFun     = El sort $ unArg bA `apply` [argN u]
                      }
+                  -- checkArgumentsE cmp exh (fuseRange r e) args (El sort $ unArg bA `apply` [argN u]) mt1
           _ -> shouldBePi
   where
     -- Andrea: Here one would add constraints too.

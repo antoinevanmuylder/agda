@@ -524,6 +524,7 @@ infectiveCoinfectiveOptions =
   , coinfectiveOption (not . optCumulativity) "--no-cumulativity"
   , infectiveOption (isJust . optCubical) "--cubical/--erased-cubical"
   , infectiveOption optGuarded "--guarded"
+  , infectiveOption optBridges "--bridges"
   , infectiveOption optProp "--prop"
   , infectiveOption (collapseDefault . optTwoLevel) "--two-level"
   , infectiveOption optRewriting "--rewriting"

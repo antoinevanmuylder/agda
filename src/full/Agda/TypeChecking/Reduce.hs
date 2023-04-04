@@ -451,9 +451,7 @@ instance Reduce PlusLevel where
   reduceB' (Plus n l) = fmap (Plus n) <$> reduceB' l
 
 instance (Subst a, Reduce a) => Reduce (Abs a) where
-  reduceB' b@(Abs x _) =
-    reportSLn "tc.freshness" 60 ( "reduce: adding " ++ x ++ " to ctx as dummy" ) >>
-    fmap (Abs x) <$> underAbstraction_ b reduceB' --TODO-antva: remove my reportS msg in that file
+  reduceB' b@(Abs x _) = fmap (Abs x) <$> underAbstraction_ b reduceB'
   reduceB' (NoAbs x v) = fmap (NoAbs x) <$> reduceB' v
 
 -- Lists are never blocked
