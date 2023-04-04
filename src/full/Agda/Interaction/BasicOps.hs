@@ -46,6 +46,7 @@ import Agda.Syntax.Fixity(Precedence(..), argumentCtx_)
 import Agda.Syntax.Parser
 
 import Agda.TheTypeChecker
+import Agda.TypeChecking.ReconstructParameters
 import Agda.TypeChecking.Constraints
 import Agda.TypeChecking.Conversion
 import Agda.TypeChecking.Errors ( getAllWarnings, stringTCErr, Verbalize(..) )
@@ -90,12 +91,16 @@ import Agda.Utils.Size
 import Agda.Utils.String
 
 import Agda.Utils.Impossible
+import qualified Agda.Utils.SmallSet as SmallSet
+import Agda.TypeChecking.ProjectionLike (reduceProjectionLike)
 
 -- | Parses an expression.
 
 parseExpr :: Range -> String -> TCM C.Expr
 parseExpr rng s = do
-  C.ExprWhere e wh <- runPM $ parsePosString exprWhereParser pos s
+  (C.ExprWhere e wh, coh) <-
+    runPM $ parsePosString exprWhereParser pos s
+  checkCohesionAttributes coh
   unless (null wh) $ typeError $ GenericError $
     "where clauses are not supported in holes"
   return e
@@ -238,7 +243,10 @@ elaborate_give norm force ii mr e = withInteractionId ii $ do
       PatternErr{} -> typeError . GenericDocError =<< do
         withInteractionId ii $ "Failed to give" TP.<+> prettyTCM e
       err -> throwError err
-  nv <- normalForm norm v
+  mv <- lookupLocalMeta mi
+  -- Reduce projection-likes before quoting, otherwise instance
+  -- selection may fail on reload (see #6203).
+  nv <- reduceProjectionLike =<< normalForm norm v
   locallyTC ePrintMetasBare (const True) $ reify nv
 
 -- | Try to refine hole by expression @e@.
@@ -485,7 +493,7 @@ instance Reify Constraint where
       t <- jMetaType . mvJudgement <$> lookupLocalMeta m
       OfType <$> reify (MetaV m []) <*> reify t
     reify (CheckType t) = JustType <$> reify t
-    reify (UsableAtModality _ mod t) = UsableAtMod mod <$> reify t
+    reify (UsableAtModality _ _ mod t) = UsableAtMod mod <$> reify t
 
 instance (Pretty a, Pretty b) => PrettyTCM (OutputForm a b) where
   prettyTCM (OutputForm r pids unblock c) =
@@ -658,7 +666,7 @@ getConstraintsMentioning norm m = getConstrs instantiateBlockingFull (mentionsMe
         CheckMetaInst{}            -> Nothing
         CheckType t                -> isMeta (unEl t)
         CheckLockedVars t _ _ _    -> isMeta t
-        UsableAtModality ms _ t    -> caseMaybe ms (isMeta t) $ \ s -> isMetaS s `mplus` isMeta t
+        UsableAtModality _ ms _ t  -> caseMaybe ms (isMeta t) $ \ s -> isMetaS s `mplus` isMeta t
 
     isMeta (MetaV m' es_m)
       | m == m' = Just es_m
@@ -1165,8 +1173,8 @@ introTactic pmLambda ii = do
 atTopLevel :: TCM a -> TCM a
 atTopLevel m = inConcreteMode $ do
   let err = typeError $ GenericError "The file has not been loaded yet."
-  caseMaybeM (useTC stCurrentModule) err $ \ current -> do
-    caseMaybeM (getVisitedModule $ toTopLevelModuleName current) __IMPOSSIBLE__ $ \ mi -> do
+  caseMaybeM (useTC stCurrentModule) err $ \(current, topCurrent) -> do
+    caseMaybeM (getVisitedModule topCurrent) __IMPOSSIBLE__ $ \ mi -> do
       let scope = iInsideScope $ miInterface mi
       tel <- lookupSection current
       -- Get the names of the local variables from @scope@
@@ -1308,17 +1316,22 @@ getModuleContents norm mm = do
       names :: ThingsInScope AbstractName
       names = exportedNamesInScope modScope
       xns = [ (x,n) | (x, ns) <- Map.toList names, n <- ns ]
-  types <- forM xns $ \(x, n) -> do
-    d <- getConstInfo $ anameName n
-    t <- normalForm norm =<< (defType <$> instantiateDef d)
-    return (x, t)
+  types <- forMaybeM xns $ \(x, n) -> do
+    getConstInfo' (anameName n) >>= \case
+      Right d -> do
+        t <- normalForm norm =<< (defType <$> instantiateDef d)
+        return $ Just (x, t)
+      Left{} -> return Nothing
   return (Map.keys modules, EmptyTel, types)
 
 
-whyInScope :: String -> TCM (Maybe LocalVar, [AbstractName], [AbstractModule])
-whyInScope s = do
+whyInScope :: FilePath -> String -> TCM WhyInScopeData
+whyInScope cwd s = do
   x     <- parseName noRange s
   scope <- getScope
-  return ( lookup x $ map (first C.QName) $ scope ^. scopeLocals
-         , scopeLookup x scope
-         , scopeLookup x scope )
+  return $ WhyInScopeData
+    x
+    cwd
+    (lookup x $ map (first C.QName) $ scope ^. scopeLocals)
+    (scopeLookup x scope)
+    (scopeLookup x scope)

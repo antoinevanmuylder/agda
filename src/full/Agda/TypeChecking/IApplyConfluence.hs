@@ -4,10 +4,12 @@ module Agda.TypeChecking.IApplyConfluence where
 import Prelude hiding (null, (!!))  -- do not use partial functions like !!
 
 import Control.Monad
-import Control.Arrow (first,second)
+import Control.Monad.Except
 
+import Data.Bifunctor (first, second)
 import Data.DList (DList)
 import Data.Foldable (toList)
+import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
@@ -38,6 +40,7 @@ import Agda.Utils.Singleton
 import Agda.Utils.Size
 import Agda.Utils.Impossible
 import Agda.Utils.Functor
+import Control.Monad.Reader
 
 
 checkIApplyConfluence_ :: QName -> TCM ()
@@ -55,8 +58,9 @@ checkIApplyConfluence_ f = whenM (isJust . optCubical <$> pragmaOptions) $ do
       reportSDoc "tc.cover.iapply" 10 $ text "length cls =" <+> pretty (length cls)
       when (null cls && any (not . null . iApplyVars . namedClausePats) cls') $
         __IMPOSSIBLE__
-      modifySignature $ updateDefinition f $ updateTheDef
-        $ updateCovering (const [])
+      unlessM (optKeepCoveringClauses <$> pragmaOptions) $
+        modifySignature $ updateDefinition f $ updateTheDef
+          $ updateCovering (const [])
 
       traceCall (CheckFunDefCall (getRange f) f [] False) $
         forM_ cls $ checkIApplyConfluence f
@@ -72,9 +76,10 @@ checkIApplyConfluence f cl = case cl of
                 , namedClausePats = ps
                 , clauseType = Just t
                 , clauseBody = Just body
-                } -> setCurrentRange (getRange f) $ do
+                } -> setCurrentRange (clauseLHSRange cl) $ do
           let
             trhs = unArg t
+          oldCall <- asksTC envCall
           reportSDoc "tc.cover.iapply" 40 $ "tel =" <+> prettyTCM clTel
           reportSDoc "tc.cover.iapply" 40 $ "ps =" <+> pretty ps
           addContext clTel $ reportSDoc "tc.cover.iapply" 40 $ "and clauseType =" <+> prettyTCM trhs
@@ -88,12 +93,52 @@ checkIApplyConfluence f cl = case cl of
             reportSDoc "tc.iapply" 40 $ text "clause:" <+> pretty ps <+> "->" <+> pretty body
             reportSDoc "tc.iapply" 20 $ "body =" <+> prettyTCM body
 
+            -- TODO-antva: code below until case body may bug cause of merge
             isCubicalVar <- addContext clTel $ do
               intval <- typeOfBV i
               isInterval intval
               
+            let
+              k :: Substitution -> Comparison -> Type -> Term -> Term -> TCM ()
+              k phi cmp ty u v = do
+                u_e <- simplify u
+                ty_e <- simplify ty
+                let
+                  -- Make note of the context (literally): we're
+                  -- checking that this specific clause in f is
+                  -- confluent with IApply reductions. That way if we
+                  -- can tell the user what the endpoints are.
+                  why = CheckIApplyConfluence
+                    (getRange cl) f
+                    (applySubst phi lhs)
+                    u_e v ty
+
+                  -- But if the conversion checking failed really early, we drop the extra
+                  -- information. In that case, it's just noise.
+                  maybeDropCall e@(TypeError x y err)
+                    | UnequalTerms _ u' v' _ <- clValue err = do
+                      u <- prettyTCM u_e
+                      v <- prettyTCM =<< simplify v
+                      enterClosure err $ \e' -> do
+                        u' <- prettyTCM =<< simplify u'
+                        v' <- prettyTCM =<< simplify v'
+                        -- Specifically, we compare how the things are pretty-printed, to avoid
+                        -- double-printing, rather than a more refined heuristic, since the
+                        -- “failure case” here is *at worst* accidentally reminding the user of how
+                        -- IApplyConfluence works.
+                        if (u == u' && v == v')
+                          then localTC (\e -> e { envCall = oldCall }) $ typeError e'
+                          else throwError e
+                  maybeDropCall x = throwError x
+
+                -- Note: Any postponed constraint with this call *will* have the extra
+                -- information. This is a feature: if the constraint is woken up later,
+                -- then it's probably a good idea to remind the user of what's going on,
+                -- instead of presenting a mysterious error.
+                traceCall why (compareTerm cmp ty u v `catchError` maybeDropCall)
+
             addContext clTel $ do
-              if isCubicalVar then (equalTermOnFace phi trhs lhs body)
+              if isCubicalVar then (compareTermOnFace' k CmpEq phi trhs lhs body) -- (equalTermOnFace phi trhs lhs body) 
               else (equalTermOnBridgeFace i trhs lhs body)
 
             case body of
@@ -121,8 +166,10 @@ checkIApplyConfluence f cl = case cl of
 
                   addContext clTel $ do -- mTel.clTel ⊢
                     () <- reportSDoc "tc.iapply.ip" 40 $ "mTel.clTel =" <+> (prettyTCM =<< getContextTelescope)
-                    let pathOrBridgeHandler = if isCubicalVar then (forallFaceMaps phi  __IMPOSSIBLE__) else forallBridgeFaceMaps i
-                    pathOrBridgeHandler $ \ alpha -> do
+
+                    let pathOrBridgeHandler = if isCubicalVar then (forallFaceMaps phi  __IMPOSSIBLE__) else (\ k -> forallBridgeFaceMaps i (k IntMap.empty))
+                    pathOrBridgeHandler $ \ _ alpha -> do
+
                     -- mTel.clTel' ⊢
                     -- mTel.clTel  ⊢ alpha : mTel.clTel'
                     reportSDoc "tc.iapply.ip" 40 $ "mTel.clTel' =" <+> (prettyTCM =<< getContextTelescope)
@@ -174,7 +221,6 @@ checkIApplyConfluence f cl = case cl of
                                              ipc@IPNoClause{} -> ipc}
                 modifyInteractionPoints (BiMap.adjust f ii)
               _ -> return ()
-
 
 -- | current context is of the form Γ.Δ
 unifyElims :: Args

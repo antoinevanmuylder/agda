@@ -11,6 +11,7 @@ import qualified Data.Set as Set
 import Agda.Interaction.Options
 
 import qualified Agda.Syntax.Abstract as A
+import qualified Agda.Syntax.Abstract.Views as A
 import Agda.Syntax.Common
 import Agda.Syntax.Internal
 import Agda.Syntax.Internal.Pattern
@@ -64,7 +65,7 @@ import Agda.Utils.Impossible
 --
 --     [@ps@]      Record parameters.
 --
---     [@contel@]  Approximate type of constructor (@fields@ -> Set).
+--     [@contel@]  Approximate type of constructor (@fields@ -> dummy).
 --                 Does not include record parameters.
 --
 --     [@fields@]  List of field signatures.
@@ -75,11 +76,19 @@ checkRecDef
   -> UniverseCheck             -- ^ Check universes?
   -> A.RecordDirectives        -- ^ (Co)Inductive, (No)Eta, (Co)Pattern, Constructor?
   -> A.DataDefParams           -- ^ Record parameters.
-  -> A.Expr                    -- ^ Approximate type of constructor (@fields@ -> Set).
+  -> A.Expr                    -- ^ Approximate type of constructor (@fields@ -> dummy).
                                --   Does not include record parameters.
   -> [A.Field]                 -- ^ Field signatures.
   -> TCM ()
-checkRecDef i name uc (RecordDirectives ind eta0 pat con) (A.DataDefParams gpars ps) contel fields =
+checkRecDef i name uc (RecordDirectives ind eta0 pat con) (A.DataDefParams gpars ps) contel0 fields = do
+
+  -- Andreas, 2022-10-06, issue #6165:
+  -- The target type of the constructor is a meaningless dummy expression which does not type-check.
+  -- We replace it by Set/Type (builtinSet) which is still incorrect but type-checks.
+  -- It will be fixed after type-checking.
+  aType <- A.Def . fromMaybe __IMPOSSIBLE__ <$> getBuiltinName' builtinSet
+  let contel = A.unPiView . (\ (A.PiView tels _) -> A.PiView tels aType) . A.piView $ contel0
+
   traceCall (CheckRecDef (getRange name) name ps fields) $ do
     reportSDoc "tc.rec" 10 $ vcat
       [ "checking record def" <+> prettyTCM name
@@ -740,14 +749,14 @@ checkRecordProjections m r hasNamedCon con tel ftel fs = do
         escapeContext impossible (size tel) $ do
           lang <- getLanguage
           addConstant projname $
-            (defaultDefn ai projname (killRange finalt) lang
-              emptyFunction
-                { funClauses        = [clause]
-                , funCompiled       = Just cc
-                , funSplitTree      = mst
-                , funProjection     = Just projection
-                , funMutual         = Just []  -- Projections are not mutually recursive with anything
-                , funTerminates     = Just True
+            (defaultDefn ai projname (killRange finalt) lang $ FunctionDefn
+              emptyFunctionData
+                { _funClauses        = [clause]
+                , _funCompiled       = Just cc
+                , _funSplitTree      = mst
+                , _funProjection     = Right projection
+                , _funMutual         = Just []  -- Projections are not mutually recursive with anything
+                , _funTerminates     = Just True
                 })
               { defArgOccurrences = [StrictPos]
               , defCopatternLHS   = hasProjectionPatterns cc

@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE RecursiveDo #-}
 -- {-# LANGUAGE UndecidableInstances #-}  -- ghc >= 8.2, GeneralizedNewtypeDeriving MonadTransControl BlockT
 
 module Agda.TypeChecking.Monad.Base
@@ -17,6 +18,7 @@ import qualified Control.Monad.Fail as Fail
 
 import Control.Monad                ( void )
 import Control.Monad.Except
+import Control.Monad.Fix
 import Control.Monad.IO.Class       ( MonadIO(..) )
 import Control.Monad.State          ( MonadState(..), modify, StateT(..), runStateT )
 import Control.Monad.Reader         ( MonadReader(..), ReaderT(..), runReaderT )
@@ -43,6 +45,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set -- hiding (singleton, null, empty)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HMap
+import Data.HashSet (HashSet)
 import Data.Semigroup ( Semigroup, (<>)) --, Any(..) )
 import Data.String
 import Data.Text (Text)
@@ -55,7 +58,6 @@ import GHC.Generics (Generic)
 
 import Agda.Benchmarking (Benchmark, Phase)
 
-import Agda.Syntax.Concrete (TopLevelModuleName)
 import Agda.Syntax.Common
 import qualified Agda.Syntax.Concrete as C
 import Agda.Syntax.Concrete.Definitions
@@ -66,6 +68,8 @@ import Agda.Syntax.Internal.MetaVars
 import Agda.Syntax.Internal.Generic (TermLike(..))
 import Agda.Syntax.Parser (ParseWarning)
 import Agda.Syntax.Parser.Monad (parseWarningName)
+import Agda.Syntax.TopLevelModuleName
+  (RawTopLevelModuleName, TopLevelModuleName)
 import Agda.Syntax.Treeless (Compiled)
 import Agda.Syntax.Notation
 import Agda.Syntax.Position
@@ -170,7 +174,8 @@ data PreScopeState = PreScopeState
   , stPreImports            :: !Signature  -- XX populated by scope checker
     -- ^ Imported declared identifiers.
     --   Those most not be serialized!
-  , stPreImportedModules    :: !(Set ModuleName)  -- imports logic
+  , stPreImportedModules    :: !(HashSet TopLevelModuleName)
+    -- ^ The top-level modules imported by the current module.
   , stPreModuleToSource     :: !ModuleToSource   -- imports
   , stPreVisitedModules     :: !VisitedModules   -- imports
   , stPreScope              :: !ScopeInfo
@@ -206,9 +211,6 @@ data PreScopeState = PreScopeState
     --   files (or @Nothing@ if there are none).
   , stPreAgdaLibFiles   :: !(Map FilePath AgdaLibFile)
     -- ^ Contents of .agda-lib files that have already been parsed.
-  , stPreModuleNameHashes :: !(Map ModuleNameHash C.QName)
-    -- ^ Module name hashes that have been used so far. Used to detect
-    -- hash collisions.
   , stPreImportedMetaStore :: !RemoteMetaStore
     -- ^ Used for meta-variables from other modules.
   }
@@ -251,7 +253,8 @@ data PostScopeState = PostScopeState
     --   context of the module parameters.
   , stPostImportsDisplayForms :: !DisplayForms
     -- ^ Display forms we add for imported identifiers
-  , stPostCurrentModule       :: !(Strict.Maybe ModuleName)
+  , stPostCurrentModule       ::
+      !(Maybe (ModuleName, TopLevelModuleName))
     -- ^ The current module is available after it has been type
     -- checked.
   , stPostInstanceDefs        :: !TempInstanceTable
@@ -304,6 +307,10 @@ instance Null MutualBlock where
 -- or the state is reset.
 data PersistentTCState = PersistentTCSt
   { stDecodedModules    :: !DecodedModules
+  , stPersistentTopLevelModuleNames ::
+      !(BiMap RawTopLevelModuleName ModuleNameHash)
+    -- ^ Module name hashes for top-level module names (and vice
+    -- versa).
   , stPersistentOptions :: CommandLineOptions
   , stInteractionOutputCallback  :: InteractionOutputCallback
     -- ^ Callback function to call when there is a response
@@ -360,6 +367,7 @@ data TypeCheckAction
 initPersistentState :: PersistentTCState
 initPersistentState = PersistentTCSt
   { stPersistentOptions         = defaultOptions
+  , stPersistentTopLevelModuleNames = empty
   , stDecodedModules            = Map.empty
   , stInteractionOutputCallback = defaultInteractionOutputCallback
   , stBenchmark                 = empty
@@ -382,7 +390,7 @@ initPreScopeState :: PreScopeState
 initPreScopeState = PreScopeState
   { stPreTokens               = mempty
   , stPreImports              = emptySignature
-  , stPreImportedModules      = Set.empty
+  , stPreImportedModules      = empty
   , stPreModuleToSource       = Map.empty
   , stPreVisitedModules       = Map.empty
   , stPreScope                = emptyScopeInfo
@@ -401,9 +409,6 @@ initPreScopeState = PreScopeState
   , stPreImportedPartialDefs  = Set.empty
   , stPreProjectConfigs       = Map.empty
   , stPreAgdaLibFiles         = Map.empty
-  , stPreModuleNameHashes     = Map.singleton noModuleNameHash (C.QName C.noName_)
-    -- We should get a hash collision if the hash of any actual module
-    -- name is noModuleNameHash.
   , stPreImportedMetaStore    = HMap.empty
   }
 
@@ -463,7 +468,8 @@ stImports f s =
   f (stPreImports (stPreScopeState s)) <&>
   \x -> s {stPreScopeState = (stPreScopeState s) {stPreImports = x}}
 
-stImportedModules :: Lens' (Set ModuleName) TCState
+stImportedModules ::
+  Lens' (HashSet TopLevelModuleName) TCState
 stImportedModules f s =
   f (stPreImportedModules (stPreScopeState s)) <&>
   \x -> s {stPreScopeState = (stPreScopeState s) {stPreImportedModules = x}}
@@ -575,10 +581,12 @@ stAgdaLibFiles f s =
   f (stPreAgdaLibFiles (stPreScopeState s)) <&>
   \ x -> s {stPreScopeState = (stPreScopeState s) {stPreAgdaLibFiles = x}}
 
-stModuleNameHashes :: Lens' (Map ModuleNameHash C.QName) TCState
-stModuleNameHashes f s =
-  f (stPreModuleNameHashes (stPreScopeState s)) <&>
-  \ x -> s {stPreScopeState = (stPreScopeState s) {stPreModuleNameHashes = x}}
+stTopLevelModuleNames ::
+  Lens' (BiMap RawTopLevelModuleName ModuleNameHash) TCState
+stTopLevelModuleNames f s =
+  f (stPersistentTopLevelModuleNames (stPersistentState s)) <&>
+  \ x -> s {stPersistentState =
+              (stPersistentState s) {stPersistentTopLevelModuleNames = x}}
 
 stImportedMetaStore :: Lens' RemoteMetaStore TCState
 stImportedMetaStore f s =
@@ -655,10 +663,17 @@ stImportedDisplayForms f s =
   f (stPreImportedDisplayForms (stPreScopeState s)) <&>
   \x -> s {stPreScopeState = (stPreScopeState s) {stPreImportedDisplayForms = x}}
 
-stCurrentModule :: Lens' (Maybe ModuleName) TCState
+-- | Note that the lens is \"strict\".
+
+stCurrentModule ::
+  Lens' (Maybe (ModuleName, TopLevelModuleName)) TCState
 stCurrentModule f s =
-  f (Strict.toLazy $ stPostCurrentModule (stPostScopeState s)) <&>
-  \x -> s {stPostScopeState = (stPostScopeState s) {stPostCurrentModule = Strict.toStrict x}}
+  f (stPostCurrentModule (stPostScopeState s)) <&>
+  \x -> s {stPostScopeState =
+             (stPostScopeState s)
+               {stPostCurrentModule = case x of
+                  Nothing         -> Nothing
+                  Just (!m, !top) -> Just (m, top)}}
 
 stImportedInstanceDefs :: Lens' InstanceTable TCState
 stImportedInstanceDefs f s =
@@ -868,34 +883,6 @@ instance FreshName () where
 
 type ModuleToSource = Map TopLevelModuleName AbsolutePath
 
--- | Maps source file names to the corresponding top-level module
--- names.
-
-type SourceToModule = Map AbsolutePath TopLevelModuleName
-
--- | Creates a 'SourceToModule' map based on 'stModuleToSource'.
---
---   O(n log n).
---
---   For a single reverse lookup in 'stModuleToSource',
---   rather use 'lookupModuleFromSourse'.
-
-sourceToModule :: TCM SourceToModule
-sourceToModule =
-  Map.fromListWith __IMPOSSIBLE__
-     .  List.map (\(m, f) -> (f, m))
-     .  Map.toList
-    <$> useTC stModuleToSource
-
--- | Lookup an 'AbsolutePath' in 'sourceToModule'.
---
---   O(n).
-
-lookupModuleFromSource :: ReadTCState m => AbsolutePath -> m (Maybe TopLevelModuleName)
-lookupModuleFromSource f =
-  fmap fst . List.find ((f ==) . snd) . Map.toList <$> useR stModuleToSource
-
-
 ---------------------------------------------------------------------------
 -- ** Associating concrete names to an abstract name
 ---------------------------------------------------------------------------
@@ -955,12 +942,8 @@ data ModuleInfo = ModuleInfo
   }
   deriving Generic
 
--- Note that the use of 'C.TopLevelModuleName' here is a potential
--- performance problem, because these names do not contain unique
--- identifiers.
-
-type VisitedModules = Map C.TopLevelModuleName ModuleInfo
-type DecodedModules = Map C.TopLevelModuleName ModuleInfo
+type VisitedModules = Map TopLevelModuleName ModuleInfo
+type DecodedModules = Map TopLevelModuleName ModuleInfo
 
 data ForeignCode = ForeignCode Range String
   deriving (Show, Generic)
@@ -974,10 +957,12 @@ data Interface = Interface
     -- re-read the (possibly out of date) source code.
   , iFileType        :: FileType
     -- ^ Source file type, determined from the file extension
-  , iImportedModules :: [(ModuleName, Hash)]
+  , iImportedModules :: [(TopLevelModuleName, Hash)]
     -- ^ Imported modules and their hashes.
   , iModuleName      :: ModuleName
     -- ^ Module name of this interface.
+  , iTopLevelModuleName :: TopLevelModuleName
+    -- ^ The module's top-level module name.
   , iScope           :: Map ModuleName Scope
     -- ^ Scope defined by this module.
     --
@@ -1016,10 +1001,10 @@ data Interface = Interface
 
 instance Pretty Interface where
   pretty (Interface
-            sourceH source fileT importedM moduleN scope insideS signature
-            metas display userwarn importwarn builtin foreignCode
-            highlighting libPragmaO filePragmaO oUsed patternS warnings
-            partialdefs) =
+            sourceH source fileT importedM moduleN topModN scope insideS
+            signature metas display userwarn importwarn builtin
+            foreignCode highlighting libPragmaO filePragmaO oUsed
+            patternS warnings partialdefs) =
 
     hang "Interface" 2 $ vcat
       [ "source hash:"         <+> (pretty . show) sourceH
@@ -1027,6 +1012,7 @@ instance Pretty Interface where
       , "file type:"           <+> (pretty . show) fileT
       , "imported modules:"    <+> (pretty . show) importedM
       , "module name:"         <+> pretty moduleN
+      , "top-level module name:" <+> pretty topModN
       , "scope:"               <+> (pretty . show) scope
       , "inside scope:"        <+> (pretty . show) insideS
       , "signature:"           <+> (pretty . show) signature
@@ -1106,6 +1092,23 @@ data ProblemConstraint = PConstr
 instance HasRange ProblemConstraint where
   getRange = getRange . theConstraint
 
+-- | Why are we performing a modality check?
+data WhyCheckModality
+  = ConstructorType
+  -- ^ Because --without-K is enabled, so the types of data constructors
+  -- must be usable at the context's modality.
+  | IndexedClause
+  -- ^ Because --without-K is enabled, so the result type of clauses
+  -- must be usable at the context's modality.
+  | IndexedClauseArg Name Name
+  -- ^ Because --without-K is enabled, so any argument (second name)
+  -- which mentions a dotted argument (first name) must have a type
+  -- which is usable at the context's modality.
+  | GeneratedClause
+  -- ^ Because we double-check the --cubical-compatible clauses. This is
+  -- an internal error!
+  deriving (Show, Generic)
+
 data Constraint
   = ValueCmp Comparison CompareAs Term Term
   | ValueCmpOnFace Comparison Term Type Term Term
@@ -1137,7 +1140,7 @@ data Constraint
     -- ^ Last argument is the error causing us to postpone.
   | UnquoteTactic Term Term Type   -- ^ First argument is computation and the others are hole and goal type
   | CheckLockedVars Term Type (Arg Term) Type     -- ^ @CheckLockedVars t ty lk lk_ty@ with @t : ty@, @lk : lk_ty@ and @t lk@ well-typed.
-  | UsableAtModality (Maybe Sort) Modality Term
+  | UsableAtModality WhyCheckModality (Maybe Sort) Modality Term
     -- ^ Is the term usable at the given modality?
     -- This check should run if the @Sort@ is @Nothing@ or @isFibrant@.
   deriving (Show, Generic)
@@ -1175,7 +1178,7 @@ instance Free Constraint where
       CheckDataSort _ s     -> freeVars' s
       CheckMetaInst m       -> mempty
       CheckType t           -> freeVars' t
-      UsableAtModality ms mod t -> freeVars' (ms, t)
+      UsableAtModality _ ms mod t -> freeVars' (ms, t)
 
 instance TermLike Constraint where
   foldTerm f = \case
@@ -1196,7 +1199,7 @@ instance TermLike Constraint where
       CheckDataSort _ s      -> foldTerm f s
       CheckMetaInst m        -> mempty
       CheckType t            -> foldTerm f t
-      UsableAtModality ms m t   -> foldTerm f (Sort <$> ms, t)
+      UsableAtModality _ ms m t   -> foldTerm f (Sort <$> ms, t)
 
   traverseTermM f c = __IMPOSSIBLE__ -- Not yet implemented
 
@@ -1263,6 +1266,11 @@ instance TermLike CompareAs where
     AsTypes     -> return AsTypes
 
 instance AllMetas CompareAs
+
+instance Pretty CompareAs where
+  pretty (AsTermsOf a) = ":" <+> pretty a
+  pretty AsSizes       = ":" <+> text "Size"
+  pretty AsTypes       = empty
 
 ---------------------------------------------------------------------------
 -- * Open things
@@ -1994,8 +2002,8 @@ data NumGeneralizableArgs
     --   'SomeGeneralizableArgs', also when the number is zero.
   deriving Show
 
-theDefLens :: Lens' Defn Definition
-theDefLens f d = f (theDef d) <&> \ df -> d { theDef = df }
+lensTheDef :: Lens' Defn Definition
+lensTheDef f d = f (theDef d) <&> \ df -> d { theDef = df }
 
 -- | Create a definition with sensible defaults.
 defaultDefn ::
@@ -2182,151 +2190,441 @@ defaultAxiom = Axiom False
 constTranspAxiom :: Defn
 constTranspAxiom = Axiom True
 
-data Defn = Axiom -- ^ Postulate
-            { axiomConstTransp :: Bool
-              -- ^ Can transp for this postulate be constant?
-              --   Set to @True@ for bultins like String.
-            }
-          | DataOrRecSig
-            { datarecPars :: Int }
-            -- ^ Data or record type signature that doesn't yet have a definition
-          | GeneralizableVar -- ^ Generalizable variable (introduced in `generalize` block)
-          | AbstractDefn Defn
-            -- ^ Returned by 'getConstInfo' if definition is abstract.
-          | Function
-            { funClauses        :: [Clause]
-            , funCompiled       :: Maybe CompiledClauses
-              -- ^ 'Nothing' while function is still type-checked.
-              --   @Just cc@ after type and coverage checking and
-              --   translation to case trees.
-            , funSplitTree      :: Maybe SplitTree
-              -- ^ The split tree constructed by the coverage
-              --   checker. Needed to re-compile the clauses after
-              --   forcing translation.
-            , funTreeless       :: Maybe Compiled
-              -- ^ Intermediate representation for compiler backends.
-            , funCovering       :: [Clause]
-              -- ^ Covering clauses computed by coverage checking.
-              --   Erased by (IApply) confluence checking(?)
-            , funInv            :: FunctionInverse
-            , funMutual         :: Maybe [QName]
-              -- ^ Mutually recursive functions, @data@s and @record@s.
-              --   Does include this function.
-              --   Empty list if not recursive.
-              --   @Nothing@ if not yet computed (by positivity checker).
-            , funAbstr          :: IsAbstract
-            , funDelayed        :: Delayed
-              -- ^ Are the clauses of this definition delayed?
-            , funProjection     :: Maybe Projection
-              -- ^ Is it a record projection?
-              --   If yes, then return the name of the record type and index of
-              --   the record argument.  Start counting with 1, because 0 means that
-              --   it is already applied to the record. (Can happen in module
-              --   instantiation.) This information is used in the termination
-              --   checker.
-            , funFlags          :: Set FunctionFlag
-            , funTerminates     :: Maybe Bool
-              -- ^ Has this function been termination checked?  Did it pass?
-            , funExtLam         :: Maybe ExtLamInfo
-              -- ^ Is this function generated from an extended lambda?
-              --   If yes, then return the number of hidden and non-hidden lambda-lifted arguments
-            , funWith           :: Maybe QName
-              -- ^ Is this a generated with-function? If yes, then what's the
-              --   name of the parent function.
-            }
-          | Datatype
-            { dataPars           :: Nat            -- ^ Number of parameters.
-            , dataIxs            :: Nat            -- ^ Number of indices.
-            , dataClause         :: (Maybe Clause) -- ^ This might be in an instantiated module.
-            , dataCons           :: [QName]
-              -- ^ Constructor names , ordered according to the order of their definition.
-            , dataSort           :: Sort
-            , dataMutual         :: Maybe [QName]
-              -- ^ Mutually recursive functions, @data@s and @record@s.
-              --   Does include this data type.
-              --   Empty if not recursive.
-              --   @Nothing@ if not yet computed (by positivity checker).
-            , dataAbstr          :: IsAbstract
-            , dataPathCons       :: [QName]        -- ^ Path constructor names (subset of dataCons)
-            , dataTranspIx       :: Maybe QName    -- ^ if indexed datatype, name of the "index transport" function.
-            , dataTransp         :: Maybe QName
-              -- ^ transport function, should be available for all datatypes in supported sorts.
-            }
-          | Record
-            { recPars           :: Nat
-              -- ^ Number of parameters.
-            , recClause         :: Maybe Clause
-              -- ^ Was this record type created by a module application?
-              --   If yes, the clause is its definition (linking back to the original record type).
-            , recConHead        :: ConHead
-              -- ^ Constructor name and fields.
-            , recNamedCon       :: Bool
-              -- ^ Does this record have a @constructor@?
-            , recFields         :: [Dom QName]
-              -- ^ The record field names.
-            , recTel            :: Telescope
-              -- ^ The record field telescope. (Includes record parameters.)
-              --   Note: @TelV recTel _ == telView' recConType@.
-              --   Thus, @recTel@ is redundant.
-            , recMutual         :: Maybe [QName]
-              -- ^ Mutually recursive functions, @data@s and @record@s.
-              --   Does include this record.
-              --   Empty if not recursive.
-              --   @Nothing@ if not yet computed (by positivity checker).
-            , recEtaEquality'    :: EtaEquality
-              -- ^ Eta-expand at this record type?
-              --   @False@ for unguarded recursive records and coinductive records
-              --   unless the user specifies otherwise.
-            , recPatternMatching :: PatternOrCopattern
-              -- ^ In case eta-equality is off, do we allow pattern matching on the
-              --   constructor or construction by copattern matching?
-              --   Having both loses subject reduction, see issue #4560.
-              --   After positivity checking, this field is obsolete, part of 'EtaEquality'.
-            , recInduction      :: Maybe Induction
-              -- ^ 'Inductive' or 'CoInductive'?  Matters only for recursive records.
-              --   'Nothing' means that the user did not specify it, which is an error
-              --   for recursive records.
-            , recTerminates     :: Maybe Bool
-              -- ^ 'Just True' means that unfolding of the recursive record terminates,
-              --   'Just False' means that we have no evidence for termination,
-              --   and 'Nothing' means we have not run the termination checker yet.
-            , recAbstr          :: IsAbstract
-            , recComp           :: CompKit
-            }
-          | Constructor
-            { conPars   :: Int         -- ^ Number of parameters.
-            , conArity  :: Int         -- ^ Number of arguments (excluding parameters).
-            , conSrcCon :: ConHead     -- ^ Name of (original) constructor and fields. (This might be in a module instance.)
-            , conData   :: QName       -- ^ Name of datatype or record type.
-            , conAbstr  :: IsAbstract
-            , conInd    :: Induction   -- ^ Inductive or coinductive?
-            , conComp   :: CompKit     -- ^ Cubical composition.
-            , conProj   :: Maybe [QName] -- ^ Projections. 'Nothing' if not yet computed.
-            , conForced :: [IsForced]
-              -- ^ Which arguments are forced (i.e. determined by the type of the constructor)?
-              --   Either this list is empty (if the forcing analysis isn't run), or its length is @conArity@.
-            , conErased :: Maybe [Bool]
-              -- ^ Which arguments are erased at runtime (computed during compilation to treeless)?
-              --   'True' means erased, 'False' means retained.
-              --   'Nothing' if no erasure analysis has been performed yet.
-              --   The length of the list is @conArity@.
-            }
-          | Primitive  -- ^ Primitive or builtin functions.
-            { primAbstr :: IsAbstract
-            , primName  :: String
-            , primClauses :: [Clause]
-              -- ^ 'null' for primitive functions, @not null@ for builtin functions.
-            , primInv      :: FunctionInverse
-              -- ^ Builtin functions can have inverses. For instance, natural number addition.
-            , primCompiled :: Maybe CompiledClauses
-              -- ^ 'Nothing' for primitive functions,
-              --   @'Just' something@ for builtin functions.
-            }
-          | PrimitiveSort
-            { primName :: String
-            , primSort :: Sort
-            }
+data Defn
+  = AxiomDefn AxiomData
+      -- ^ Postulate.
+  | DataOrRecSigDefn DataOrRecSigData
+      -- ^ Data or record type signature that doesn't yet have a definition.
+  | GeneralizableVar
+      -- ^ Generalizable variable (introduced in `generalize` block).
+  | AbstractDefn Defn
+      -- ^ Returned by 'getConstInfo' if definition is abstract.
+  | FunctionDefn FunctionData
+  | DatatypeDefn DatatypeData
+  | RecordDefn RecordData
+  | ConstructorDefn ConstructorData
+  | PrimitiveDefn PrimitiveData
+      -- ^ Primitive or builtin functions.
+  | PrimitiveSortDefn PrimitiveSortData
     deriving (Show, Generic)
+
+-- The COMPLETE pragma is new in GHC 8.2
+#if __GLASGOW_HASKELL__ >= 802
+{-# COMPLETE
+  Axiom, DataOrRecSig, GeneralizableVar, AbstractDefn,
+  Function, Datatype, Record, Constructor, Primitive, PrimitiveSort #-}
+#endif
+
+data AxiomData = AxiomData
+  { _axiomConstTransp :: Bool
+    -- ^ Can transp for this postulate be constant?
+    --   Set to @True@ for bultins like String.
+  } deriving (Show, Generic)
+
+pattern Axiom :: Bool -> Defn
+pattern Axiom{ axiomConstTransp } = AxiomDefn (AxiomData axiomConstTransp)
+
+data DataOrRecSigData = DataOrRecSigData
+  { _datarecPars :: Int
+  } deriving (Show, Generic)
+
+pattern DataOrRecSig :: Int -> Defn
+pattern DataOrRecSig{ datarecPars } = DataOrRecSigDefn (DataOrRecSigData datarecPars)
+
+-- | Indicates the reason behind a function having not been marked
+-- projection-like.
+data ProjectionLikenessMissing
+  = MaybeProjection
+    -- ^ Projection-likeness analysis has not run on this function yet.
+    -- It may do so in the future.
+  | NeverProjection
+    -- ^ The user has requested that this function be not be marked
+    -- projection-like. The analysis may already have run on this
+    -- function, but the results have been discarded, and it will not be
+    -- run again.
+  deriving (Show, Generic, Enum, Bounded)
+
+data FunctionData = FunctionData
+  { _funClauses        :: [Clause]
+  , _funCompiled       :: Maybe CompiledClauses
+      -- ^ 'Nothing' while function is still type-checked.
+      --   @Just cc@ after type and coverage checking and
+      --   translation to case trees.
+  , _funSplitTree      :: Maybe SplitTree
+      -- ^ The split tree constructed by the coverage
+      --   checker. Needed to re-compile the clauses after
+      --   forcing translation.
+  , _funTreeless       :: Maybe Compiled
+      -- ^ Intermediate representation for compiler backends.
+  , _funCovering       :: [Clause]
+      -- ^ Covering clauses computed by coverage checking.
+      --   Erased by (IApply) confluence checking(?)
+  , _funInv            :: FunctionInverse
+  , _funMutual         :: Maybe [QName]
+      -- ^ Mutually recursive functions, @data@s and @record@s.
+      --   Does include this function.
+      --   Empty list if not recursive.
+      --   @Nothing@ if not yet computed (by positivity checker).
+  , _funAbstr          :: IsAbstract
+  , _funDelayed        :: Delayed
+      -- ^ Are the clauses of this definition delayed?
+  , _funProjection     :: Either ProjectionLikenessMissing Projection
+      -- ^ Is it a record projection?
+      --   If yes, then return the name of the record type and index of
+      --   the record argument.  Start counting with 1, because 0 means that
+      --   it is already applied to the record. (Can happen in module
+      --   instantiation.) This information is used in the termination
+      --   checker.
+  , _funFlags          :: Set FunctionFlag
+  , _funTerminates     :: Maybe Bool
+      -- ^ Has this function been termination checked?  Did it pass?
+  , _funExtLam         :: Maybe ExtLamInfo
+      -- ^ Is this function generated from an extended lambda?
+      --   If yes, then return the number of hidden and non-hidden lambda-lifted arguments.
+  , _funWith           :: Maybe QName
+      -- ^ Is this a generated with-function?
+      --   If yes, then what's the name of the parent function?
+  , _funIsKanOp        :: Maybe QName
+      -- ^ Is this a helper for one of the Kan operations (transp,
+      -- hcomp) on data types/records? If so, for which data type?
+  } deriving (Show, Generic)
+
+pattern Function
+  :: [Clause]
+  -> Maybe CompiledClauses
+  -> Maybe SplitTree
+  -> Maybe Compiled
+  -> [Clause]
+  -> FunctionInverse
+  -> Maybe [QName]
+  -> IsAbstract
+  -> Delayed
+  -> Either ProjectionLikenessMissing Projection
+  -> Set FunctionFlag
+  -> Maybe Bool
+  -> Maybe ExtLamInfo
+  -> Maybe QName
+  -> Maybe QName
+  -> Defn
+pattern Function
+  { funClauses
+  , funCompiled
+  , funSplitTree
+  , funTreeless
+  , funCovering
+  , funInv
+  , funMutual
+  , funAbstr
+  , funDelayed
+  , funProjection
+  , funFlags
+  , funTerminates
+  , funExtLam
+  , funWith
+  , funIsKanOp
+  } = FunctionDefn (FunctionData
+    funClauses
+    funCompiled
+    funSplitTree
+    funTreeless
+    funCovering
+    funInv
+    funMutual
+    funAbstr
+    funDelayed
+    funProjection
+    funFlags
+    funTerminates
+    funExtLam
+    funWith
+    funIsKanOp
+  )
+
+data DatatypeData = DatatypeData
+  { _dataPars           :: Nat
+      -- ^ Number of parameters.
+  , _dataIxs            :: Nat
+      -- ^ Number of indices.
+  , _dataClause         :: Maybe Clause
+      -- ^ This might be in an instantiated module.
+  , _dataCons           :: [QName]
+      -- ^ Constructor names, ordered according to the order of their definition.
+  , _dataSort           :: Sort
+  , _dataMutual         :: Maybe [QName]
+      -- ^ Mutually recursive functions, @data@s and @record@s.
+      --   Does include this data type.
+      --   Empty if not recursive.
+      --   @Nothing@ if not yet computed (by positivity checker).
+  , _dataAbstr          :: IsAbstract
+  , _dataPathCons       :: [QName]
+      -- ^ Path constructor names (subset of @dataCons@).
+  , _dataTranspIx       :: Maybe QName
+      -- ^ If indexed datatype, name of the "index transport" function.
+  , _dataTransp         :: Maybe QName
+      -- ^ Transport function, should be available for all datatypes in supported sorts.
+  } deriving (Show, Generic)
+
+pattern Datatype
+  :: Nat
+  -> Nat
+  -> (Maybe Clause)
+  -> [QName]
+  -> Sort
+  -> Maybe [QName]
+  -> IsAbstract
+  -> [QName]
+  -> Maybe QName
+  -> Maybe QName
+  -> Defn
+
+pattern Datatype
+  { dataPars
+  , dataIxs
+  , dataClause
+  , dataCons
+  , dataSort
+  , dataMutual
+  , dataAbstr
+  , dataPathCons
+  , dataTranspIx
+  , dataTransp
+  } = DatatypeDefn (DatatypeData
+    dataPars
+    dataIxs
+    dataClause
+    dataCons
+    dataSort
+    dataMutual
+    dataAbstr
+    dataPathCons
+    dataTranspIx
+    dataTransp
+  )
+
+data RecordData = RecordData
+  { _recPars           :: Nat
+      -- ^ Number of parameters.
+  , _recClause         :: Maybe Clause
+      -- ^ Was this record type created by a module application?
+      --   If yes, the clause is its definition (linking back to the original record type).
+  , _recConHead        :: ConHead
+      -- ^ Constructor name and fields.
+  , _recNamedCon       :: Bool
+      -- ^ Does this record have a @constructor@?
+  , _recFields         :: [Dom QName]
+      -- ^ The record field names.
+  , _recTel            :: Telescope
+      -- ^ The record field telescope. (Includes record parameters.)
+      --   Note: @TelV recTel _ == telView' recConType@.
+      --   Thus, @recTel@ is redundant.
+  , _recMutual         :: Maybe [QName]
+      -- ^ Mutually recursive functions, @data@s and @record@s.
+      --   Does include this record.
+      --   Empty if not recursive.
+      --   @Nothing@ if not yet computed (by positivity checker).
+  , _recEtaEquality'    :: EtaEquality
+      -- ^ Eta-expand at this record type?
+      --   @False@ for unguarded recursive records and coinductive records
+      --   unless the user specifies otherwise.
+  , _recPatternMatching :: PatternOrCopattern
+      -- ^ In case eta-equality is off, do we allow pattern matching on the
+      --   constructor or construction by copattern matching?
+      --   Having both loses subject reduction, see issue #4560.
+      --   After positivity checking, this field is obsolete, part of 'EtaEquality'.
+  , _recInduction      :: Maybe Induction
+      -- ^ 'Inductive' or 'CoInductive'?  Matters only for recursive records.
+      --   'Nothing' means that the user did not specify it, which is an error
+      --   for recursive records.
+  , _recTerminates     :: Maybe Bool
+      -- ^ 'Just True' means that unfolding of the recursive record terminates,
+      --   'Just False' means that we have no evidence for termination,
+      --   and 'Nothing' means we have not run the termination checker yet.
+  , _recAbstr          :: IsAbstract
+  , _recComp           :: CompKit
+  } deriving (Show, Generic)
+
+pattern Record
+  :: Nat
+  -> Maybe Clause
+  -> ConHead
+  -> Bool
+  -> [Dom QName]
+  -> Telescope
+  -> Maybe [QName]
+  -> EtaEquality
+  -> PatternOrCopattern
+  -> Maybe Induction
+  -> Maybe Bool
+  -> IsAbstract
+  -> CompKit
+  -> Defn
+
+pattern Record
+  { recPars
+  , recClause
+  , recConHead
+  , recNamedCon
+  , recFields
+  , recTel
+  , recMutual
+  , recEtaEquality'
+  , recPatternMatching
+  , recInduction
+  , recTerminates
+  , recAbstr
+  , recComp
+  } = RecordDefn (RecordData
+    recPars
+    recClause
+    recConHead
+    recNamedCon
+    recFields
+    recTel
+    recMutual
+    recEtaEquality'
+    recPatternMatching
+    recInduction
+    recTerminates
+    recAbstr
+    recComp
+  )
+
+data ConstructorData = ConstructorData
+  { _conPars   :: Int
+      -- ^ Number of parameters.
+  , _conArity  :: Int
+      -- ^ Number of arguments (excluding parameters).
+  , _conSrcCon :: ConHead
+      -- ^ Name of (original) constructor and fields. (This might be in a module instance.)
+  , _conData   :: QName
+      -- ^ Name of datatype or record type.
+  , _conAbstr  :: IsAbstract
+  , _conInd    :: Induction
+      -- ^ Inductive or coinductive?
+  , _conComp   :: CompKit
+      -- ^ Cubical composition.
+  , _conProj   :: Maybe [QName]
+      -- ^ Projections. 'Nothing' if not yet computed.
+  , _conForced :: [IsForced]
+      -- ^ Which arguments are forced (i.e. determined by the type of the constructor)?
+      --   Either this list is empty (if the forcing analysis isn't run), or its length is @conArity@.
+  , _conErased :: Maybe [Bool]
+      -- ^ Which arguments are erased at runtime (computed during compilation to treeless)?
+      --   'True' means erased, 'False' means retained.
+      --   'Nothing' if no erasure analysis has been performed yet.
+      --   The length of the list is @conArity@.
+  } deriving (Show, Generic)
+
+pattern Constructor
+  :: Int
+  -> Int
+  -> ConHead
+  -> QName
+  -> IsAbstract
+  -> Induction
+  -> CompKit
+  -> Maybe [QName]
+  -> [IsForced]
+  -> Maybe [Bool]
+  -> Defn
+pattern Constructor
+  { conPars
+  , conArity
+  , conSrcCon
+  , conData
+  , conAbstr
+  , conInd
+  , conComp
+  , conProj
+  , conForced
+  , conErased
+  } = ConstructorDefn (ConstructorData
+    conPars
+    conArity
+    conSrcCon
+    conData
+    conAbstr
+    conInd
+    conComp
+    conProj
+    conForced
+    conErased
+  )
+
+data PrimitiveData = PrimitiveData
+  { _primAbstr    :: IsAbstract
+  , _primName     :: String
+  , _primClauses  :: [Clause]
+      -- ^ 'null' for primitive functions, @not null@ for builtin functions.
+  , _primInv      :: FunctionInverse
+      -- ^ Builtin functions can have inverses. For instance, natural number addition.
+  , _primCompiled :: Maybe CompiledClauses
+      -- ^ 'Nothing' for primitive functions,
+      --   @'Just' something@ for builtin functions.
+  } deriving (Show, Generic)
+
+pattern Primitive
+  :: IsAbstract
+  -> String
+  -> [Clause]
+  -> FunctionInverse
+  -> Maybe CompiledClauses
+  -> Defn
+pattern Primitive
+  { primAbstr
+  , primName
+  , primClauses
+  , primInv
+  , primCompiled
+  } = PrimitiveDefn (PrimitiveData
+    primAbstr
+    primName
+    primClauses
+    primInv
+    primCompiled
+  )
+
+data PrimitiveSortData = PrimitiveSortData
+  { _primSortName :: String
+  , _primSortSort :: Sort
+  } deriving (Show, Generic)
+
+pattern PrimitiveSort
+  :: String
+  -> Sort
+  -> Defn
+pattern PrimitiveSort
+  { primSortName
+  , primSortSort
+  } = PrimitiveSortDefn (PrimitiveSortData
+    primSortName
+    primSortSort
+  )
+
+-- TODO: lenses for all Defn variants
+
+lensFunction :: Lens' FunctionData Defn
+lensFunction f = \case
+  FunctionDefn d -> FunctionDefn <$> f d
+  _ -> __IMPOSSIBLE__
+
+lensConstructor :: Lens' ConstructorData Defn
+lensConstructor f = \case
+  ConstructorDefn d -> ConstructorDefn <$> f d
+  _ -> __IMPOSSIBLE__
+
+lensRecord :: Lens' RecordData Defn
+lensRecord f = \case
+  RecordDefn d -> RecordDefn <$> f d
+  _ -> __IMPOSSIBLE__
+
+-- Lenses for Record
+
+lensRecTel :: Lens' Telescope RecordData
+lensRecTel f r =
+  f (_recTel r) <&> \ tel -> r { _recTel = tel }
+
+-- Pretty printing definitions
 
 instance Pretty Definition where
   pretty Defn{..} =
@@ -2348,11 +2646,43 @@ instance Pretty Definition where
       , "theDef            =" <?> pretty theDef ] <+> "}"
 
 instance Pretty Defn where
-  pretty Axiom{} = "Axiom"
-  pretty (DataOrRecSig n)   = "DataOrRecSig" <+> pretty n
-  pretty GeneralizableVar{} = "GeneralizableVar"
-  pretty (AbstractDefn def) = "AbstractDefn" <?> parens (pretty def)
-  pretty Function{..} =
+  pretty = \case
+    AxiomDefn _         -> "Axiom"
+    DataOrRecSigDefn d  -> pretty d
+    GeneralizableVar    -> "GeneralizableVar"
+    AbstractDefn def    -> "AbstractDefn" <?> parens (pretty def)
+    FunctionDefn d      -> pretty d
+    DatatypeDefn d      -> pretty d
+    RecordDefn d        -> pretty d
+    ConstructorDefn d   -> pretty d
+    PrimitiveDefn d     -> pretty d
+    PrimitiveSortDefn d -> pretty d
+
+instance Pretty DataOrRecSigData where
+  pretty (DataOrRecSigData n) = "DataOrRecSig" <+> pretty n
+
+instance Pretty ProjectionLikenessMissing where
+  pretty MaybeProjection = "MaybeProjection"
+  pretty NeverProjection = "NeverProjection"
+
+instance Pretty FunctionData where
+  pretty (FunctionData
+      funClauses
+      funCompiled
+      funSplitTree
+      funTreeless
+      _funCovering
+      funInv
+      funMutual
+      funAbstr
+      funDelayed
+      funProjection
+      funFlags
+      funTerminates
+      _funExtLam
+      funWith
+      funIsKanOp
+    ) =
     "Function {" <?> vcat
       [ "funClauses      =" <?> vcat (map pretty funClauses)
       , "funCompiled     =" <?> pretty funCompiled
@@ -2365,8 +2695,23 @@ instance Pretty Defn where
       , "funProjection   =" <?> pretty funProjection
       , "funFlags        =" <?> pshow funFlags
       , "funTerminates   =" <?> pshow funTerminates
-      , "funWith         =" <?> pretty funWith ] <?> "}"
-  pretty Datatype{..} =
+      , "funWith         =" <?> pretty funWith
+      , "funIsKanOp      =" <?> pretty funWith
+      ] <?> "}"
+
+instance Pretty DatatypeData where
+  pretty (DatatypeData
+      dataPars
+      dataIxs
+      dataClause
+      dataCons
+      dataSort
+      dataMutual
+      _dataAbstr
+      _dataPathCons
+      _dataTranspIx
+      _dataTransp
+    ) =
     "Datatype {" <?> vcat
       [ "dataPars       =" <?> pshow dataPars
       , "dataIxs        =" <?> pshow dataIxs
@@ -2374,8 +2719,25 @@ instance Pretty Defn where
       , "dataCons       =" <?> pshow dataCons
       , "dataSort       =" <?> pretty dataSort
       , "dataMutual     =" <?> pshow dataMutual
-      , "dataAbstr      =" <?> pshow dataAbstr ] <?> "}"
-  pretty Record{..} =
+      , "dataAbstr      =" <?> pshow dataAbstr
+      ] <?> "}"
+
+instance Pretty RecordData where
+  pretty (RecordData
+      recPars
+      recClause
+      recConHead
+      recNamedCon
+      recFields
+      recTel
+      recMutual
+      recEtaEquality'
+      _recPatternMatching
+      recInduction
+      _recTerminates
+      recAbstr
+      _recComp
+    ) =
     "Record {" <?> vcat
       [ "recPars         =" <?> pshow recPars
       , "recClause       =" <?> pretty recClause
@@ -2386,8 +2748,22 @@ instance Pretty Defn where
       , "recMutual       =" <?> pshow recMutual
       , "recEtaEquality' =" <?> pshow recEtaEquality'
       , "recInduction    =" <?> pshow recInduction
-      , "recAbstr        =" <?> pshow recAbstr ] <?> "}"
-  pretty Constructor{..} =
+      , "recAbstr        =" <?> pshow recAbstr
+      ] <?> "}"
+
+instance Pretty ConstructorData where
+  pretty (ConstructorData
+      conPars
+      conArity
+      conSrcCon
+      conData
+      conAbstr
+      conInd
+      _conComp
+      _conProj
+      _conForced
+      conErased
+    ) =
     "Constructor {" <?> vcat
       [ "conPars   =" <?> pshow conPars
       , "conArity  =" <?> pshow conArity
@@ -2395,17 +2771,29 @@ instance Pretty Defn where
       , "conData   =" <?> pretty conData
       , "conAbstr  =" <?> pshow conAbstr
       , "conInd    =" <?> pshow conInd
-      , "conErased =" <?> pshow conErased ] <?> "}"
-  pretty Primitive{..} =
+      , "conErased =" <?> pshow conErased
+      ] <?> "}"
+
+instance Pretty PrimitiveData where
+  pretty (PrimitiveData
+      primAbstr
+      primName
+      primClauses
+      _primInv
+      primCompiled
+      ) =
     "Primitive {" <?> vcat
       [ "primAbstr    =" <?> pshow primAbstr
       , "primName     =" <?> pshow primName
       , "primClauses  =" <?> pshow primClauses
-      , "primCompiled =" <?> pshow primCompiled ] <?> "}"
-  pretty PrimitiveSort{..} =
+      , "primCompiled =" <?> pshow primCompiled
+      ] <?> "}"
+
+instance Pretty PrimitiveSortData where
+  pretty (PrimitiveSortData primSortName primSortSort) =
     "PrimitiveSort {" <?> vcat
-      [ "primName =" <?> pshow primName
-      , "primSort =" <?> pshow primSort
+      [ "primSortName =" <?> pshow primSortName
+      , "primSortSort =" <?> pshow primSortSort
       ] <?> "}"
 
 instance Pretty Projection where
@@ -2420,7 +2808,7 @@ instance Pretty Projection where
 
 instance Pretty c => Pretty (FunctionInverse' c) where
   pretty NotInjective = "NotInjective"
-  pretty (Inverse w inv) = "Inverse" <+> text (show w) <?>
+  pretty (Inverse inv) = "Inverse" <?>
     vcat [ pretty h <+> "->" <?> pretty cs
          | (h, cs) <- Map.toList inv ]
 
@@ -2436,23 +2824,27 @@ recEtaEquality :: Defn -> HasEta
 recEtaEquality = theEtaEquality . recEtaEquality'
 
 -- | A template for creating 'Function' definitions, with sensible defaults.
-emptyFunction :: Defn
-emptyFunction = Function
-  { funClauses     = []
-  , funCompiled    = Nothing
-  , funSplitTree   = Nothing
-  , funTreeless    = Nothing
-  , funInv         = NotInjective
-  , funMutual      = Nothing
-  , funAbstr       = ConcreteDef
-  , funDelayed     = NotDelayed
-  , funProjection  = Nothing
-  , funFlags       = Set.empty
-  , funTerminates  = Nothing
-  , funExtLam      = Nothing
-  , funWith        = Nothing
-  , funCovering    = []
+emptyFunctionData :: FunctionData
+emptyFunctionData = FunctionData
+  { _funClauses     = []
+  , _funCompiled    = Nothing
+  , _funSplitTree   = Nothing
+  , _funTreeless    = Nothing
+  , _funInv         = NotInjective
+  , _funMutual      = Nothing
+  , _funAbstr       = ConcreteDef
+  , _funDelayed     = NotDelayed
+  , _funProjection  = Left MaybeProjection
+  , _funFlags       = Set.empty
+  , _funTerminates  = Nothing
+  , _funExtLam      = Nothing
+  , _funWith        = Nothing
+  , _funCovering    = []
+  , _funIsKanOp     = Nothing
   }
+
+emptyFunction :: Defn
+emptyFunction = FunctionDefn emptyFunctionData
 
 funFlag :: FunctionFlag -> Lens' Bool Defn
 funFlag flag f def@Function{ funFlags = flags } =
@@ -2711,12 +3103,9 @@ defForced d = case theDef d of
 type FunctionInverse = FunctionInverse' Clause
 type InversionMap c = Map TermHead [c]
 
-data WhenInjective = AlwaysInjective | UnlessCubical
-  deriving (Show, Generic)
-
 data FunctionInverse' c
   = NotInjective
-  | Inverse WhenInjective (InversionMap c)
+  | Inverse (InversionMap c)
   deriving (Show, Functor, Generic)
 
 data TermHead = SortHead
@@ -2782,6 +3171,16 @@ data Call
   | CheckWithFunctionType Type
   | CheckSectionApplication Range ModuleName A.ModuleApplication
   | CheckNamedWhere ModuleName
+  -- | Checking a clause for confluence with endpoint reductions. Always
+  -- @φ ⊢ f vs = rhs@ for now, but we store the simplifications of
+    -- @f vs[φ]@ and @rhs[φ]@.
+  | CheckIApplyConfluence
+      Range  -- ^ Clause range
+      QName  -- ^ Function name
+      Term   -- ^ (As-is) Function applied to the patterns in this clause
+      Term   -- ^ (Simplified) Function applied to the patterns in this clause
+      Term   -- ^ (Simplified) clause RHS
+      Type   -- ^ (Simplified) clause type
   | ScopeCheckExpr C.Expr
   | ScopeCheckDeclaration NiceDeclaration
   | ScopeCheckLHS C.QName C.Pattern
@@ -2826,43 +3225,45 @@ instance Pretty Call where
     pretty CheckConfluence{}         = "CheckConfluence"
     pretty NoHighlighting{}          = "NoHighlighting"
     pretty ModuleContents{}          = "ModuleContents"
+    pretty CheckIApplyConfluence{}   = "ModuleContents"
 
 instance HasRange Call where
-    getRange (CheckClause _ c)               = getRange c
-    getRange (CheckLHS lhs)                  = getRange lhs
-    getRange (CheckPattern p _ _)            = getRange p
-    getRange (CheckPatternLinearityType x)   = getRange x
-    getRange (CheckPatternLinearityValue x)  = getRange x
-    getRange (InferExpr e)                   = getRange e
-    getRange (CheckExprCall _ e _)           = getRange e
-    getRange (CheckLetBinding b)             = getRange b
-    getRange (CheckProjection r _ _)         = r
-    getRange (IsTypeCall cmp e s)            = getRange e
-    getRange (IsType_ e)                     = getRange e
-    getRange (InferVar x)                    = getRange x
-    getRange (InferDef f)                    = getRange f
-    getRange (CheckArguments r _ _ _)        = r
-    getRange (CheckMetaSolution r _ _ _)     = r
-    getRange (CheckTargetType r _ _)         = r
-    getRange (CheckDataDef i _ _ _)          = getRange i
-    getRange (CheckRecDef i _ _ _)           = getRange i
-    getRange (CheckConstructor _ _ _ c)      = getRange c
-    getRange (CheckConstructorFitsIn c _ _)  = getRange c
-    getRange (CheckFunDefCall i _ _ _)       = getRange i
-    getRange (CheckPragma r _)               = r
-    getRange (CheckPrimitive i _ _)          = getRange i
-    getRange CheckWithFunctionType{}         = noRange
-    getRange (CheckNamedWhere m)             = getRange m
-    getRange (ScopeCheckExpr e)              = getRange e
-    getRange (ScopeCheckDeclaration d)       = getRange d
-    getRange (ScopeCheckLHS _ p)             = getRange p
-    getRange (CheckDotPattern e _)           = getRange e
-    getRange (SetRange r)                    = r
-    getRange (CheckSectionApplication r _ _) = r
-    getRange (CheckIsEmpty r _)              = r
-    getRange (CheckConfluence rule1 rule2)   = max (getRange rule1) (getRange rule2)
-    getRange NoHighlighting                  = noRange
-    getRange ModuleContents                  = noRange
+    getRange (CheckClause _ c)                   = getRange c
+    getRange (CheckLHS lhs)                      = getRange lhs
+    getRange (CheckPattern p _ _)                = getRange p
+    getRange (CheckPatternLinearityType x)       = getRange x
+    getRange (CheckPatternLinearityValue x)      = getRange x
+    getRange (InferExpr e)                       = getRange e
+    getRange (CheckExprCall _ e _)               = getRange e
+    getRange (CheckLetBinding b)                 = getRange b
+    getRange (CheckProjection r _ _)             = r
+    getRange (IsTypeCall cmp e s)                = getRange e
+    getRange (IsType_ e)                         = getRange e
+    getRange (InferVar x)                        = getRange x
+    getRange (InferDef f)                        = getRange f
+    getRange (CheckArguments r _ _ _)            = r
+    getRange (CheckMetaSolution r _ _ _)         = r
+    getRange (CheckTargetType r _ _)             = r
+    getRange (CheckDataDef i _ _ _)              = getRange i
+    getRange (CheckRecDef i _ _ _)               = getRange i
+    getRange (CheckConstructor _ _ _ c)          = getRange c
+    getRange (CheckConstructorFitsIn c _ _)      = getRange c
+    getRange (CheckFunDefCall i _ _ _)           = getRange i
+    getRange (CheckPragma r _)                   = r
+    getRange (CheckPrimitive i _ _)              = getRange i
+    getRange CheckWithFunctionType{}             = noRange
+    getRange (CheckNamedWhere m)                 = getRange m
+    getRange (ScopeCheckExpr e)                  = getRange e
+    getRange (ScopeCheckDeclaration d)           = getRange d
+    getRange (ScopeCheckLHS _ p)                 = getRange p
+    getRange (CheckDotPattern e _)               = getRange e
+    getRange (SetRange r)                        = r
+    getRange (CheckSectionApplication r _ _)     = r
+    getRange (CheckIsEmpty r _)                  = r
+    getRange (CheckConfluence rule1 rule2)       = max (getRange rule1) (getRange rule2)
+    getRange NoHighlighting                      = noRange
+    getRange ModuleContents                      = noRange
+    getRange (CheckIApplyConfluence e _ _ _ _ _) = getRange e
 
 ---------------------------------------------------------------------------
 -- ** Instance table
@@ -2972,7 +3373,7 @@ data TCEnv =
             -- type-checked.  'Nothing' if we do not have a file
             -- (like in interactive mode see @CommandLine@).
           , envAnonymousModules    :: [(ModuleName, Nat)] -- ^ anonymous modules and their number of free variables
-          , envImportPath          :: [C.TopLevelModuleName]
+          , envImportPath          :: [TopLevelModuleName]
             -- ^ The module stack with the entry being the top-level module as
             --   Agda chases modules. It will be empty if there is no main
             --   module, will have a single entry for the top level module, or
@@ -3219,7 +3620,7 @@ eCurrentPath f e = f (envCurrentPath e) <&> \ x -> e { envCurrentPath = x }
 eAnonymousModules :: Lens' [(ModuleName, Nat)] TCEnv
 eAnonymousModules f e = f (envAnonymousModules e) <&> \ x -> e { envAnonymousModules = x }
 
-eImportPath :: Lens' [C.TopLevelModuleName] TCEnv
+eImportPath :: Lens' [TopLevelModuleName] TCEnv
 eImportPath f e = f (envImportPath e) <&> \ x -> e { envImportPath = x }
 
 eMutualBlock :: Lens' (Maybe MutualId) TCEnv
@@ -3541,9 +3942,9 @@ data Warning
     -- ^ Some imported names are not actually exported by the source module.
     --   The second argument is the names that could be exported.
     --   The third  argument is the module names that could be exported.
-  | InfectiveImport String ModuleName
+  | InfectiveImport Doc
     -- ^ Importing a file using an infective option into one which doesn't
-  | CoInfectiveImport String ModuleName
+  | CoInfectiveImport Doc
     -- ^ Importing a file not using a coinfective option from one which does
   | RewriteNonConfluent Term Term Term Doc
     -- ^ Confluence checker found critical pair and equality checking
@@ -3562,8 +3963,8 @@ data Warning
     -- ^ COMPILE directive for an erased symbol
   | NotInScopeW [C.QName]
     -- ^ Out of scope error we can recover from
-  | NoEquivWhenSplitting Doc
-    -- ^ Was not able to compute a full equivalence when splitting
+  | UnsupportedIndexedMatch Doc
+    -- ^ Was not able to compute a full equivalence when splitting.
   | AsPatternShadowsConstructorOrPatternSynonym Bool
     -- ^ The as-name in an as-pattern may not shadow a constructor (@False@)
     --   or pattern synonym name (@True@),
@@ -3614,7 +4015,7 @@ warningName = \case
   NoGuardednessFlag{}          -> NoGuardednessFlag_
   NotInScopeW{}                -> NotInScope_
   NotStrictlyPositive{}        -> NotStrictlyPositive_
-  NoEquivWhenSplitting{}       -> NoEquivWhenSplitting_
+  UnsupportedIndexedMatch{}    -> UnsupportedIndexedMatch_
   OldBuiltin{}                 -> OldBuiltin_
   SafeFlagNoPositivityCheck    -> SafeFlagNoPositivityCheck_
   SafeFlagNonTerminating       -> SafeFlagNonTerminating_
@@ -3848,6 +4249,8 @@ data TypeError
             -- ^ The two function types have different relevance.
         | UnequalCohesion Comparison Term Term
             -- ^ The two function types have different cohesion.
+        | UnequalFiniteness Comparison Term Term
+            -- ^ One of the function types has a finite domain (i.e. is a @Partia@l@) and the other isonot.
         | UnequalHiding Term Term
             -- ^ The two function types have different hiding.
         | UnequalSorts Sort Sort
@@ -3898,15 +4301,15 @@ data TypeError
           --   There are not 'UnsolvedMetas' since unification solved them.
           --   This is an error, since interaction points are never filled
           --   without user interaction.
-        | CyclicModuleDependency [C.TopLevelModuleName]
-        | FileNotFound C.TopLevelModuleName [AbsolutePath]
-        | OverlappingProjects AbsolutePath C.TopLevelModuleName C.TopLevelModuleName
-        | AmbiguousTopLevelModuleName C.TopLevelModuleName [AbsolutePath]
-        | ModuleNameUnexpected C.TopLevelModuleName C.TopLevelModuleName
+        | CyclicModuleDependency [TopLevelModuleName]
+        | FileNotFound TopLevelModuleName [AbsolutePath]
+        | OverlappingProjects AbsolutePath TopLevelModuleName TopLevelModuleName
+        | AmbiguousTopLevelModuleName TopLevelModuleName [AbsolutePath]
+        | ModuleNameUnexpected TopLevelModuleName TopLevelModuleName
           -- ^ Found module name, expected module name.
-        | ModuleNameDoesntMatchFileName C.TopLevelModuleName [AbsolutePath]
+        | ModuleNameDoesntMatchFileName TopLevelModuleName [AbsolutePath]
         | ClashingFileNamesFor ModuleName [AbsolutePath]
-        | ModuleDefinedInOtherFile C.TopLevelModuleName AbsolutePath AbsolutePath
+        | ModuleDefinedInOtherFile TopLevelModuleName AbsolutePath AbsolutePath
           -- ^ Module name, file from which it was loaded, file which
           -- the include path says contains the module.
     -- Scope errors
@@ -3914,7 +4317,7 @@ data TypeError
         | AbstractConstructorNotInScope A.QName
         | NotInScope [C.QName]
         | NoSuchModule C.QName
-        | AmbiguousName C.QName (List1 A.QName)
+        | AmbiguousName C.QName AmbiguousNameReason
         | AmbiguousModule C.QName (List1 A.ModuleName)
         | ClashingDefinition C.QName A.QName (Maybe NiceDeclaration)
         | ClashingModule A.ModuleName A.ModuleName
@@ -4001,7 +4404,8 @@ data TCErr
 instance Show TCErr where
   show (TypeError _ _ e)   = prettyShow (envRange $ clEnv e) ++ ": " ++ show (clValue e)
   show (Exception r d)     = prettyShow r ++ ": " ++ render d
-  show (IOException _ r e) = prettyShow r ++ ": " ++ show e
+  show (IOException _ r e) = prettyShow r ++ ": " ++
+                             E.displayException e
   show PatternErr{}        = "Pattern violation (you shouldn't see this)"
 
 instance HasRange TCErr where
@@ -4038,6 +4442,9 @@ guardednessOption = collapseDefault . optGuardedness <$> pragmaOptions
 
 withoutKOption :: HasOptions m => m Bool
 withoutKOption = collapseDefault . optWithoutK <$> pragmaOptions
+
+cubicalCompatibleOption :: HasOptions m => m Bool
+cubicalCompatibleOption = collapseDefault . optCubicalCompatible <$> pragmaOptions
 
 enableCaching :: HasOptions m => m Bool
 enableCaching = optCaching <$> pragmaOptions
@@ -4320,9 +4727,19 @@ infix 4 `setTCLens`
 setTCLens :: MonadTCState m => Lens' a TCState -> a -> m ()
 setTCLens l = modifyTC . set l
 
+-- | Overwrite the part of the 'TCState' focused on by the lens
+-- (strictly).
+setTCLens' :: MonadTCState m => Lens' a TCState -> a -> m ()
+setTCLens' l = modifyTC' . set l
+
 -- | Modify the part of the 'TCState' focused on by the lens.
 modifyTCLens :: MonadTCState m => Lens' a TCState -> (a -> a) -> m ()
 modifyTCLens l = modifyTC . over l
+
+-- | Modify the part of the 'TCState' focused on by the lens
+-- (strictly).
+modifyTCLens' :: MonadTCState m => Lens' a TCState -> (a -> a) -> m ()
+modifyTCLens' l = modifyTC' . over l
 
 -- | Modify a part of the state monadically.
 modifyTCLensM :: MonadTCState m => Lens' a TCState -> (a -> m a) -> m ()
@@ -4472,6 +4889,15 @@ instance MonadIO m => MonadIO (TCMT m) where
       wrap s r m = E.catch m $ \ err -> do
         s <- readIORef s
         E.throwIO $ IOException s r err
+
+instance ( MonadFix m
+#if __GLASGOW_HASKELL__ < 808
+         , MonadIO m
+#endif
+         ) => MonadFix (TCMT m) where
+  mfix f = TCM $ \s env -> mdo
+    x <- unTCM (f x) s env
+    return x
 
 instance MonadIO m => MonadTCEnv (TCMT m) where
   askTC             = TCM $ \ _ e -> return e
@@ -4794,6 +5220,9 @@ instance KillRange FunctionFlag where
 instance KillRange CompKit where
   killRange = id
 
+instance KillRange ProjectionLikenessMissing where
+  killRange = id
+
 instance KillRange Defn where
   killRange def =
     case def of
@@ -4801,8 +5230,8 @@ instance KillRange Defn where
       DataOrRecSig n -> DataOrRecSig n
       GeneralizableVar -> GeneralizableVar
       AbstractDefn{} -> __IMPOSSIBLE__ -- only returned by 'getConstInfo'!
-      Function cls comp ct tt covering inv mut isAbs delayed proj flags term extlam with ->
-        killRange14 Function cls comp ct tt covering inv mut isAbs delayed proj flags term extlam with
+      Function cls comp ct tt covering inv mut isAbs delayed proj flags term extlam with iskan ->
+        killRange14 Function cls comp ct tt covering inv mut isAbs delayed proj flags term extlam with iskan
       Datatype a b c d e f g h i j   -> killRange10 Datatype a b c d e f g h i j
       Record a b c d e f g h i j k l m -> killRange13 Record a b c d e f g h i j k l m
       Constructor a b c d e f g h i j-> killRange10 Constructor a b c d e f g h i j
@@ -4814,7 +5243,7 @@ instance KillRange MutualId where
 
 instance KillRange c => KillRange (FunctionInverse' c) where
   killRange NotInjective = NotInjective
-  killRange (Inverse w m)  = Inverse w $ killRangeMap m
+  killRange (Inverse m)  = Inverse $ killRangeMap m
 
 instance KillRange TermHead where
   killRange SortHead     = SortHead
@@ -4885,6 +5314,7 @@ instance NFData PostScopeState
 instance NFData TCState
 instance NFData DisambiguatedName
 instance NFData MutualBlock
+instance NFData (BiMap RawTopLevelModuleName ModuleNameHash)
 instance NFData PersistentTCState
 instance NFData LoadedFileCache
 instance NFData TypeCheckAction
@@ -4894,6 +5324,7 @@ instance NFData ForeignCode
 instance NFData Interface
 instance NFData a => NFData (Closure a)
 instance NFData ProblemConstraint
+instance NFData WhyCheckModality
 instance NFData Constraint
 instance NFData Signature
 instance NFData Comparison
@@ -4934,12 +5365,20 @@ instance NFData ExtLamInfo
 instance NFData EtaEquality
 instance NFData FunctionFlag
 instance NFData CompKit
+instance NFData AxiomData
+instance NFData DataOrRecSigData
+instance NFData ProjectionLikenessMissing
+instance NFData FunctionData
+instance NFData DatatypeData
+instance NFData RecordData
+instance NFData ConstructorData
+instance NFData PrimitiveData
+instance NFData PrimitiveSortData
 instance NFData Defn
 instance NFData Simplification
 instance NFData AllowedReduction
 instance NFData ReduceDefs
 instance NFData PrimFun
-instance NFData WhenInjective
 instance NFData c => NFData (FunctionInverse' c)
 instance NFData TermHead
 instance NFData Call
