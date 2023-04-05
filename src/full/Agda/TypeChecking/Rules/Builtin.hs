@@ -257,13 +257,13 @@ coreBuiltins =
   , (builtinMHolds1                           |-> BuiltinPostulate Relevant (runNamesT [] $
                                                                    nPi' "ζ1" (cl tmcstr) $ \ z1 ->
                                                                    nPi' "ζ2" (cl tmcstr) $ \ z2 ->
-                                                                   mpPi' "o1" z1 $ \ o1 ->
+                                                                   mPrepPi' "o1" z1 $ \ o1 ->
                                                                    -- nPi' "o1" (elSSet $ cl primMHolds <@> z1) $ \ o1 ->
                                                                    (elSSet $ cl primMHolds <@> (cl primMixedOr <@> z1 <@> z2))))
   , (builtinMHolds2                           |-> BuiltinPostulate Relevant (runNamesT [] $
                                                                    nPi' "ζ1" (cl tmcstr) $ \ z1 ->
                                                                    nPi' "ζ2" (cl tmcstr) $ \ z2 ->
-                                                                   mpPi' "o2" z2 $ \ o2 ->                                                                                
+                                                                   mPrepPi' "o2" z2 $ \ o2 ->                                                                                
                                                                    -- nPi' "o2" (elSSet $ cl primMHolds <@> z2) $ \ o2 ->
                                                                    (elSSet $ cl primMHolds <@> (cl primMixedOr <@> z1 <@> z2))))
 

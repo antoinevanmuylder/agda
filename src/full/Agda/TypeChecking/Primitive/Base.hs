@@ -103,6 +103,23 @@ mpPi' n zeta b = toFinitePi <$> nPi' n (elSSet $ cl mholds <@> zeta) b
   where
     mholds = fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinMHolds
 
+-- | actual function (o : .(IsOne phi)) -> cod o
+--   needed when cod is not small
+prepPi' :: (MonadAddContext m, HasBuiltins m, MonadDebug m)
+     => String -> NamesT m Term -> (NamesT m Term -> NamesT m Type) -> NamesT m Type
+prepPi' n phi b = toPrefinitePi <$> nPi' n (elSSet $ cl isOne <@> phi) b
+ where
+   isOne = fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinIsOne
+
+-- | actual function (o : .(MHolds zeta)) -> cod o
+--   needed when cod is not small
+mPrepPi' :: (MonadAddContext m, HasBuiltins m, MonadDebug m)
+     => String -> NamesT m Term -> (NamesT m Term -> NamesT m Type) -> NamesT m Type
+mPrepPi' n zeta b = toPrefinitePi <$> nPi' n (elSSet $ cl mholds <@> zeta) b
+  where
+    mholds = fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinMHolds
+
+
 -- | similar to pPi', but for bdg constraints this time.
 --   psi should be of type BCstr.
 bpPi' :: (MonadAddContext m, HasBuiltins m, MonadDebug m)
@@ -119,6 +136,15 @@ toFinitePi (El s (Pi d b)) = El s $ Pi
   (setRelevance Irrelevant $ d { domIsFinite = True })
   b
 toFinitePi _ = __IMPOSSIBLE__
+
+-- | Sometimes we just want an actual function (o : .(MHolds zeta)) -> cod o
+--   (eg if cod is too big)
+toPrefinitePi :: Type -> Type
+toPrefinitePi (El s (Pi d b)) = El s $ Pi
+  (setRelevance Irrelevant $ d { domIsFinite = False })
+  b
+toPrefinitePi _ = __IMPOSSIBLE__
+
 
 
 el' :: Applicative m => m Term -> m Term -> m Type

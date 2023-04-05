@@ -910,7 +910,7 @@ primReflectMCstr' = do
   requireBridges "in primReflectMCstr'"
   typ <- runNamesT [] $
     hPi' "φ" primIntervalType $ \ phi ->
-    mpPi' "o" (iota phi) $ \ _ ->
+    mPrepPi' "o" (iota phi) $ \ _ ->
     elSSet $ cl isOne <@> phi
   return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 2 $ \ [phi , dot ] -> do
     sphi <- reduceB phi
@@ -930,7 +930,7 @@ primPrsvMCstr' = do
   requireBridges "in primPrsvMCstr'"
   typ <- runNamesT [] $
     hPi' "φ" primIntervalType $ \ phi ->
-    pPi' "o" phi $ \ _ ->
+    prepPi' "o" phi $ \ _ ->
     elSSet $ cl mholds <@> (iota phi)
   return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 2 $ \ [phi , dot] -> do
     sphi <- reduceB phi
@@ -2244,7 +2244,7 @@ primAllMCstrCounit' = do
   requireBridges "in primAllMCstrCounit'"
   typ <- runNamesT [] $
     hPi' "absζ" (cl $ primBridgeIntervalType -->* primMCstrType) $ \absZeta ->
-    mpPi' "oall" ((cl  primAllMCstr) <@> absZeta) $ \oall ->
+    mPrepPi' "oall" ((cl  primAllMCstr) <@> absZeta) $ \oall ->
     lPi' "x" (cl primBridgeIntervalType) $ \x -> --NamesT _ Type
     elSSet $ (cl mholds) <@> (absZeta <@*> x)
     
