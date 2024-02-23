@@ -2,7 +2,6 @@
 
 module Agda.TypeChecking.Monad.State where
 
-
 import qualified Control.Exception as E
 
 import Control.Monad       (void, when)
@@ -39,11 +38,10 @@ import Agda.TypeChecking.Positivity.Occurrence
 import Agda.TypeChecking.CompiledClause
 
 import qualified Agda.Utils.BiMap as BiMap
-import Agda.Utils.Hash
 import Agda.Utils.Lens
 import qualified Agda.Utils.List1 as List1
 import Agda.Utils.Monad (bracket_)
-import Agda.Utils.Pretty
+import Agda.Syntax.Common.Pretty
 import Agda.Utils.Tuple
 
 import Agda.Utils.Impossible
@@ -140,7 +138,7 @@ freshTCM m = do
 -- * Lens for persistent states and its fields
 ---------------------------------------------------------------------------
 
-lensPersistentState :: Lens' PersistentTCState TCState
+lensPersistentState :: Lens' TCState PersistentTCState
 lensPersistentState f s =
   f (stPersistentState s) <&> \ p -> s { stPersistentState = p }
 
@@ -153,45 +151,53 @@ modifyPersistentState = modifyTC . updatePersistentState
 
 -- | Lens for 'stAccumStatistics'.
 
-lensAccumStatisticsP :: Lens' Statistics PersistentTCState
+lensAccumStatisticsP :: Lens' PersistentTCState Statistics
 lensAccumStatisticsP f s = f (stAccumStatistics s) <&> \ a ->
   s { stAccumStatistics = a }
 
-lensAccumStatistics :: Lens' Statistics TCState
+lensAccumStatistics :: Lens' TCState Statistics
 lensAccumStatistics =  lensPersistentState . lensAccumStatisticsP
 
 ---------------------------------------------------------------------------
 -- * Scope
 ---------------------------------------------------------------------------
 
+{-# INLINE getScope #-}
 -- | Get the current scope.
 getScope :: ReadTCState m => m ScopeInfo
 getScope = useR stScope
 
+{-# INLINE setScope #-}
 -- | Set the current scope.
 setScope :: ScopeInfo -> TCM ()
 setScope scope = modifyScope (const scope)
 
+{-# INLINE modifyScope_ #-}
 -- | Modify the current scope without updating the inverse maps.
 modifyScope_ :: MonadTCState m => (ScopeInfo -> ScopeInfo) -> m ()
 modifyScope_ f = stScope `modifyTCLens` f
 
+{-# INLINE modifyScope #-}
 -- | Modify the current scope.
 modifyScope :: MonadTCState m => (ScopeInfo -> ScopeInfo) -> m ()
 modifyScope f = modifyScope_ (recomputeInverseScopeMaps . f)
 
+{-# INLINE useScope #-}
 -- | Get a part of the current scope.
-useScope :: ReadTCState m => Lens' a ScopeInfo -> m a
+useScope :: ReadTCState m => Lens' ScopeInfo a -> m a
 useScope l = useR $ stScope . l
 
+{-# INLINE locallyScope #-}
 -- | Run a computation in a modified scope.
-locallyScope :: ReadTCState m => Lens' a ScopeInfo -> (a -> a) -> m b -> m b
+locallyScope :: ReadTCState m => Lens' ScopeInfo a -> (a -> a) -> m b -> m b
 locallyScope l = locallyTCState $ stScope . l
 
+{-# INLINE withScope #-}
 -- | Run a computation in a local scope.
 withScope :: ReadTCState m => ScopeInfo -> m a -> m (a, ScopeInfo)
 withScope s m = locallyTCState stScope (recomputeInverseScopeMaps . const s) $ (,) <$> m <*> getScope
 
+{-# INLINE withScope_ #-}
 -- | Same as 'withScope', but discard the scope from the computation.
 withScope_ :: ReadTCState m => ScopeInfo -> m a -> m a
 withScope_ s m = fst <$> withScope s m
@@ -227,15 +233,19 @@ printScope tag v s = verboseS ("scope." ++ tag) v $ do
 
 -- ** Lens for 'stSignature' and 'stImports'
 
+{-# INLINE modifySignature  #-}
 modifySignature :: MonadTCState m => (Signature -> Signature) -> m ()
 modifySignature f = stSignature `modifyTCLens` f
 
+{-# INLINE modifyImportedSignature #-}
 modifyImportedSignature :: MonadTCState m => (Signature -> Signature) -> m ()
 modifyImportedSignature f = stImports `modifyTCLens` f
 
+{-# INLINE getSignature #-}
 getSignature :: ReadTCState m => m Signature
 getSignature = useR stSignature
 
+{-# SPECIALIZE modifyGlobalDefinition :: QName -> (Definition -> Definition) -> TCM () #-}
 -- | Update a possibly imported definition. Warning: changes made to imported
 --   definitions (during type checking) will not persist outside the current
 --   module. This function is currently used to update the compiled
@@ -245,9 +255,11 @@ modifyGlobalDefinition q f = do
   modifySignature         $ updateDefinition q f
   modifyImportedSignature $ updateDefinition q f
 
+{-# INLINE setSignature #-}
 setSignature :: MonadTCState m => Signature -> m ()
 setSignature sig = modifySignature $ const sig
 
+{-# SPECIALIZE withSignature :: Signature -> TCM a -> TCM a #-}
 -- | Run some computation in a different signature, restore original signature.
 withSignature :: (ReadTCState m, MonadTCState m) => Signature -> m a -> m a
 withSignature sig m = do
@@ -361,6 +373,7 @@ setTopLevelModule :: TopLevelModuleName -> TCM ()
 setTopLevelModule top = do
   let hash = moduleNameId top
   stFreshNameId `setTCLens'` NameId 0 hash
+  stFreshOpaqueId `setTCLens'` OpaqueId 0 hash
   stFreshMetaId `setTCLens'`
     MetaId { metaId     = 0
            , metaModule = hash
@@ -389,12 +402,15 @@ withTopLevelModule :: TopLevelModuleName -> TCM a -> TCM a
 withTopLevelModule x m = do
   nextN <- useTC stFreshNameId
   nextM <- useTC stFreshMetaId
+  nextO <- useTC stFreshOpaqueId
   setTopLevelModule x
   y <- m
   stFreshMetaId `setTCLens` nextM
   stFreshNameId `setTCLens` nextN
+  stFreshOpaqueId `setTCLens` nextO
   return y
 
+{-# SPECIALIZE currentModuleNameHash :: TCM ModuleNameHash #-}
 currentModuleNameHash :: ReadTCState m => m ModuleNameHash
 currentModuleNameHash = do
   NameId _ h <- useTC stFreshNameId
@@ -407,7 +423,8 @@ currentModuleNameHash = do
 addForeignCode :: BackendName -> String -> TCM ()
 addForeignCode backend code = do
   r <- asksTC envRange  -- can't use TypeChecking.Monad.Trace.getCurrentRange without cycle
-  modifyTCLens (stForeignCode . key backend) $ Just . (ForeignCode r code :) . fromMaybe []
+  modifyTCLens (stForeignCode . key backend) $
+    Just . ForeignCodeStack . (ForeignCode r code :) . maybe [] getForeignCodeStack
 
 ---------------------------------------------------------------------------
 -- * Interaction output callback
@@ -472,6 +489,7 @@ lookupSinglePatternSyn x = do
 theBenchmark :: TCState -> Benchmark
 theBenchmark = stBenchmark . stPersistentState
 
+{-# INLINE updateBenchmark #-}
 -- | Lens map for 'Benchmark'.
 updateBenchmark :: (Benchmark -> Benchmark) -> TCState -> TCState
 updateBenchmark f = updatePersistentState $ \ s -> s { stBenchmark = f (stBenchmark s) }
@@ -480,6 +498,7 @@ updateBenchmark f = updatePersistentState $ \ s -> s { stBenchmark = f (stBenchm
 getBenchmark :: TCM Benchmark
 getBenchmark = getsTC $ theBenchmark
 
+{-# INLINE modifyBenchmark #-}
 -- | Lens modify for 'Benchmark'.
 modifyBenchmark :: (Benchmark -> Benchmark) -> TCM ()
 modifyBenchmark = modifyTC' . updateBenchmark

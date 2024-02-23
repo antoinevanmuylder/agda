@@ -44,7 +44,7 @@ import qualified Agda.TypeChecking.Monad.Benchmark as Bench
 import {-# SOURCE #-} Agda.TypeChecking.Monad.Options
   (getIncludeDirs, libToTCM)
 import Agda.TypeChecking.Monad.State (topLevelModuleName)
-import Agda.TypeChecking.Warnings (runPM)
+import Agda.TypeChecking.Warnings (runPM, warning)
 
 import Agda.Version ( version )
 
@@ -54,7 +54,8 @@ import Agda.Utils.List  ( stripSuffix, nubOn )
 import Agda.Utils.List1 ( List1, pattern (:|) )
 import qualified Agda.Utils.List1 as List1
 import Agda.Utils.Monad ( ifM, unlessM )
-import Agda.Utils.Pretty ( Pretty(..), prettyShow )
+import Agda.Syntax.Common.Pretty ( Pretty(..), prettyShow )
+import qualified Agda.Syntax.Common.Pretty as P
 import Agda.Utils.Singleton
 
 import Agda.Utils.Impossible
@@ -65,7 +66,7 @@ import Agda.Utils.Impossible
 
 -- TODO: do not export @SourceFile@ and force users to check the
 -- @AbsolutePath@ does exist.
-newtype SourceFile    = SourceFile    { srcFilePath :: AbsolutePath } deriving (Eq, Ord)
+newtype SourceFile    = SourceFile    { srcFilePath :: AbsolutePath } deriving (Eq, Ord, Show)
 newtype InterfaceFile = InterfaceFile { intFilePath :: AbsolutePath }
 
 instance Pretty SourceFile    where pretty = pretty . srcFilePath
@@ -87,15 +88,28 @@ mkInterfaceFile fp = do
 toIFile :: SourceFile -> TCM AbsolutePath
 toIFile (SourceFile src) = do
   let fp = filePath src
-  mroot <- ifM (optLocalInterfaces <$> commandLineOptions)
-               {- then -} (pure Nothing)
-               {- else -} (libToTCM $ findProjectRoot (takeDirectory fp))
-  pure $ replaceModuleExtension ".agdai" $ case mroot of
-    Nothing   -> src
+  let localIFile = replaceModuleExtension ".agdai" src
+  mroot <- libToTCM $ findProjectRoot (takeDirectory fp)
+  case mroot of
+    Nothing   -> pure localIFile
     Just root ->
       let buildDir = root </> "_build" </> version </> "agda"
-          fileName = makeRelative root fp
-      in mkAbsolute $ buildDir </> fileName
+          fileName = makeRelative root (filePath localIFile)
+          separatedIFile = mkAbsolute $ buildDir </> fileName
+          ifilePreference = ifM (optLocalInterfaces <$> commandLineOptions)
+            (pure (localIFile, separatedIFile))
+            (pure (separatedIFile, localIFile))
+      in do
+        separatedIFileExists <- liftIO $ doesFileExistCaseSensitive $ filePath separatedIFile
+        localIFileExists <- liftIO $ doesFileExistCaseSensitive $ filePath localIFile
+        case (separatedIFileExists, localIFileExists) of
+          (False, False) -> fst <$> ifilePreference
+          (False, True) -> pure localIFile
+          (True, False) -> pure separatedIFile
+          (True, True) -> do
+            ifiles <- ifilePreference
+            warning $ uncurry DuplicateInterfaceFiles ifiles
+            pure $ fst ifiles
 
 replaceModuleExtension :: String -> AbsolutePath -> AbsolutePath
 replaceModuleExtension ext@('.':_) = mkAbsolute . (++ ext) .  dropAgdaExtension . filePath
@@ -114,6 +128,7 @@ data FindError
     --
     -- Invariant: The list of matching files has at least two
     -- elements.
+  deriving Show
 
 -- | Given the module name which the error applies to this function
 -- converts a 'FindError' to a 'TypeError'.
@@ -178,7 +193,7 @@ findFile'' dirs m modFile =
 -- | Finds the interface file corresponding to a given top-level
 -- module file. The returned paths are absolute.
 --
--- Raises 'Nothing' if the the interface file cannot be found.
+-- Raises 'Nothing' if the interface file cannot be found.
 
 findInterfaceFile'
   :: SourceFile                 -- ^ Path to the source file

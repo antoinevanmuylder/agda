@@ -1,10 +1,4 @@
-{-# LANGUAGE TemplateHaskell            #-}
-{-# LANGUAGE CPP                        #-}
-
-#if  __GLASGOW_HASKELL__ > 800
-{-# OPTIONS_GHC -Wno-error=missing-signatures #-}
-#endif
-{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- | Properties for graph library.
 
@@ -15,18 +9,18 @@ import Agda.TypeChecking.Positivity.Occurrence
 import Agda.Utils.Function (iterateUntil)
 import Agda.Utils.Functor
 import Agda.Utils.Graph.AdjacencyMap.Unidirectional as Graph
-import Agda.Utils.List (distinct, nubOn)
+import Agda.Utils.List (distinct, headWithDefault, nubOn)
 import Agda.Utils.Null as Null
 import Agda.Utils.SemiRing
 import Agda.Utils.Singleton (Singleton)
 import qualified Agda.Utils.Singleton as Singleton
 import Agda.Utils.Impossible
-import Agda.Utils.Pretty
+import Agda.Syntax.Common.Pretty
 
 import Control.Monad
 
 import qualified Data.Foldable as Fold
-import Data.Function
+import Data.Function (on)
 import qualified Data.Graph as Graph
 import qualified Data.List as List
 import Data.Maybe
@@ -518,10 +512,11 @@ prop_sccs' g =
     ]
     where
     component k =
-      head [ i
-           | (i, ns) <- zip [1..] (reverse components)
-           , k `elem` ns
-           ]
+      headWithDefault __IMPOSSIBLE__
+        [ i
+        | (i, ns) <- zip [1..] (reverse components)
+        , k `elem` ns
+        ]
 
 prop_oppositeDAG :: G -> Bool
 prop_oppositeDAG g =

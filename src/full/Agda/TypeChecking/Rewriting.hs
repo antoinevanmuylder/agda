@@ -61,6 +61,7 @@ import Agda.Syntax.Abstract.Name
 import Agda.Syntax.Common
 import Agda.Syntax.Internal as I
 import Agda.Syntax.Internal.MetaVars
+import Agda.Syntax.Internal.Pattern
 
 import Agda.TypeChecking.Datatypes
 import Agda.TypeChecking.Monad
@@ -68,7 +69,6 @@ import Agda.TypeChecking.Free
 import Agda.TypeChecking.Conversion
 import qualified Agda.TypeChecking.Positivity.Occurrence as Pos
 import Agda.TypeChecking.Pretty
-import Agda.TypeChecking.Primitive ( getBuiltinName )
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Substitute
 import Agda.TypeChecking.Telescope
@@ -99,22 +99,17 @@ requireOptionRewriting =
 verifyBuiltinRewrite :: Term -> Type -> TCM ()
 verifyBuiltinRewrite v t = do
   requireOptionRewriting
-  let failure reason = typeError . GenericDocError =<< sep
-       [ prettyTCM v <+> " does not have the right type for a rewriting relation"
-       , reason
-       ]
   caseMaybeM (relView t)
-    (failure $ "because it should accept at least two arguments") $
+    (typeError $ IncorrectTypeForRewriteRelation v ShouldAcceptAtLeastTwoArguments) $
     \ (RelView tel delta a b core) -> do
-    unless (visible a && visible b) $ failure $ "because its two final arguments are not both visible."
+    unless (visible a && visible b) $ typeError $ IncorrectTypeForRewriteRelation v FinalTwoArgumentsNotVisible
     case unEl core of
       Sort{}   -> return ()
       Con{}    -> __IMPOSSIBLE__
       Level{}  -> __IMPOSSIBLE__
       Lam{}    -> __IMPOSSIBLE__
       Pi{}     -> __IMPOSSIBLE__
-      _ -> failure $ "because its type does not end in a sort, but in "
-             <+> do inTopContext $ addContext tel $ prettyTCM core
+      _ -> typeError $ IncorrectTypeForRewriteRelation v (TypeDoesNotEndInSort core tel)
 
 -- | Deconstructing a type into @Δ → t → t' → core@.
 data RelView = RelView
@@ -202,11 +197,7 @@ checkRewriteRule q = do
   -- Issue 1651: Check that we are not adding a rewrite rule
   -- for a type signature whose body has not been type-checked yet.
   when (isEmptyFunction $ theDef def) $
-    typeError . GenericDocError =<< hsep
-      [ "Rewrite rule from function "
-      , prettyTCM q
-      , " cannot be added before the function definition"
-      ]
+    typeError $ IllegalRewriteRule q BeforeFunctionDefinition
   -- Get rewrite rule (type of q).
   TelV gamma1 core <- telView $ defType def
   reportSDoc "rewriting" 30 $ vcat
@@ -214,36 +205,22 @@ checkRewriteRule q = do
     , prettyTCM gamma1
     , " |- " <+> do addContext gamma1 $ prettyTCM core
     ]
-  let failureWrongTarget :: TCM a
-      failureWrongTarget = typeError . GenericDocError =<< hsep
-        [ prettyTCM q , " does not target rewrite relation" ]
   let failureBlocked :: Blocker -> TCM a
       failureBlocked b
-        | not (null ms) = err $ "it contains the unsolved meta variable(s)" <+> prettyList_ (map prettyTCM $ Set.toList ms)
-        | not (null ps) = err $ "it is blocked on problem(s)" <+> prettyList_ (map prettyTCM $ Set.toList ps)
-        | not (null qs) = err $ "it requires the definition(s) of" <+> prettyList_ (map prettyTCM $ Set.toList qs)
+        | not (null ms) = typeError $ IllegalRewriteRule q (ContainsUnsolvedMetaVariables ms)
+        | not (null ps) = typeError $ IllegalRewriteRule q (BlockedOnProblems ps)
+        | not (null qs) = typeError $ IllegalRewriteRule q (RequiresDefinitions qs)
         | otherwise = __IMPOSSIBLE__
         where
-          err reason = typeError . GenericDocError =<< hsep
-            [ prettyTCM q , " is not a legal rewrite rule, since" , reason ]
           ms = allBlockingMetas b
           ps = allBlockingProblems b
           qs = allBlockingDefs b
-  let failureNotDefOrCon :: TCM a
-      failureNotDefOrCon = typeError . GenericDocError =<< hsep
-        [ prettyTCM q , " is not a legal rewrite rule, since the left-hand side is neither a defined symbol nor a constructor" ]
   let failureFreeVars :: IntSet -> TCM a
-      failureFreeVars xs = typeError . GenericDocError =<< hsep
-        [ prettyTCM q , " is not a legal rewrite rule, since the following variables are not bound by the left hand side: " , prettyList_ (map (prettyTCM . var) $ IntSet.toList xs) ]
+      failureFreeVars xs = typeError $ IllegalRewriteRule q (VariablesNotBoundByLHS xs)
   let failureNonLinearPars :: IntSet -> TCM a
-      failureNonLinearPars xs = typeError . GenericDocError =<< do
-        (prettyTCM q
-          <+> " is not a legal rewrite rule, since the following parameters are bound more than once on the left hand side: "
-          <+> hsep (List.intersperse "," $ map (prettyTCM . var) $ IntSet.toList xs))
-          <> ". Perhaps you can use a postulate instead of a constructor as the head symbol?"
+      failureNonLinearPars xs = typeError $ IllegalRewriteRule q (VariablesBoundMoreThanOnce xs)
   let failureIllegalRule :: TCM a -- TODO:: Defined but not used
-      failureIllegalRule = typeError . GenericDocError =<< hsep
-        [ prettyTCM q , " is not a legal rewrite rule" ]
+      failureIllegalRule = typeError $ IllegalRewriteRule q EmptyReason
 
   -- Check that type of q targets rel.
   case unEl core of
@@ -279,7 +256,7 @@ checkRewriteRule q = do
           ~(Just ((_ , _ , pars) , t)) <- getFullyAppliedConType c $ unDom b
           pars <- addContext gamma1 $ checkParametersAreGeneral c pars
           return (conName c , hd , t , pars , vs)
-        _        -> failureNotDefOrCon
+        _        -> typeError $ IllegalRewriteRule q LHSNotDefOrConstr
 
       ifNotAlreadyAdded f $ do
 
@@ -288,7 +265,7 @@ checkRewriteRule q = do
         checkNoLhsReduction f hd es
 
         ps <- catchPatternErr failureBlocked $
-          patternFrom Relevant 0 (t , Def f []) es
+          patternFrom Relevant 0 (t , Def f) es
 
         reportSDoc "rewriting" 30 $
           "Pattern generated from lhs: " <+> prettyTCM (PDef f ps)
@@ -333,7 +310,7 @@ checkRewriteRule q = do
 
         return rew
 
-    _ -> failureWrongTarget
+    _ -> typeError $ IllegalRewriteRule q DoesNotTargetRewriteRelation
 
   where
     checkNoLhsReduction :: QName -> (Elims -> Term)  -> Elims -> TCM ()
@@ -347,9 +324,7 @@ checkRewriteRule q = do
           fail = do
             reportSDoc "rewriting" 20 $ "v  = " <+> text (show v)
             reportSDoc "rewriting" 20 $ "v' = " <+> text (show v')
-            typeError . GenericDocError =<< fsep
-              [ prettyTCM q <+> " is not a legal rewrite rule, since the left-hand side "
-              , prettyTCM v <+> " reduces to " <+> prettyTCM v' ]
+            typeError $ IllegalRewriteRule q (LHSReducesTo v v')
       es' <- case v' of
         Def f' es'   | f == f'         -> return es'
         Con c' _ es' | f == conName c' -> return es'
@@ -364,27 +339,19 @@ checkRewriteRule q = do
     checkAxFunOrCon :: QName -> Definition -> TCM ()
     checkAxFunOrCon f def = case theDef def of
       Axiom{}        -> return ()
-      def@Function{} -> whenJust (maybeRight (funProjection def)) $ \proj ->
-        case projProper proj of
-          Just{} -> typeError . GenericDocError =<< hsep
-            [ prettyTCM q , " is not a legal rewrite rule, since the head symbol"
-            , prettyTCM f , "is a projection"
-            ]
-          Nothing -> typeError . GenericDocError =<< hsep
-            [ prettyTCM q , " is not a legal rewrite rule, since the head symbol"
-            , hd , "is a projection-like function."
-            , "You can turn off the projection-like optimization for", hd
-            , "with the pragma {-# NOT_PROJECTION_LIKE", hd, "#-}"
-            , "or globally with the flag --no-projection-like"
-            ]
-            where hd = prettyTCM f
+      def@Function{} -> do
+        whenJust (maybeRight (funProjection def)) $ \proj -> case projProper proj of
+          Just{} -> typeError $ IllegalRewriteRule q (HeadSymbolIsProjection f)
+          Nothing -> typeError $ IllegalRewriteRule q (HeadSymbolIsProjectionLikeFunction f)
+        whenM (isJust . optConfluenceCheck <$> pragmaOptions) $ do
+          let simpleClause cl = (patternsToElims (namedClausePats cl) , clauseBody cl)
+          cls <- instantiateFull $ map simpleClause $ funClauses def
+          unless (noMetas cls) $ typeError $ IllegalRewriteRule q (HeadSymbolDefContainsMetas f)
+
       Constructor{}  -> return ()
       AbstractDefn{} -> return ()
       Primitive{}    -> return () -- TODO: is this fine?
-      _              -> typeError . GenericDocError =<< hsep
-        [ prettyTCM q , " is not a legal rewrite rule, since the head symbol"
-        , prettyTCM f , "is not a postulate, a function, or a constructor"
-        ]
+      _              -> typeError $ IllegalRewriteRule q (HeadSymbolNotPostulateFunctionConstructor f)
 
     ifNotAlreadyAdded :: QName -> TCM RewriteRule -> TCM RewriteRule
     ifNotAlreadyAdded f cont = do
@@ -418,11 +385,7 @@ checkRewriteRule q = do
           _        -> errorNotGeneral
 
         errorNotGeneral :: TCM a
-        errorNotGeneral = typeError . GenericDocError =<< vcat
-            [ prettyTCM q <+> text " is not a legal rewrite rule, since the constructor parameters are not fully general:"
-            , nest 2 $ text "Constructor: " <+> prettyTCM c
-            , nest 2 $ text "Parameters: " <+> prettyList (map prettyTCM vs)
-            ]
+        errorNotGeneral = typeError $ IllegalRewriteRule q (ConstructorParamsNotGeneral c vs)
 
 -- | @rewriteWith t f es rew@ where @f : t@
 --   tries to rewrite @f es@ with @rew@, returning the reduct if successful.

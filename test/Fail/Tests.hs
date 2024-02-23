@@ -38,7 +38,7 @@ tests = do
   where
   customizedTests =
     [ testGroup "customised" $
-        issue5644 :
+        issue6465 :
         issue5508 :
         issue5101 :
         issue4671 :
@@ -64,8 +64,10 @@ mkFailTest agdaFile =
     (Just updGolden)
   where
   testName   = asTestName testDir agdaFile
-  goldenFile = dropAgdaExtension agdaFile <.> ".err"
-  flagFile   = dropAgdaExtension agdaFile <.> ".flags"
+  baseName   = dropAgdaExtension agdaFile
+  varFile    = baseName <.> "vars"
+  flagFile   = baseName <.> "flags"
+  goldenFile = baseName <.> "err"
 
   readGolden = readTextFileMaybe goldenFile
   updGolden  = writeTextFile goldenFile
@@ -75,7 +77,7 @@ mkFailTest agdaFile =
                    , "--ignore-interfaces", "--no-libraries"
                    , "--double-check"
                    ]
-    runAgdaWithOptions testName agdaArgs (Just flagFile) Nothing
+    runAgdaWithOptions testName agdaArgs (Just flagFile) (Just varFile)
       <&> expectFail
 
 -- | A test for case-insensitivity of the file system.
@@ -93,8 +95,8 @@ caseInsensitiveFileSystem4671 = do
     goldenFileInsens  = dir </> "Issue4671.err.case-insensitive"
     goldenFileInsens' = dir </> "Issue4671.err.cAsE-inSensitive" -- case variant, to test file system
 
-issue5644 :: TestTree
-issue5644 =
+issue6465 :: TestTree
+issue6465 =
   goldenTest1
     name
     (readTextFileMaybe goldenFile)
@@ -103,7 +105,7 @@ issue5644 =
     ShowText
     (writeTextFile goldenFile)
   where
-    name       = "Issue5644"
+    name       = "Issue6465"
     dir        = testDir </> "customised"
     goldenFile = dir </> name <.> "err"
     doRun = do

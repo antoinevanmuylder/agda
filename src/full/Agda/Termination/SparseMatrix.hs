@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
 
 {- | Sparse matrices.
 
@@ -48,7 +49,7 @@ module Agda.Termination.SparseMatrix
   ) where
 
 import Data.Array
-import Data.Function
+import Data.Function (on)
 import qualified Data.List as List
 import Data.Maybe
 
@@ -65,7 +66,7 @@ import Agda.Utils.List
 import Agda.Utils.Maybe
 
 import Agda.Utils.PartialOrd
-import Agda.Utils.Pretty hiding (isEmpty)
+import Agda.Syntax.Common.Pretty hiding (isEmpty)
 import Agda.Utils.Tuple
 
 import Agda.Utils.Impossible
@@ -237,7 +238,7 @@ class Diagonal m e | m -> e where
 instance (Integral i, HasZero b) => Diagonal (Matrix i b) b where
   diagonal (Matrix (Size r c) m) =
     blowUpSparseVec zeroElement (min r c) $
-      mapMaybe (\ ((MIx i j), b) -> if i==j then Just (i,b) else Nothing) m
+      mapMaybe (\ (MIx i j, b) -> if i == j then Just (i, b) else Nothing) m
 
 -- | Transposable things.
 
@@ -399,7 +400,7 @@ instance (Ord i, PartialOrd a) => PartialOrd (Matrix i a) where
       both    = comparable
       -- The zero element of the result sparse matrix is the
       -- neutral element of the monoid.
-      trivial = (==mempty)
+      trivial = (== mempty)
 
 ------------------------------------------------------------------------
 -- Modifying matrices

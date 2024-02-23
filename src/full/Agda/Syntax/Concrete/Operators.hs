@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
+
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PatternSynonyms #-}
 
@@ -23,11 +25,9 @@ import Control.Monad.Except (throwError)
 
 import Data.Either (partitionEithers)
 import qualified Data.Foldable as Fold
-import Data.Function
+import qualified Data.Function
 import qualified Data.List as List
 import Data.Maybe
-import Data.Map (Map)
-import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Traversable as Trav
@@ -37,7 +37,6 @@ import Agda.Syntax.Concrete hiding (appView)
 import Agda.Syntax.Concrete.Operators.Parser
 import Agda.Syntax.Concrete.Operators.Parser.Monad hiding (parse)
 import Agda.Syntax.Concrete.Pattern
-import qualified Agda.Syntax.Abstract.Name as A
 import Agda.Syntax.Position
 import Agda.Syntax.Notation
 import Agda.Syntax.Scope.Base
@@ -49,8 +48,9 @@ import qualified Agda.TypeChecking.Monad.Benchmark as Bench
 import Agda.TypeChecking.Monad.Debug
 import Agda.TypeChecking.Monad.State (getScope)
 
+import Agda.Utils.Function (applyWhen)
 import Agda.Utils.Either
-import Agda.Utils.Pretty
+import Agda.Syntax.Common.Pretty
 import Agda.Utils.List
 import Agda.Utils.List1 (List1, pattern (:|))
 import Agda.Utils.List2 (List2, pattern List2)
@@ -244,11 +244,11 @@ buildParsers kind exprNames = do
                        (someKindsOfNames [ConName, CoConName, FldName, PatternSynName]) flat
         conNames   = Set.fromList $
                        filter (flip Set.member namesInExpr) $
-                       map (notaName . head) cons
+                       map (notaName . List1.head) cons
         conParts   = Set.fromList $
                        concatMap notationNames $
                        filter (or . partsPresent) $
-                       concat cons
+                       List1.concat cons
 
         allNames   = Set.fromList $
                        filter (flip Set.member namesInExpr) names
@@ -306,9 +306,8 @@ buildParsers kind exprNames = do
         -- level comes first.
         relatedOperators :: [(PrecedenceLevel, [NotationSection])]
         relatedOperators =
-          map (\((l, ns) : rest) -> (l, ns ++ concatMap snd rest)) .
-          List.groupBy ((==) `on` fst) .
-          List.sortBy (compare `on` fst) .
+          map (\((l, ns) :| rest) -> (l, ns ++ concatMap snd rest)) .
+          List1.groupOn fst .
           mapMaybe (\n -> case level n of
                             Unrelated     -> Nothing
                             r@(Related l) ->
@@ -366,7 +365,7 @@ buildParsers kind exprNames = do
               }
 
     -- Andreas, 2020-06-03 #4712
-    -- Note: needs Agda to be compiled with DEBUG to print the grammar.
+    -- Note: needs Agda to be compiled with DEBUG_PARSING to print the grammar.
     reportSDoc "scope.grammar" 10 $ return $
       "Operator grammar:" $$ nest 2 (grammar (pTop g))
 
@@ -407,7 +406,7 @@ buildParsers kind exprNames = do
         mkP key parseSections p0 ops higher includeHigher =
             memoise (NodeK key) $
               Fold.asum $
-                (if includeHigher then (higher :) else id) $
+                applyWhen includeHigher (higher :) $
                 catMaybes [nonAssoc, preRights, postLefts]
             where
             choice :: forall k.
@@ -610,7 +609,7 @@ parseLHS' lhsOrPatSyn top p = do
                        map (fullParen . fst) rs
     where
         getNames kinds flat =
-          map (notaName . head) $ getDefinedNames kinds flat
+          map (notaName . List1.head) $ getDefinedNames kinds flat
 
         -- The pattern is retained for error reporting in case of ambiguous parses.
         validPattern :: PatternCheckConfig -> Pattern -> PM (Pattern, ParseLHS)
@@ -640,12 +639,12 @@ classifyPattern conf p =
   case patternAppView p of
 
     -- case @f ps@
-    Arg _ (Named _ (IdentP x)) :| ps | Just x == topName conf -> do
+    Arg _ (Named _ (IdentP _ x)) :| ps | Just x == topName conf -> do
       mapM_ (valid . namedArg) ps
       return $ ParseLHS x $ lhsCoreAddSpine (LHSHead x []) ps
 
     -- case @d ps@
-    Arg _ (Named _ (IdentP x)) :| ps | fldName conf x -> do
+    Arg _ (Named _ (IdentP _ x)) :| ps | fldName conf x -> do
 
       -- Step 1: check for valid copattern lhs.
       ps0 :: [NamedArg ParseLHS] <- mapM classPat ps
@@ -727,7 +726,7 @@ validConPattern cons = loop
   loop p = case appView p of
       WithP _ p :| [] -> loop p
       _ :| []         -> ok
-      IdentP x :| ps
+      IdentP _ x :| ps
         | cons x      -> mapM_ loop ps
         | otherwise   -> failure
       QuoteP _ :| [_] -> ok
@@ -744,7 +743,7 @@ appView = loop []
   where
   loop acc = \case
     AppP p a         -> loop (namedArg a : acc) p
-    OpAppP _ op _ ps -> (IdentP op :| fmap namedArg ps)
+    OpAppP _ op _ ps -> (IdentP True op :| fmap namedArg ps)
                           `List1.appendList`
                         reverse acc
     ParenP _ p       -> loop acc p

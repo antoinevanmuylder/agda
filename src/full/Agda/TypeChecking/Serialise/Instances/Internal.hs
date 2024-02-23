@@ -3,6 +3,8 @@
 
 module Agda.TypeChecking.Serialise.Instances.Internal where
 
+import qualified Data.HashSet as HashSet
+import Control.Monad
 import Control.Monad.IO.Class
 
 import Agda.Syntax.Internal as I
@@ -16,6 +18,7 @@ import Agda.TypeChecking.CompiledClause
 import Agda.TypeChecking.Positivity.Occurrence
 import Agda.TypeChecking.Coverage.SplitTree
 
+import Agda.Utils.Functor
 import Agda.Utils.Permutation
 
 import Agda.Utils.Impossible
@@ -141,7 +144,10 @@ instance EmbPrj IsFibrant where
   value 1 = return IsStrict
   value _ = malformed
 
+instance EmbPrj Univ where
+
 instance EmbPrj I.Sort where
+<<<<<<< HEAD
   icod_ (Type  a  ) = icodeN 0 Type a
   icod_ (Prop  a  ) = icodeN 1 Prop a
   icod_ SizeUniv    = icodeN 2 SizeUniv
@@ -156,22 +162,41 @@ instance EmbPrj I.Sort where
   icod_ CstrUniv     = icodeN 11 CstrUniv
   icod_ (MetaS a b)  = icodeN 12 MetaS a b
   icod_ (DummyS s)   = icodeN 13 DummyS s
+=======
+  icod_ = \case
+    Univ a b     -> icodeN 0  Univ a b
+    SizeUniv     -> icodeN 2  SizeUniv
+    Inf a b      -> icodeN 3  Inf a b
+    PiSort a b c -> icodeN 4  PiSort a b c
+    FunSort a b  -> icodeN 5  FunSort a b
+    UnivSort a   -> icodeN 6  UnivSort a
+    DefS a b     -> icodeN 7  DefS a b
+    LockUniv     -> icodeN 9  LockUniv
+    IntervalUniv -> icodeN 10 IntervalUniv
+    MetaS a b    -> icodeN 11 MetaS a b
+    DummyS s     -> icodeN 12 DummyS s
+    LevelUniv    -> icodeN 13 LevelUniv
+>>>>>>> prep-2.6.4.2
 
   value = vcase valu where
-    valu [0, a]    = valuN Type  a
-    valu [1, a]    = valuN Prop  a
+    valu [0, a, b] = valuN Univ a b
     valu [2]       = valuN SizeUniv
-    valu [3, f, a] = valuN Inf f a
+    valu [3, a, b] = valuN Inf a b
     valu [4, a, b, c] = valuN PiSort a b c
     valu [5, a, b] = valuN FunSort a b
     valu [6, a]    = valuN UnivSort a
     valu [7, a, b] = valuN DefS a b
-    valu [8, a]    = valuN SSet a
     valu [9]       = valuN LockUniv
     valu [10]      = valuN IntervalUniv
+<<<<<<< HEAD
     valu [11]      = valuN CstrUniv
     valu [12, a, b] = valuN MetaS a b
     valu [13, s]   = valuN DummyS s
+=======
+    valu [11, a, b] = valuN MetaS a b
+    valu [12, s]   = valuN DummyS s
+    valu [13]      = valuN LevelUniv
+>>>>>>> prep-2.6.4.2
     valu _         = malformed
 
 instance EmbPrj DisplayForm where
@@ -186,18 +211,18 @@ instance EmbPrj a => EmbPrj (Open a) where
 
 instance EmbPrj CheckpointId where
   icod_ (CheckpointId a) = icode a
-  value n                = CheckpointId `fmap` value n
+  value n                = CheckpointId <$!> value n
 
 instance EmbPrj DisplayTerm where
-  icod_ (DTerm    a  )   = icodeN' DTerm a
-  icod_ (DDot     a  )   = icodeN 1 DDot a
+  icod_ (DTerm'   a b)   = icodeN' DTerm' a b
+  icod_ (DDot'    a b)   = icodeN 1 DDot' a b
   icod_ (DCon     a b c) = icodeN 2 DCon a b c
   icod_ (DDef     a b)   = icodeN 3 DDef a b
   icod_ (DWithApp a b c) = icodeN 4 DWithApp a b c
 
   value = vcase valu where
-    valu [a]          = valuN DTerm a
-    valu [1, a]       = valuN DDot a
+    valu [a, b]       = valuN DTerm' a b
+    valu [1, a, b]    = valuN DDot' a b
     valu [2, a, b, c] = valuN DCon a b c
     valu [3, a, b]    = valuN DDef a b
     valu [4, a, b, c] = valuN DWithApp a b c
@@ -205,15 +230,24 @@ instance EmbPrj DisplayTerm where
 
 instance EmbPrj MutualId where
   icod_ (MutId a) = icode a
-  value n         = MutId `fmap` value n
+  value n         = MutId <$!> value n
 
 instance EmbPrj CompKit where
   icod_ (CompKit a b c) = icodeN' CompKit a b c
   value = valueN CompKit
 
 instance EmbPrj Definition where
-  icod_ (Defn a b c d e f g h i j k l m n o p q r s) = icodeN' Defn a b (P.killRange c) d e f g h i j k l m n o p q r s
-
+  icod_ (Defn a b c d e f g h i j k l m n o p blocked r s) =
+    icodeN' Defn a b (P.killRange c) d e f g h i j k l m n o p (ossify blocked) r s
+    where
+      -- Andreas, 2024-01-02, issue #7044:
+      -- After serialization, a definition can never be unblocked,
+      -- since all metas are ossified.
+      -- Thus, we turn any blocker into 'neverUnblock'.
+      ossify :: Blocked_ -> Blocked_
+      ossify = \case
+        b@NotBlocked{} -> b
+        Blocked b () -> Blocked neverUnblock ()
   value = valueN Defn
 
 instance EmbPrj NotBlocked where
@@ -231,11 +265,22 @@ instance EmbPrj NotBlocked where
     valu [3, a] = valuN MissingClauses a
     valu _      = malformed
 
-instance EmbPrj Blocked_ where
-  icod_ (NotBlocked a b) = icodeN' NotBlocked a b
-  icod_ Blocked{} = __IMPOSSIBLE__
+-- Andreas, 2024-01-02, issue #7044.
+-- We only serialize 'neverUnblock';
+-- other than that, there should not be any blockers left at serialization time.
+blockedToMaybe :: Blocked_ -> Maybe NotBlocked
+blockedToMaybe = \case
+  NotBlocked a ()       -> Just a
+  Blocked a ()
+    | a == neverUnblock -> Nothing
+    | otherwise         -> __IMPOSSIBLE__
 
-  value = valueN NotBlocked
+blockedFromMaybe :: Maybe NotBlocked -> Blocked_
+blockedFromMaybe = maybe (Blocked neverUnblock ()) (`NotBlocked` ())
+
+instance EmbPrj Blocked_ where
+  icod_ = icod_ . blockedToMaybe
+  value = blockedFromMaybe <.> value
 
 instance EmbPrj NLPat where
   icod_ (PVar a b)      = icodeN 0 PVar a b
@@ -269,6 +314,7 @@ instance EmbPrj NLPSort where
   icod_ PLockUniv   = icodeN 4 PLockUniv
   icod_ PIntervalUniv = icodeN 5 PIntervalUniv
   icod_ (PSSet a)   = icodeN 6 PSSet a
+  icod_ PLevelUniv = icodeN 7 PLevelUniv
 
   value = vcase valu where
     valu [0, a] = valuN PType a
@@ -278,6 +324,7 @@ instance EmbPrj NLPSort where
     valu [4]    = valuN PLockUniv
     valu [5]    = valuN PIntervalUniv
     valu [6, a] = valuN PSSet a
+    valu [7]    = valuN PLevelUniv
     valu _      = malformed
 
 instance EmbPrj RewriteRule where
@@ -371,13 +418,27 @@ instance EmbPrj EtaEquality where
 
 instance EmbPrj ProjectionLikenessMissing
 
+instance EmbPrj BuiltinSort where
+  icod_ = \case
+    SortUniv  a      -> icodeN 0 SortUniv  a
+    SortOmega a      -> icodeN 1 SortOmega a
+    SortIntervalUniv -> icodeN 2 SortIntervalUniv
+    SortLevelUniv    -> icodeN 3 SortLevelUniv
+
+  value = vcase \case
+    [0, a] -> valuN SortUniv  a
+    [1, a] -> valuN SortOmega a
+    [2]    -> valuN SortIntervalUniv
+    [3]    -> valuN SortLevelUniv
+    _ -> malformed
+
 instance EmbPrj Defn where
   icod_ (Axiom       a)                                 = icodeN 0 Axiom a
-  icod_ (Function    a b s t u c d e f g h i j k l)     = icodeN 1 (\ a b s -> Function a b s t) a b s u c d e f g h i j k l
+  icod_ (Function    a b s t u c d e f g h i j k l m)   = icodeN 1 (\ a b s -> Function a b s t) a b s u c d e f g h i j k l m
   icod_ (Datatype    a b c d e f g h i j)               = icodeN 2 Datatype a b c d e f g h i j
   icod_ (Record      a b c d e f g h i j k l m)         = icodeN 3 Record a b c d e f g h i j k l m
-  icod_ (Constructor a b c d e f g h i j)               = icodeN 4 Constructor a b c d e f g h i j
-  icod_ (Primitive   a b c d e)                         = icodeN 5 Primitive a b c d e
+  icod_ (Constructor a b c d e f g h i j k)             = icodeN 4 Constructor a b c d e f g h i j k
+  icod_ (Primitive   a b c d e f)                       = icodeN 5 Primitive a b c d e f
   icod_ (PrimitiveSort a b)                             = icodeN 6 PrimitiveSort a b
   icod_ AbstractDefn{}                                  = __IMPOSSIBLE__
   icod_ GeneralizableVar                                = icodeN 7 GeneralizableVar
@@ -385,11 +446,12 @@ instance EmbPrj Defn where
 
   value = vcase valu where
     valu [0, a]                                        = valuN Axiom a
-    valu [1, a, b, s, u, c, d, e, f, g, h, i, j, k, l] = valuN (\ a b s -> Function a b s Nothing) a b s u c d e f g h i j k l
+    valu [1, a, b, s, u, c, d, e, f, g, h, i, j, k, l, m]
+                                                       = valuN (\ a b s -> Function a b s Nothing) a b s u c d e f g h i j k l m
     valu [2, a, b, c, d, e, f, g, h, i, j]             = valuN Datatype a b c d e f g h i j
     valu [3, a, b, c, d, e, f, g, h, i, j, k, l, m]    = valuN Record   a b c d e f g h i j k l m
-    valu [4, a, b, c, d, e, f, g, h, i, j]             = valuN Constructor a b c d e f g h i j
-    valu [5, a, b, c, d, e]                            = valuN Primitive   a b c d e
+    valu [4, a, b, c, d, e, f, g, h, i, j, k]          = valuN Constructor a b c d e f g h i j k
+    valu [5, a, b, c, d, e, f]                         = valuN Primitive   a b c d e f
     valu [6, a, b]                                     = valuN PrimitiveSort a b
     valu [7]                                           = valuN GeneralizableVar
     valu _                                             = malformed
@@ -424,15 +486,15 @@ instance EmbPrj a => EmbPrj (SplitTree' a) where
     valu _            = malformed
 
 instance EmbPrj FunctionFlag where
-  icod_ FunStatic       = icodeN 0 FunStatic
-  icod_ FunInline       = icodeN 1 FunInline
-  icod_ FunMacro        = icodeN 2 FunMacro
+  icod_ FunStatic       = pure 0
+  icod_ FunInline       = pure 1
+  icod_ FunMacro        = pure 2
 
-  value = vcase valu where
-    valu [0] = valuN FunStatic
-    valu [1] = valuN FunInline
-    valu [2] = valuN FunMacro
-    valu _   = malformed
+  value = \case
+    0 -> pure FunStatic
+    1 -> pure FunInline
+    2 -> pure FunMacro
+    _ -> malformed
 
 instance EmbPrj a => EmbPrj (WithArity a) where
   icod_ (WithArity a b) = icodeN' WithArity a b
@@ -443,6 +505,20 @@ instance EmbPrj a => EmbPrj (Case a) where
   icod_ (Branches a b c d e f g) = icodeN' Branches a b c d e f g
 
   value = valueN Branches
+
+-- Opaque blocks are serialised in an abbreviated manner: We only need
+-- the enclosed definitions (3rd argument) and parent (4th argument) to
+-- compute the transitive closure during scope checking, never
+-- afterwards.
+instance EmbPrj OpaqueBlock where
+  icod_ (OpaqueBlock id uf _ _ r) =
+    icodeN' (\id uf ->
+      let !unfolding = HashSet.fromList uf
+      in OpaqueBlock id unfolding mempty Nothing)
+    id (HashSet.toList uf) r
+
+  value = valueN (\id uf -> let !unfolding = HashSet.fromList uf
+                            in OpaqueBlock id unfolding mempty Nothing)
 
 instance EmbPrj CompiledClauses where
   icod_ (Fail a)   = icodeN' Fail a

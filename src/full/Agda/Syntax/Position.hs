@@ -1,3 +1,6 @@
+{-# LANGUAGE DataKinds            #-}
+{-# LANGUAGE UndecidableInstances #-} -- Due to KILLRANGE vararg typeclass
+
 {-| Position information for syntax. Crucial for giving good error messages.
 -}
 
@@ -53,9 +56,7 @@ module Agda.Syntax.Position
   , KillRange(..)
   , KillRangeT
   , killRangeMap
-  , killRange1, killRange2, killRange3, killRange4, killRange5, killRange6, killRange7
-  , killRange8, killRange9, killRange10, killRange11, killRange12, killRange13, killRange14
-  , killRange15, killRange16, killRange17, killRange18, killRange19
+  , KILLRANGE(..)
   , withRangeOf
   , fuseRange
   , fuseRanges
@@ -71,7 +72,7 @@ import Control.Monad
 import Control.Monad.Writer (runWriter, tell)
 
 import qualified Data.Foldable as Fold
-import Data.Function
+import Data.Function (on)
 import Data.Int
 import Data.List (sort)
 import Data.Map (Map)
@@ -85,8 +86,7 @@ import Data.Void
 
 import GHC.Generics (Generic)
 
-import {-# SOURCE #-} Agda.Syntax.TopLevelModuleName
-  (TopLevelModuleName)
+import Agda.Syntax.TopLevelModuleName.Boot (TopLevelModuleName'(..))
 
 import Agda.Utils.FileName
 import Agda.Utils.List
@@ -95,7 +95,8 @@ import Agda.Utils.List2 (List2)
 import qualified Agda.Utils.Maybe.Strict as Strict
 import Agda.Utils.Null
 import Agda.Utils.Permutation
-import Agda.Utils.Pretty
+
+import Agda.Utils.TypeLevel (IsBase, All, Domains)
 
 import Agda.Utils.Impossible
 
@@ -144,8 +145,8 @@ type SrcFile = Strict.Maybe RangeFile
 data RangeFile = RangeFile
   { rangeFilePath :: !AbsolutePath
     -- ^ The file's path.
-  , rangeFileName :: !(Maybe TopLevelModuleName)
-    -- ^ The file's top-level module name.
+  , rangeFileName :: !(Maybe (TopLevelModuleName' Range))
+    -- ^ The file's top-level module name (if applicable).
     --
     -- This field is optional, but some things may break if the field
     -- is not instantiated with an actual top-level module name. For
@@ -156,13 +157,13 @@ data RangeFile = RangeFile
     -- should be possible to instantiate it with something that is not
     -- yet defined (see 'Agda.Interaction.Imports.parseSource').
     --
-    -- This 'TopLevelModuleName' should not contain a range.
+    -- This '(TopLevelModuleName' Range)' should not contain a range.
   }
   deriving (Show, Generic)
 
 -- | A smart constructor for 'RangeFile'.
 
-mkRangeFile :: AbsolutePath -> Maybe TopLevelModuleName -> RangeFile
+mkRangeFile :: AbsolutePath -> Maybe (TopLevelModuleName' Range) -> RangeFile
 mkRangeFile f top = RangeFile
   { rangeFilePath = f
   , rangeFileName = killRange top
@@ -289,10 +290,7 @@ consecutiveAndSeparated is =
     &&
   allEqual (map (srcFile . iStart) is)
     &&
-  (null is
-     ||
-   and (zipWith (<) (map iEnd   (init is))
-                    (map iStart (tail is))))
+  allConsecutive (\ i j -> iEnd i < iStart j) is
 
 -- | Range invariant.
 rangeInvariant :: Ord a => Range' a -> Bool
@@ -312,14 +310,14 @@ rangeFile (Range f _) = f
 --
 -- If there is no range, then 'Nothing' is returned. If there is a
 -- range without a module name, then @'Just' 'Nothing'@ is returned.
-rangeModule' :: Range -> Maybe (Maybe TopLevelModuleName)
+rangeModule' :: Range -> Maybe (Maybe (TopLevelModuleName' Range))
 rangeModule' NoRange     = Nothing
 rangeModule' (Range f _) = Just $ case f of
   Strict.Nothing -> Nothing
   Strict.Just f  -> rangeFileName f
 
 -- | The range's top-level module name, if any.
-rangeModule :: Range -> Maybe TopLevelModuleName
+rangeModule :: Range -> Maybe (TopLevelModuleName' Range)
 rangeModule = join . rangeModule'
 
 -- | Conflate a range to its right margin.
@@ -339,6 +337,7 @@ class HasRange a where
 
   default getRange :: (Foldable t, HasRange b, t b ~ a) => a -> Range
   getRange = Fold.foldr fuseRange noRange
+  {-# INLINABLE getRange #-}
 
 instance HasRange Interval where
     getRange i =
@@ -353,6 +352,15 @@ instance HasRange () where
 
 instance HasRange Bool where
     getRange _ = noRange
+
+instance HasRange (TopLevelModuleName' Range) where
+  getRange = moduleNameRange
+
+instance SetRange (TopLevelModuleName' Range) where
+  setRange r (TopLevelModuleName _ h x) = TopLevelModuleName r h x
+
+instance KillRange (TopLevelModuleName' Range) where
+  killRange (TopLevelModuleName _ h x) = TopLevelModuleName noRange h x
 
 -- | Precondition: The ranges of the list elements must point to the
 -- same file (or be empty).
@@ -421,132 +429,21 @@ class KillRange a where
 
 type KillRangeT a = a -> a
 
+class KILLRANGE t b where
+  killRangeN :: IsBase t ~ b => All KillRange (Domains t) =>
+                t -> t
+
+instance IsBase t ~ 'True => KILLRANGE t 'True where
+  {-# INLINE killRangeN #-}
+  killRangeN v = v
+
+instance KILLRANGE t (IsBase t) => KILLRANGE (a -> t) 'False where
+  {-# INLINE killRangeN #-}
+  killRangeN f a = killRangeN (f (killRange a))
+
 -- | Remove ranges in keys and values of a map.
 killRangeMap :: (KillRange k, KillRange v) => KillRangeT (Map k v)
 killRangeMap = Map.mapKeysMonotonic killRange . Map.map killRange
-
-killRange1 :: KillRange a => (a -> b) -> a -> b
-
-killRange2 :: (KillRange a, KillRange b) => (a -> b -> c) -> a -> b -> c
-
-killRange3 :: (KillRange a, KillRange b, KillRange c) =>
-              (a -> b -> c -> d) -> a -> b -> c -> d
-
-killRange4 :: (KillRange a, KillRange b, KillRange c, KillRange d) =>
-              (a -> b -> c -> d -> e) -> a -> b -> c -> d -> e
-
-killRange5 :: ( KillRange a, KillRange b, KillRange c, KillRange d
-              , KillRange e ) =>
-              (a -> b -> c -> d -> e -> f) -> a -> b -> c -> d -> e -> f
-
-killRange6 :: ( KillRange a, KillRange b, KillRange c, KillRange d
-              , KillRange e, KillRange f ) =>
-              (a -> b -> c -> d -> e -> f -> g) -> a -> b -> c -> d -> e -> f -> g
-
-killRange7 :: ( KillRange a, KillRange b, KillRange c, KillRange d
-              , KillRange e, KillRange f, KillRange g ) =>
-              (a -> b -> c -> d -> e -> f -> g -> h) -> a -> b -> c -> d -> e -> f -> g -> h
-
-killRange8 :: ( KillRange a, KillRange b, KillRange c, KillRange d
-              , KillRange e, KillRange f, KillRange g, KillRange h ) =>
-              (a -> b -> c -> d -> e -> f -> g -> h -> i) ->
-              a -> b -> c -> d -> e -> f -> g -> h -> i
-
-killRange9 :: ( KillRange a, KillRange b, KillRange c, KillRange d
-              , KillRange e, KillRange f, KillRange g, KillRange h
-              , KillRange i ) =>
-              (a -> b -> c -> d -> e -> f -> g -> h -> i -> j) ->
-              a -> b -> c -> d -> e -> f -> g -> h -> i -> j
-
-killRange10 :: ( KillRange a, KillRange b, KillRange c, KillRange d
-               , KillRange e, KillRange f, KillRange g, KillRange h
-               , KillRange i, KillRange j ) =>
-               (a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k) ->
-               a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k
-
-killRange11 :: ( KillRange a, KillRange b, KillRange c, KillRange d
-               , KillRange e, KillRange f, KillRange g, KillRange h
-               , KillRange i, KillRange j, KillRange k ) =>
-               (a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k -> l) ->
-               a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k -> l
-
-killRange12 :: ( KillRange a, KillRange b, KillRange c, KillRange d
-               , KillRange e, KillRange f, KillRange g, KillRange h
-               , KillRange i, KillRange j, KillRange k, KillRange l ) =>
-               (a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k -> l -> m) ->
-               a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k -> l -> m
-
-killRange13 :: ( KillRange a, KillRange b, KillRange c, KillRange d
-               , KillRange e, KillRange f, KillRange g, KillRange h
-               , KillRange i, KillRange j, KillRange k, KillRange l
-               , KillRange m ) =>
-               (a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k -> l -> m -> n) ->
-               a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k -> l -> m -> n
-
-killRange14 :: ( KillRange a, KillRange b, KillRange c, KillRange d
-               , KillRange e, KillRange f, KillRange g, KillRange h
-               , KillRange i, KillRange j, KillRange k, KillRange l
-               , KillRange m, KillRange n ) =>
-               (a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k -> l -> m -> n -> o) ->
-               a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k -> l -> m -> n -> o
-
-killRange15 :: ( KillRange a, KillRange b, KillRange c, KillRange d
-               , KillRange e, KillRange f, KillRange g, KillRange h
-               , KillRange i, KillRange j, KillRange k, KillRange l
-               , KillRange m, KillRange n, KillRange o ) =>
-               (a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k -> l -> m -> n -> o -> p) ->
-               a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k -> l -> m -> n -> o -> p
-
-killRange16 :: ( KillRange a, KillRange b, KillRange c, KillRange d
-               , KillRange e, KillRange f, KillRange g, KillRange h
-               , KillRange i, KillRange j, KillRange k, KillRange l
-               , KillRange m, KillRange n, KillRange o, KillRange p ) =>
-               (a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k -> l -> m -> n -> o -> p -> q) ->
-               a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k -> l -> m -> n -> o -> p -> q
-
-killRange17 :: ( KillRange a, KillRange b, KillRange c, KillRange d
-               , KillRange e, KillRange f, KillRange g, KillRange h
-               , KillRange i, KillRange j, KillRange k, KillRange l
-               , KillRange m, KillRange n, KillRange o, KillRange p
-               , KillRange q ) =>
-               (a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k -> l -> m -> n -> o -> p -> q -> r) ->
-               a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k -> l -> m -> n -> o -> p -> q -> r
-
-killRange18 :: ( KillRange a, KillRange b, KillRange c, KillRange d
-               , KillRange e, KillRange f, KillRange g, KillRange h
-               , KillRange i, KillRange j, KillRange k, KillRange l
-               , KillRange m, KillRange n, KillRange o, KillRange p
-               , KillRange q, KillRange r ) =>
-               (a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k -> l -> m -> n -> o -> p -> q -> r -> s) ->
-               a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k -> l -> m -> n -> o -> p -> q -> r -> s
-
-killRange19 :: ( KillRange a, KillRange b, KillRange c, KillRange d
-               , KillRange e, KillRange f, KillRange g, KillRange h
-               , KillRange i, KillRange j, KillRange k, KillRange l
-               , KillRange m, KillRange n, KillRange o, KillRange p
-               , KillRange q, KillRange r, KillRange s ) =>
-               (a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k -> l -> m -> n -> o -> p -> q -> r -> s -> t) ->
-               a -> b -> c -> d -> e -> f -> g -> h -> i -> j -> k -> l -> m -> n -> o -> p -> q -> r -> s -> t
-
-killRange1  f a = f (killRange a)
-killRange2  f a = killRange1 (f $ killRange a)
-killRange3  f a = killRange2 (f $ killRange a)
-killRange4  f a = killRange3 (f $ killRange a)
-killRange5  f a = killRange4 (f $ killRange a)
-killRange6  f a = killRange5 (f $ killRange a)
-killRange7  f a = killRange6 (f $ killRange a)
-killRange8  f a = killRange7 (f $ killRange a)
-killRange9  f a = killRange8 (f $ killRange a)
-killRange10 f a = killRange9 (f $ killRange a)
-killRange11 f a = killRange10 (f $ killRange a)
-killRange12 f a = killRange11 (f $ killRange a)
-killRange13 f a = killRange12 (f $ killRange a)
-killRange14 f a = killRange13 (f $ killRange a)
-killRange15 f a = killRange14 (f $ killRange a)
-killRange16 f a = killRange15 (f $ killRange a)
-killRange17 f a = killRange16 (f $ killRange a)
-killRange18 f a = killRange17 (f $ killRange a)
-killRange19 f a = killRange18 (f $ killRange a)
 
 instance KillRange Range where
   killRange _ = noRange
@@ -590,59 +487,15 @@ instance (KillRange a, KillRange b) => KillRange (a, b) where
 
 instance (KillRange a, KillRange b, KillRange c) =>
          KillRange (a, b, c) where
-  killRange (x, y, z) = killRange3 (,,) x y z
+  killRange (x, y, z) = killRangeN (,,) x y z
 
 instance (KillRange a, KillRange b, KillRange c, KillRange d) =>
          KillRange (a, b, c, d) where
-  killRange (x, y, z, u) = killRange4 (,,,) x y z u
+  killRange (x, y, z, u) = killRangeN (,,,) x y z u
 
 instance (KillRange a, KillRange b) => KillRange (Either a b) where
   killRange (Left  x) = Left  $ killRange x
   killRange (Right x) = Right $ killRange x
-
-------------------------------------------------------------------------
--- Printing
-------------------------------------------------------------------------
-
-instance Pretty RangeFile where
-  pretty = pretty . rangeFilePath
-
-instance Pretty a => Pretty (Position' (Strict.Maybe a)) where
-  pretty (Pn Strict.Nothing  _ l c) = pretty l <> "," <> pretty c
-  pretty (Pn (Strict.Just f) _ l c) =
-    pretty f <> ":" <> pretty l <> "," <> pretty c
-
-instance Pretty PositionWithoutFile where
-  pretty p = pretty (p { srcFile = Strict.Nothing } :: Position)
-
-instance Pretty IntervalWithoutFile where
-  pretty (Interval s e) = start <> "-" <> end
-    where
-      sl = posLine s
-      el = posLine e
-      sc = posCol s
-      ec = posCol e
-
-      start :: Doc
-      start = pretty sl <> comma <> pretty sc
-
-      end :: Doc
-        | sl == el  = pretty ec
-        | otherwise = pretty el <> comma <> pretty ec
-
-instance Pretty a => Pretty (Interval' (Strict.Maybe a)) where
-  pretty i@(Interval s _) = file <> pretty (setIntervalFile () i)
-    where
-      file :: Doc
-      file = case srcFile s of
-               Strict.Nothing -> empty
-               Strict.Just f  -> pretty f <> colon
-
-instance Pretty a => Pretty (Range' (Strict.Maybe a)) where
-  pretty r = maybe empty pretty (rangeToIntervalWithFile r)
-
-instance (Pretty a, HasRange a) => Pretty (PrintRange a) where
-  pretty (PrintRange a) = pretty a <+> parens ("at" <+> pretty (getRange a))
 
 {--------------------------------------------------------------------------
     Functions on positions and ranges
@@ -812,6 +665,7 @@ fuseRanges (Range f is1) (Range _ is2) = Range f (fuse is1 is2)
     where
     r1' = Seq.dropWhileL (\s -> iEnd s <= iEnd s2) r1
 
+{-# INLINE fuseRange #-}
 -- | Precondition: The ranges must point to the same file (or be
 -- empty).
 fuseRange :: (HasRange u, HasRange t) => u -> t -> Range
@@ -846,7 +700,7 @@ x `withRangeOf` y = setRange (getRange y) x
 --   ending position is placed first. If both tie, the element from the
 --   first list is placed first.
 interleaveRanges :: (HasRange a) => [a] -> [a] -> ([a], [(a,a)])
-interleaveRanges as bs = runWriter$ go as bs
+interleaveRanges as bs = runWriter $ go as bs
   where
     go []         as = return as
     go as         [] = return as

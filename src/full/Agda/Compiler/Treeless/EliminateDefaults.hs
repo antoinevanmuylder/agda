@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
+
 -- | Eliminates case defaults by adding an alternative for all possible
 -- constructors. Literal cases are preserved as-is.
 module Agda.Compiler.Treeless.EliminateDefaults where
@@ -17,7 +19,7 @@ eliminateCaseDefaults = tr
   where
     tr :: TTerm -> TCM TTerm
     tr = \case
-      TCase sc ct@CaseInfo{caseType = CTData _ qn} def alts
+      TCase sc ct@CaseInfo{caseType = CTData qn} def alts
         | not (isUnreachable def) -> do
         dtCons <- defConstructors . theDef <$> getConstInfo qn
         let missingCons = dtCons List.\\ map aCon alts

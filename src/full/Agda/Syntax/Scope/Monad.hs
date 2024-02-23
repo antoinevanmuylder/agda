@@ -16,6 +16,8 @@ import Data.Either ( partitionEithers )
 import Data.Foldable (all, traverse_)
 import qualified Data.List as List
 import Data.Map (Map)
+import qualified Data.HashMap.Strict as HMap
+import qualified Data.HashSet as HSet
 import qualified Data.Map as Map
 import Data.Maybe
 import Data.Set (Set)
@@ -39,7 +41,9 @@ import Agda.Syntax.Concrete.Definitions ( DeclarationWarning(..) ,DeclarationWar
 import Agda.Syntax.Scope.Base as A
 
 import Agda.TypeChecking.Monad.Base
-import Agda.TypeChecking.Monad.Builtin ( HasBuiltins , getBuiltinName' , builtinSet , builtinProp , builtinSetOmega, builtinSSetOmega )
+import Agda.TypeChecking.Monad.Builtin
+  ( HasBuiltins, getBuiltinName'
+  , builtinProp, builtinSet, builtinStrictSet, builtinPropOmega, builtinSetOmega, builtinSSetOmega )
 import Agda.TypeChecking.Monad.Debug
 import Agda.TypeChecking.Monad.State
 import Agda.TypeChecking.Monad.Trace
@@ -58,7 +62,7 @@ import qualified Agda.Utils.List2 as List2
 import Agda.Utils.Maybe
 import Agda.Utils.Monad
 import Agda.Utils.Null
-import Agda.Utils.Pretty
+import Agda.Syntax.Common.Pretty
 import Agda.Utils.Singleton
 import Agda.Utils.Suffix as C
 
@@ -248,7 +252,7 @@ addVarToBind x y = modifyScope_ $ updateVarsToBind $ AssocList.insert x y
 bindVarsToBind :: ScopeM ()
 bindVarsToBind = do
   vars <- getVarsToBind
-  modifyLocalVars (vars++)
+  modifyLocalVars (vars ++)
   printLocals 10 "bound variables:"
   modifyScope_ $ setVarsToBind []
 
@@ -309,7 +313,7 @@ freshConcreteName r i s = do
   let cname = C.Name r C.NotInScope $ singleton $ Id $ stringToRawName $ s ++ show i
   resolveName (C.QName cname) >>= \case
     UnknownName -> return cname
-    _           -> freshConcreteName r (i+1) s
+    _           -> freshConcreteName r (i + 1) s
 
 ---------------------------------------------------------------------------
 -- * Resolving names
@@ -411,14 +415,16 @@ tryResolveName kinds names x = do
     Just (C.Subscript i) -> Just $ A.Suffix i
 
 -- | Test if a given abstract name can appear with a suffix. Currently
---   only true for the names of builtin sorts @Set@ and @Prop@.
+--   only true for the names of builtin sorts.
 canHaveSuffixTest :: HasBuiltins m => m (A.QName -> Bool)
 canHaveSuffixTest = do
-  builtinSet  <- getBuiltinName' builtinSet
   builtinProp <- getBuiltinName' builtinProp
+  builtinSet  <- getBuiltinName' builtinSet
+  builtinSSet <- getBuiltinName' builtinStrictSet
+  builtinPropOmega <- getBuiltinName' builtinPropOmega
   builtinSetOmega <- getBuiltinName' builtinSetOmega
   builtinSSetOmega <- getBuiltinName' builtinSSetOmega
-  return $ \x -> Just x `elem` [builtinSet, builtinProp, builtinSetOmega, builtinSSetOmega]
+  return $ \x -> Just x `elem` [builtinProp, builtinSet, builtinSSet, builtinPropOmega, builtinSetOmega, builtinSSetOmega]
 
 -- | Look up a module in the scope.
 resolveModule :: C.QName -> ScopeM AbstractModule
@@ -477,10 +483,7 @@ getNotation x ns = do
     UnknownName         -> __IMPOSSIBLE__
   where
     notation = namesToNotation x . qnameName . anameName
-    oneNotation ds =
-      case mergeNotations $ map notation $ List1.toList ds of
-        [n] -> n
-        _   -> __IMPOSSIBLE__
+    oneNotation = List1.head . mergeNotations . fmap notation
 
 ---------------------------------------------------------------------------
 -- * Binding names
@@ -541,7 +544,7 @@ rebindName acc kind x y = do
   if kind == ConName
     then modifyCurrentScope $
            mapScopeNS (localNameSpace acc)
-                      (Map.update (toList <.> nonEmpty . (filter ((==) ConName . anameKind))) x)
+                      (Map.update (nonEmpty . List1.filter ((ConName ==) . anameKind)) x)
                       id
                       id
     else modifyCurrentScope $ removeNameFromScope (localNameSpace acc) x
@@ -581,6 +584,16 @@ memoToScopeInfo :: ScopeMemo -> ScopeCopyInfo
 memoToScopeInfo (ScopeMemo names mods) =
   ScopeCopyInfo { renNames   = names
                 , renModules = Map.map (pure . fst) mods }
+
+-- | Mark a name as being a copy in the TC state.
+copyName :: A.QName -> A.QName -> ScopeM ()
+copyName from to = do
+  from <- fromMaybe from . HMap.lookup from <$> useTC stCopiedNames
+  modifyTCLens stCopiedNames $ HMap.insert to from
+  let
+    k Nothing  = Just (HSet.singleton to)
+    k (Just s) = Just (HSet.insert to s)
+  modifyTCLens stNameCopies $ HMap.alter k from
 
 -- | Create a new scope with the given name from an old scope. Renames
 --   public names in the old scope to match the new name and returns the
@@ -666,6 +679,7 @@ copyScope oldc new0 s = (inScopeBecause (Applied oldc) *** memoToScopeInfo) <$> 
           y <- setRange rnew . A.qualify m <$> refresh (qnameName x)
           lift $ reportSLn "scope.copy" 50 $ "  Copying " ++ prettyShow x ++ " to " ++ prettyShow y
           addName x y
+          lift (copyName x y)
           return y
 
         -- Change a binding M.x -> old.M'.y to M.x -> new.M'.y
@@ -734,14 +748,14 @@ checkNoFixityInRenamingModule ren = do
 -- | Check that an import directive doesn't contain repeated names.
 verifyImportDirective :: [C.ImportedName] -> C.HidingDirective -> C.RenamingDirective -> ScopeM ()
 verifyImportDirective usn hdn ren =
-    case filter ((>1) . length)
-         $ List.group
+    case filter (not . null . List1.tail)
+         $ List1.group
          $ List.sort xs
     of
         []  -> return ()
         yss -> setCurrentRange yss $ genericError $
                 "Repeated name" ++ s ++ " in import directive: " ++
-                concat (List.intersperse ", " $ map (prettyShow . head) yss)
+                concat (List.intersperse ", " $ map (prettyShow . List1.head) yss)
             where
                 s = case yss of
                         [_] -> ""
@@ -824,7 +838,7 @@ applyImportDirectiveM m (ImportDirective rng usn' hdn' ren' public) scope0 = do
     -- Look up the defined names in the new scope.
     let namesInScope'   = (allNamesInScope scope' :: ThingsInScope AbstractName)
     let modulesInScope' = (allNamesInScope scope' :: ThingsInScope AbstractModule)
-    let look x = headWithDefault __IMPOSSIBLE__ . Map.findWithDefault __IMPOSSIBLE__ x
+    let look x = List1.head . Map.findWithDefault __IMPOSSIBLE__ x
     -- We set the ranges to the ranges of the concrete names in order to get
     -- highlighting for the names in the import directive.
     let definedA = for definedNames $ \case
@@ -899,9 +913,9 @@ applyImportDirectiveM m (ImportDirective rng usn' hdn' ren' public) scope0 = do
     checkExist xs = partitionEithers $ for xs $ \ name -> case name of
       ImportedName x   -> ImportedName   . (x,) . setRange (getRange x) . anameName <$> resolve name x namesInScope
       ImportedModule x -> ImportedModule . (x,) . setRange (getRange x) . amodName  <$> resolve name x modulesInScope
-
-      where resolve :: Ord a => err -> a -> Map a [b] -> Either err b
-            resolve err x m = maybe (Left err) (Right . head) $ Map.lookup x m
+      where
+        resolve :: Ord a => err -> a -> Map a (List1 b) -> Either err b
+        resolve err x m = maybe (Left err) (Right . List1.head) $ Map.lookup x m
 
 -- | Translation of @ImportDirective@.
 mapImportDir
@@ -1025,11 +1039,11 @@ openModule kind mam cm dir = do
               , all (== FldName)         ks
               , all (== PatternSynName)  ks
               ]
-              where ks = map anameKind qs
+              where ks = fmap anameKind qs
         -- We report the first clashing exported identifier.
         unlessNull (filter defClash defClashes) $
-          \ ((x, q:_) : _) -> typeError $ ClashingDefinition (C.QName x) (anameName q) Nothing
+          \ ((x, q :| _) : _) -> typeError $ ClashingDefinition (C.QName x) (anameName q) Nothing
 
         unlessNull modClashes $ \ ((_, ms) : _) -> do
-          caseMaybe (last2 ms) __IMPOSSIBLE__ $ \ (m0, m1) -> do
+          caseMaybe (List1.last2 ms) __IMPOSSIBLE__ $ \ (m0, m1) -> do
             typeError $ ClashingModule (amodName m0) (amodName m1)

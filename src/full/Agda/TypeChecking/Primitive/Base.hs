@@ -34,7 +34,7 @@ import Agda.Interaction.Options ( optCubical )
 import Agda.Utils.Functor
 import Agda.Utils.Impossible
 import Agda.Utils.Maybe
-import Agda.Utils.Pretty ( prettyShow )
+import Agda.Syntax.Common.Pretty ( prettyShow )
 
 -- Type combinators
 
@@ -88,6 +88,7 @@ hPi' s a b = hPi s a (bind' s (\ x -> b x))
 nPi' s a b = nPi s a (bind' s (\ x -> b x))
 lPi' s a b = lPi s a (bind' s (\ x -> b x))
 
+{-# INLINABLE pPi' #-}
 pPi' :: (MonadAddContext m, HasBuiltins m, MonadDebug m)
      => String -> NamesT m Term -> (NamesT m Term -> NamesT m Type) -> NamesT m Type
 pPi' n phi b = toFinitePi <$> nPi' n (elSSet $ cl isOne <@> phi) b
@@ -150,6 +151,7 @@ toPrefinitePi _ = __IMPOSSIBLE__
 el' :: Applicative m => m Term -> m Term -> m Type
 el' l a = El <$> (tmSort <$> l) <*> a
 
+<<<<<<< HEAD
 levelLubTm :: Term -> Term -> Term
 levelLubTm l0 l1 = levelTm $ levelLub (atomicLevel l0) (atomicLevel l1)
 
@@ -165,12 +167,16 @@ tmSortLub l0 l1 =
 
 elLub' :: Applicative m => m Term -> m Term -> m Term -> m Type
 elLub' l0 l1 a = El <$> (tmSortLub <$> l0 <*> l1) <*> a
+=======
+els :: Applicative m => m Sort -> m Term -> m Type
+els l a = El <$> l <*> a
+>>>>>>> prep-2.6.4.2
 
 el's :: Applicative m => m Term -> m Term -> m Type
 el's l a = El <$> (SSet . atomicLevel <$> l) <*> a
 
 elInf :: Functor m => m Term -> m Type
-elInf t = (El (Inf IsFibrant 0) <$> t)
+elInf t = (El (Inf UType 0) <$> t)
 
 elSSet :: Functor m => m Term -> m Type
 elSSet t = (El (SSet $ ClosedLevel 0) <$> t)
@@ -236,6 +242,9 @@ sSizeUniv = SizeUniv
 tSizeUniv :: Applicative m => m Type
 tSizeUniv = pure $ sort sSizeUniv
 
+tLevelUniv :: Applicative m => m Type
+tLevelUniv = pure $ sort $ LevelUniv
+
 -- | Abbreviation: @argN = 'Arg' 'defaultArgInfo'@.
 argN :: e -> Arg e
 argN = Arg defaultArgInfo
@@ -257,20 +266,23 @@ argL = Arg $ setLock IsLock defaultArgInfo
 -- * Accessing the primitive functions
 ---------------------------------------------------------------------------
 
-lookupPrimitiveFunction :: String -> TCM PrimitiveImpl
+lookupPrimitiveFunction :: PrimitiveId -> TCM PrimitiveImpl
 lookupPrimitiveFunction x =
   fromMaybe (do
-                reportSDoc "tc.prim" 20 $ "Lookup of primitive function" <+> text x <+> "failed"
-                typeError $ NoSuchPrimitiveFunction x)
+                reportSDoc "tc.prim" 20 $ "Lookup of primitive function" <+> pretty x <+> "failed"
+                typeError $ NoSuchPrimitiveFunction (getBuiltinId x))
             (Map.lookup x primitiveFunctions)
 
-lookupPrimitiveFunctionQ :: QName -> TCM (String, PrimitiveImpl)
+lookupPrimitiveFunctionQ :: QName -> TCM (PrimitiveId, PrimitiveImpl)
 lookupPrimitiveFunctionQ q = do
   let s = prettyShow (nameCanonical $ qnameName q)
-  PrimImpl t pf <- lookupPrimitiveFunction s
-  return (s, PrimImpl t $ pf { primFunName = q })
+  case primitiveById s of
+    Nothing -> typeError $ NoSuchPrimitiveFunction s
+    Just s -> do
+      PrimImpl t pf <- lookupPrimitiveFunction s
+      return (s, PrimImpl t $ pf { primFunName = q })
 
-getBuiltinName :: (HasBuiltins m, MonadReduce m) => String -> m (Maybe QName)
+getBuiltinName :: (HasBuiltins m, MonadReduce m) => BuiltinId -> m (Maybe QName)
 getBuiltinName b = runMaybeT $ getQNameFromTerm =<< MaybeT (getBuiltin' b)
 
 -- | Convert a name in 'Term' form back to 'QName'.
@@ -284,7 +296,7 @@ getQNameFromTerm v = do
       Lam _ b   -> getQNameFromTerm $ unAbs b
       _ -> mzero
 
-isBuiltin :: (HasBuiltins m, MonadReduce m) => QName -> String -> m Bool
+isBuiltin :: (HasBuiltins m, MonadReduce m) => QName -> BuiltinId -> m Bool
 isBuiltin q b = (Just q ==) <$> getBuiltinName b
 
 ------------------------------------------------------------------------
@@ -314,6 +326,7 @@ getSigmaKit = do
             , sigmaFst  = unDom fst
             , sigmaSnd  = unDom snd
             }
+<<<<<<< HEAD
         _ -> __IMPOSSIBLE__
 
 
@@ -339,3 +352,6 @@ toExplicitArgs t = case t of
     forElims es = map forElim es
 
     withArgInf = (setRelevance Relevant) . (setHiding NotHidden)
+=======
+        _ -> __IMPOSSIBLE__  -- This invariant is ensured in bindBuiltinSigma
+>>>>>>> prep-2.6.4.2

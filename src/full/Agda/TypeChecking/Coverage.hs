@@ -30,17 +30,19 @@ import qualified Data.Set as Set
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
 
+import qualified Agda.Benchmarking as Bench
+
 import Agda.Syntax.Common
 import Agda.Syntax.Position
-import Agda.Syntax.Internal hiding (DataOrRecord(..))
+import Agda.Syntax.Internal hiding (DataOrRecord)
 import Agda.Syntax.Internal.Pattern
 import Agda.Syntax.Translation.InternalToAbstract (NamedClause(..))
 
-import Agda.TypeChecking.Names
 import Agda.TypeChecking.Primitive hiding (Nat)
 import Agda.TypeChecking.Monad
+import qualified Agda.TypeChecking.Monad.Benchmark as Bench
 
-import Agda.TypeChecking.Rules.LHS (DataOrRecord(..), checkSortOfSplitVar)
+import Agda.TypeChecking.Rules.LHS (DataOrRecord, checkSortOfSplitVar)
 import Agda.TypeChecking.Rules.LHS.Problem (allFlexVars)
 import Agda.TypeChecking.Rules.LHS.Unify
 import Agda.TypeChecking.Rules.Term (unquoteTactic)
@@ -60,24 +62,23 @@ import Agda.TypeChecking.Substitute
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Records
 import Agda.TypeChecking.Telescope
-import Agda.TypeChecking.Telescope.Path
 import Agda.TypeChecking.MetaVars
 import Agda.TypeChecking.Warnings
 
 import Agda.Interaction.Options
 
 import Agda.Utils.Either
+import Agda.Utils.Function
 import Agda.Utils.Functor
 import Agda.Utils.List
 import Agda.Utils.Maybe
 import Agda.Utils.Monad
 import Agda.Utils.Null
 import Agda.Utils.Permutation
-import Agda.Utils.Pretty (prettyShow)
+import Agda.Syntax.Common.Pretty (prettyShow)
 import Agda.Utils.Singleton
 import Agda.Utils.Size
 import Agda.Utils.Tuple
-import Agda.Utils.WithDefault
 
 import Agda.Utils.Impossible
 import Data.IntMap (IntMap)
@@ -168,7 +169,8 @@ coverageCheck f t cs = do
 
 
   -- filter out the missing clauses that are absurd.
-  pss <- flip filterM pss $ \(tel,ps) ->
+  pss <- ifNotM (optInferAbsurdClauses <$> pragmaOptions) (pure pss) {-else-} $
+   flip filterM pss $ \(tel,ps) ->
     -- Andreas, 2019-04-13, issue #3692: when adding missing absurd
     -- clauses, also put the absurd pattern in.
     caseEitherM (checkEmptyTel noRange tel) (\ _ -> return True) $ \ l -> do
@@ -238,10 +240,13 @@ coverageCheck f t cs = do
     let ranges    = map clauseFullRange unreached
     setCurrentRange ranges $ warning $ UnreachableClauses f ranges
 
-  -- report a warning if there are clauses that are not preserved as
+  -- Report a warning if there are clauses that are not preserved as
   -- definitional equalities and --exact-split is enabled
-  unless (null noex) $ do
-      let noexclauses = map (indexWithDefault __IMPOSSIBLE__ cs1) noex
+  -- and they are not labelled as CATCHALL.
+  let noexclauses = forMaybe noex $ \ i -> do
+        let cl = indexWithDefault __IMPOSSIBLE__ cs1 i
+        if clauseCatchall cl then Nothing else Just cl
+  unless (null noexclauses) $ do
       setCurrentRange (map clauseLHSRange noexclauses) $
         warning $ CoverageNoExactSplit f $ noexclauses
   return splitTree
@@ -267,9 +272,10 @@ isCovered f cs sc = do
  -- to the user.  Rather, assume the clause is not already covered.
  `catchError` \ _ -> return False
 
--- | @cover f cs (SClause _ _ ps _) = return (splitTree, used, pss)@.
+-- | @cover f cs (SClause _ _ ps _) = return (CoverResult splitTree used missing covering noex)@.
 --   checks that the list of clauses @cs@ covers the given split clause.
---   Returns the @splitTree@, the @used@ clauses, and missing cases @pss@.
+--   Returns the @splitTree@, the @used@ clauses, @missing@ cases, the @covering@ clauses,
+--   and the non-exact clauses @noex@.
 --
 --   Effect: adds missing instance clauses for @f@ to signature.
 --
@@ -302,7 +308,7 @@ cover f cs sc@(SClause tel ps _ _ target) = updateRelevance $ do
         , coverUsedClauses    = singleton i
         , coverMissingClauses = []
         , coverPatterns       = [cl]
-        , coverNoExactClauses = IntSet.fromList [ i | not $ exact || clauseCatchall cl0 ]
+        , coverNoExactClauses = if exact then empty else singleton i
         }
 
     No        ->  do
@@ -377,9 +383,12 @@ cover f cs sc@(SClause tel ps _ _ target) = updateRelevance $ do
     -- This function takes "name suggestions" from both variable
     -- patterns and IApply co/patterns, and replaces any existing names
     -- in the telescope by the name in that pattern.
-    renTeleFromNap :: Telescope -> NAPs -> Telescope
-    renTeleFromNap tel ps = telFromList $ evalState (traverse upd (telToList tel)) (size - 1)
+    renTeleFromNap :: SplitClause -> Clause -> Telescope
+    renTeleFromNap SClause{scTel = tel, scPats = sps} clause =
+      telFromList $ evalState (traverse upd (telToList tel)) (size - offset)
       where
+        ps = namedClausePats clause
+        offset = 1 + length (fromSplitPatterns sps) - length ps
         -- Fold a single pattern into a map of name suggestions:
         -- In the running example above, we have
         --    f (p i@1 j@0)
@@ -401,6 +410,7 @@ cover f cs sc@(SClause tel ps _ _ target) = updateRelevance $ do
         -- + recursion, traverse handles iteration and the State handles
         -- counting down.
         size = length (telToList tel)
+
         upd :: Dom (ArgName , Type) -> State Int (Dom (ArgName , Type))
         upd dom = state $ \s -> do
           case IntMap.lookup s suggestions of
@@ -410,10 +420,11 @@ cover f cs sc@(SClause tel ps _ _ target) = updateRelevance $ do
             Nothing -> (dom , s - 1)
 
     applyCl :: SplitClause -> Clause -> [(Nat, SplitPattern)] -> TCM Clause
-    applyCl SClause{scTel = pretel, scPats = sps} cl mps
-        | tel <- renTeleFromNap pretel (namedClausePats cl) = addContext tel $ do
+    applyCl sc@SClause{scTel = pretel, scPats = sps} cl mps
+        | tel <- renTeleFromNap sc cl = addContext tel $ do
         let ps = namedClausePats cl
         reportSDoc "tc.cover.applyCl" 40 $ "applyCl"
+        reportSDoc "tc.cover.applyCl" 40 $ "pretel =" <+> pretty pretel
         reportSDoc "tc.cover.applyCl" 40 $ "tel    =" <+> pretty tel
         reportSDoc "tc.cover.applyCl" 40 $ "ps     =" <+> pretty ps
         reportSDoc "tc.cover.applyCl" 40 $ "mps    =" <+> pretty mps
@@ -622,13 +633,13 @@ cover f cs sc@(SClause tel ps _ _ target) = updateRelevance $ do
     addEtaSplits :: Int -> [NamedArg SplitPattern] -> SplitTree -> SplitTree
     addEtaSplits k []     t = t
     addEtaSplits k (p:ps) t = case namedArg p of
-      VarP  _ _     -> addEtaSplits (k+1) ps t
-      DotP  _ _     -> addEtaSplits (k+1) ps t
+      VarP  _ _     -> addEtaSplits (k + 1) ps t
+      DotP  _ _     -> addEtaSplits (k + 1) ps t
       ConP c cpi qs -> SplitAt (p $> k) LazySplit [(SplitCon (conName c) , addEtaSplits k (qs ++ ps) t)]
       LitP{}        -> __IMPOSSIBLE__
       ProjP{}       -> __IMPOSSIBLE__
       DefP{}        -> __IMPOSSIBLE__ -- Andrea: maybe?
-      IApplyP{}     -> addEtaSplits (k+1) ps t
+      IApplyP{}     -> addEtaSplits (k + 1) ps t
 
     etaRecordSplits :: Int -> [NamedArg SplitPattern] -> (SplitTag,SplitClause)
                     -> SplitTree -> (SplitTag,SplitTree)
@@ -700,7 +711,7 @@ splitStrategy bs tel = return $ updateLast setBlockingVarOverlap xs
 -- the data type must be inductive.
 isDatatype :: (MonadTCM tcm, MonadError SplitError tcm) =>
               Induction -> Dom Type ->
-              tcm (DataOrRecord, QName, [Arg Term], [Arg Term], [QName], Bool)
+              tcm (DataOrRecord, QName, Args, Args, [QName], Bool)
 isDatatype ind at = do
   let t       = unDom at
       throw f = throwError . f =<< do liftTCM $ buildClosure t
@@ -726,7 +737,7 @@ isDatatype ind at = do
           | i == Just CoInductive && ind /= CoInductive ->
               throw CoinductiveDatatype
           | otherwise ->
-              return (IsRecord i recEtaEquality', d, args, [], [conName con], False)
+              return (IsRecord InductionAndEta { recordInduction=i, recordEtaEquality=recEtaEquality' }, d, args, [], [conName con], False)
         _ -> throw NotADatatype
     _ -> throw NotADatatype
 
@@ -851,7 +862,7 @@ computeHCompSplit  :: Telescope   -- ^ Telescope before split point.
   -- -> QName                        -- ^ Constructor to fit into hole.
   -> CoverM (Maybe (SplitTag,SplitClause))   -- ^ New split clause if successful.
 computeHCompSplit delta1 n delta2 d pars ixs hix tel ps cps = do
-  withK   <- not . collapseDefault . optCubicalCompatible <$> pragmaOptions
+  withK   <- not . optCubicalCompatible <$> pragmaOptions
   if withK then return Nothing else do
     -- Get the type of the datatype
   -- Δ1 ⊢ dtype
@@ -977,9 +988,7 @@ computeNeighbourhood delta1 n delta2 d pars ixs hix tel ps cps c = do
          return $ abstract (mapCohesion updCoh <$> dtel) dt
   dsort <- addContext delta1 $ reduce (getSort dtype)
 
-  withKIfStrict <- case dsort of
-    SSet{} -> return $ locallyTC eSplitOnStrict $ const True
-    _      -> return id
+  let withKIfStrict = applyWhen (isStrictDataSort dsort) $ locallyTC eSplitOnStrict $ const True
 
   -- Should we attempt to compute a left inverse for this clause? When
   -- --cubical-compatible --flat-split is given, we don't generate a
@@ -990,12 +999,14 @@ computeNeighbourhood delta1 n delta2 d pars ixs hix tel ps cps c = do
   -- context.
   let flatSplit = boolToMaybe (getCohesion info == Flat) SplitOnFlat
 
-  r <- withKIfStrict $ lift $ unifyIndices' flatSplit
-         delta1Gamma
-         flex
-         (raise (size gamma) dtype)
-         conIxs
-         givenIxs
+  r <- withKIfStrict $ lift $
+         Bench.billTo [Bench.Coverage, Bench.UnifyIndices] $
+           unifyIndices' flatSplit
+             delta1Gamma
+             flex
+             (raise (size gamma) dtype)
+             conIxs
+             givenIxs
 
   TelV eqTel _ <- telView $ (raise (size gamma) dtype)
 
@@ -1025,8 +1036,7 @@ computeNeighbourhood delta1 n delta2 d pars ixs hix tel ps cps c = do
         Right{} -> return ()
         Left SplitOnStrict -> return ()
         Left x -> do
-          whenM (collapseDefault . optCubicalCompatible <$>
-                 pragmaOptions) $ do
+          whenM (optCubicalCompatible <$> pragmaOptions) $ do
             -- re #3733: TODO better error msg.
             lift $ warning . UnsupportedIndexedMatch =<< prettyTCM x
 
@@ -1253,7 +1263,7 @@ split' checkEmpty ind allowPartialCover inserttrailing
           NoCheckEmpty -> pure cons'
         mns  <- forM cons $ \ con -> fmap (SplitCon con,) <$>
           computeNeighbourhood delta1 n delta2 d pars ixs x tel ps cps con
-        hcompsc <- if isFib && (isHIT || (size ixs > 0)) && not (null mns) && inserttrailing == DoInsertTrailing
+        hcompsc <- if isFib && (isHIT || not (null ixs)) && not (null mns) && inserttrailing == DoInsertTrailing
                    then computeHCompSplit delta1 n delta2 d pars ixs x tel ps cps
                    else return Nothing
         let ns = catMaybes mns
@@ -1310,12 +1320,20 @@ split' checkEmpty ind allowPartialCover inserttrailing
       (con,) . (,info) . snd <$> insertTrailingArgs False sc
 
   mHCompName <- getPrimitiveName' builtinHComp
-  withoutK   <- collapseDefault . optWithoutK <$> pragmaOptions
+  opts       <- pragmaOptions
+  let withoutK        = optWithoutK opts
+      erasedMatches   = optErasedMatches opts
+      isRecordWithEta = case dr of
+        IsData       -> False
+        IsRecord r ->
+          case theEtaEquality (recordEtaEquality r) of
+            YesEta{} -> True
+            NoEta{}  -> False
 
-  erased <- asksTC hasQuantity0
+  erased <- hasQuantity0 <$> viewTC eQuantity
   reportSLn "tc.cover.split" 60 $ "We are in erased context = " ++ show erased
-  let erasedError causedByWithoutK =
-        throwError . ErasedDatatype causedByWithoutK =<<
+  let erasedError reason =
+        throwError . ErasedDatatype reason =<<
           do liftTCM $ inContextOfT $ buildClosure (unDom t)
 
   case numMatching of
@@ -1333,14 +1351,15 @@ split' checkEmpty ind allowPartialCover inserttrailing
 
     -- Andreas, 2018-10-17: If more than one constructor matches, we cannot erase.
     n | n > 1 && not erased && not (usableQuantity t) ->
-      erasedError False
+      erasedError SeveralConstructors
 
     -- If exactly one constructor matches and the K rule is turned
-    -- off, then we only allow erasure for non-indexed data types
-    -- (#4172).
-    1 | not erased && not (usableQuantity t) &&
-          withoutK && isIndexed ->
-      erasedError True
+    -- off, then we only allow erasure for non-indexed data/record
+    -- types (#4172). If the type is not a record type with
+    -- η-equality, then the flag --erased-matches must be active.
+    1 | not erased && not (usableQuantity t) && withoutK &&
+        (isIndexed || not isRecordWithEta && not erasedMatches) ->
+      erasedError (if isIndexed then NoK else NoErasedMatches)
 
     _ -> do
 

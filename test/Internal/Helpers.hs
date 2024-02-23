@@ -1,5 +1,3 @@
-{-# LANGUAGE CPP             #-}
-
 -- | Some functions, generators and instances suitable for writing
 -- QuickCheck properties.
 
@@ -23,6 +21,7 @@ import Test.QuickCheck
 import Test.Tasty            ( testGroup, TestName, TestTree )
 import Test.Tasty.QuickCheck ( testProperties, testProperty )
 
+import Agda.Utils.Boolean    ( Boolean, fromBool )
 import Agda.Utils.Functor
 import Agda.Utils.List1      ( List1, pattern (:|) )
 import qualified Agda.Utils.List1 as List1
@@ -33,12 +32,6 @@ import Agda.Utils.Impossible
 
 ------------------------------------------------------------------------
 -- QuickCheck helpers
-
-#if !MIN_VERSION_QuickCheck(2,12,5)
-isSuccess :: Result -> Bool
-isSuccess Success{} = True
-isSuccess _         = False
-#endif
 
 quickCheck' :: Testable prop => prop -> IO Bool
 quickCheck' p = fmap isSuccess $ quickCheckResult p
@@ -211,6 +204,11 @@ natural = fromInteger . abs <$> arbitrary
 
 positive :: (Integral i) => Gen i
 positive = succ <$> natural
+
+-- | Generates a 'Boolean'.
+
+arbitraryBoolean :: Boolean a => Gen a
+arbitraryBoolean = fromBool <$> elements [True, False]
 
 -- | Generates a list of elements picked from a given list.
 listOfElements :: [a] -> Gen [a]

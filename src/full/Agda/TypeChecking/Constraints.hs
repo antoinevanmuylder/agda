@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
+
 {-# LANGUAGE NondecreasingIndentation #-}
 
 module Agda.TypeChecking.Constraints where
@@ -21,7 +23,6 @@ import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.LevelConstraints
 import Agda.TypeChecking.SizedTypes
 import Agda.TypeChecking.Sort
-import Agda.TypeChecking.MetaVars.Mention
 import Agda.TypeChecking.Warnings
 
 import Agda.TypeChecking.Irrelevance
@@ -36,11 +37,10 @@ import {-# SOURCE #-} Agda.TypeChecking.Lock
 import {-# SOURCE #-} Agda.TypeChecking.CheckInternal ( checkType )
 
 import Agda.Utils.CallStack ( withCurrentCallStack )
-import Agda.Utils.Functor
 import Agda.Utils.Maybe
 import Agda.Utils.Monad
 import Agda.Utils.Null
-import Agda.Utils.Pretty (prettyShow)
+import Agda.Syntax.Common.Pretty (prettyShow)
 import qualified Agda.Utils.ProfileOptions as Profile
 
 import Agda.Utils.Impossible
@@ -64,10 +64,11 @@ addConstraintTCM unblock c = do
         , "unblocker: " , prettyTCM unblock
         ]
       -- Jesper, 2022-10-22: We should never block on a meta that is
-      -- already solved. However, currently this is not always
-      -- strictly adhered to. TODO: pull off the band-aid and
-      -- uncomment the following line.
-      -- whenM (anyM (Set.toList $ allBlockingMetas unblock) isInstantiatedMeta) __IMPOSSIBLE__
+      -- already solved.
+      forM_ (allBlockingMetas unblock) $ \ m ->
+        whenM (isInstantiatedMeta m) $ do
+          reportSDoc "tc.constr.add" 5 $ "Attempted to block on solved meta" <+> prettyTCM m
+          __IMPOSSIBLE__
       -- Need to reduce to reveal possibly blocking metas
       c <- reduce =<< instantiateFull c
       caseMaybeM (simpl c) {-no-} (addConstraint' unblock c) $ {-yes-} \ cs -> do
@@ -133,6 +134,7 @@ stealConstraintsTCM pid = do
   modifySleepingConstraints $ List.map rename
 
 
+{-# SPECIALIZE noConstraints :: TCM a -> TCM a #-}
 -- | Don't allow the argument to produce any blocking constraints.
 --
 -- WARNING: this does not mean that the given computation cannot
@@ -163,6 +165,7 @@ nonConstraining ::
   ) => m a -> m a
 nonConstraining = dontAssignMetas . noConstraints
 
+{-# SPECIALIZE newProblem :: TCM a -> TCM (ProblemId, a) #-}
 -- | Create a fresh problem for the given action.
 newProblem
   :: (MonadFresh ProblemId m, MonadConstraint m)
@@ -175,6 +178,7 @@ newProblem action = do
   solveAwakeConstraints
   return (pid, x)
 
+{-# SPECIALIZE newProblem_ :: TCM a -> TCM ProblemId #-}
 newProblem_
   :: (MonadFresh ProblemId m, MonadConstraint m)
   => m a -> m ProblemId
@@ -201,6 +205,7 @@ whenConstraints action handler =
     stealConstraints pid
     handler
 
+{-# SPECIALIZE wakeupConstraints :: MetaId -> TCM () #-}
 -- | Wake up the constraints depending on the given meta.
 wakeupConstraints :: MonadMetaSolver m => MetaId -> m ()
 wakeupConstraints x = do
@@ -284,10 +289,10 @@ solveConstraint_ (UnBlock m)                =   -- alwaysUnblock since these hav
       Open -> __IMPOSSIBLE__
       OpenInstance -> __IMPOSSIBLE__
 solveConstraint_ (FindInstance m cands) = findInstance m cands
-solveConstraint_ (CheckFunDef d i q cs _err) = withoutCache $
+solveConstraint_ (CheckFunDef i q cs _err) = withoutCache $
   -- re #3498: checking a fundef would normally be cached, but here it's
   -- happening out of order so it would only corrupt the caching log.
-  checkFunDef d i q cs
+  checkFunDef i q cs
 solveConstraint_ (CheckLockedVars a b c d)   = checkLockedVars a b c d
 solveConstraint_ (HasBiggerSort a)      = hasBiggerSort a
 solveConstraint_ (HasPTSRule a b)       = hasPTSRule a b
@@ -313,3 +318,29 @@ debugConstraints = verboseS "tc.constr" 50 $ do
     [ "Current constraints"
     , nest 2 $ vcat [ "awake " <+> vcat (map prettyTCM awake)
                     , "asleep" <+> vcat (map prettyTCM sleeping) ] ]
+
+-- Update the blocker after some instantiation or pruning might have happened.
+updateBlocker :: (PureTCM m) => Blocker -> m Blocker
+updateBlocker = instantiate
+
+addAndUnblocker :: (PureTCM m, MonadBlock m) => Blocker -> m a -> m a
+addAndUnblocker u
+  | u == alwaysUnblock = id
+  | otherwise          = catchPatternErr $ \ u' -> do
+      u <- updateBlocker u
+      patternViolation (unblockOnBoth u u')
+
+addOrUnblocker :: (PureTCM m, MonadBlock m) => Blocker -> m a -> m a
+addOrUnblocker u
+  | u == neverUnblock = id
+  | otherwise         = catchPatternErr $ \ u' -> do
+      u <- updateBlocker u
+      patternViolation (unblockOnEither u u')
+
+-- Reduce a term and call the continuation. If the continuation is
+-- blocked, the whole call is blocked either on what blocked the reduction
+-- or on what blocked the continuation (using `blockedOnEither`).
+withReduced
+  :: (Reduce a, IsMeta a, PureTCM m, MonadBlock m)
+  => a -> (a -> m b) -> m b
+withReduced a cont = ifBlocked a (\b a' -> addOrUnblocker b $ cont a') (\_ a' -> cont a')

@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
 
 -- | Additional functions for association lists.
 
@@ -8,7 +9,7 @@ module Agda.Utils.AssocList
 
 import Prelude hiding (lookup)
 
-import Data.Function
+import Data.Function (on)
 import Data.List (lookup)
 import qualified Data.List as List
 import qualified Data.Map  as Map

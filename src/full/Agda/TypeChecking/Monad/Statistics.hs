@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
+
 -- | Collect statistics.
 
 module Agda.TypeChecking.Monad.Statistics
@@ -21,7 +23,7 @@ import Agda.TypeChecking.Monad.Debug
 
 import Agda.Utils.Maybe
 import Agda.Utils.Null
-import Agda.Utils.Pretty
+import Agda.Syntax.Common.Pretty
 import Agda.Utils.String
 
 class ReadTCState m => MonadStatistics m where
@@ -87,6 +89,6 @@ printStatistics mmname stats = do
         -- Second column (right aligned) is numbers.
         col2 = Boxes.vcat Boxes.right $ map (Boxes.text . showThousandSep . snd) stats
         table = Boxes.hsep 1 Boxes.left [col1, col2]
-    reportSLn "" 1 $ caseMaybe mmname "Accumulated statistics" $ \ mname ->
+    alwaysReportSLn "" 1 $ caseMaybe mmname "Accumulated statistics" $ \ mname ->
       "Statistics for " ++ prettyShow mname
-    reportSLn "" 1 $ Boxes.render table
+    alwaysReportSLn "" 1 $ Boxes.render table

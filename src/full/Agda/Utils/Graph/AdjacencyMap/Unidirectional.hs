@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
+
 -- | Directed graphs (can of course simulate undirected graphs).
 --
 --   Represented as adjacency maps in direction from source to target.
@@ -79,7 +81,7 @@ import Prelude hiding ( lookup, null, unzip )
 import qualified Data.Array.IArray as Array
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
-import Data.Function
+import Data.Function (on)
 import qualified Data.Graph as Graph
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
@@ -98,11 +100,12 @@ import Agda.Utils.Function
 
 import Agda.Utils.Null (Null(null))
 import qualified Agda.Utils.Null as Null
-import Agda.Utils.Pretty
+import Agda.Syntax.Common.Pretty
 import Agda.Utils.SemiRing
 import Agda.Utils.Tuple
 
 import Agda.Utils.Impossible
+import Agda.Utils.Functor
 
 ------------------------------------------------------------------------
 -- Graphs and edges
@@ -502,7 +505,7 @@ filterNodesKeepingEdges p g =
             case Map.lookup n' remove of
               Nothing -> []
               Just es ->
-                flip map (Map.toList es) $ \(n', e') -> Edge
+                for (Map.toList es) $ \(n', e') -> Edge
                   { source = n
                   , target = n'
                   , label  = e `otimes` e'
@@ -516,7 +519,7 @@ filterNodesKeepingEdges p g =
       , Map.insert
           n
           (Map.unionsWith oplus $
-           flip map (neighbours n g) $ \(n', e) ->
+           for (neighbours n g) $ \(n', e) ->
              case Map.lookup n' remove of
                Nothing -> Map.singleton n' e
                Just es -> fmap (e `otimes`) es)
@@ -898,7 +901,7 @@ longestPaths g =
 
     candidates :: [Map n (Int, Seq [Edge n e])]
     candidates =
-      flip map (neighbours n g) $ \(n', e) ->
+      for (neighbours n g) $ \(n', e) ->
       let edge = Edge
             { source = n
             , target = n'

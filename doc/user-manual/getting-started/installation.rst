@@ -30,15 +30,15 @@ Installation from source
 
 .. _prerequisites:
 
-Prerequisites
--------------
+Step 1 : Prerequisites
+----------------------
 
 You need recent versions of the following programs to compile Agda:
 
 * GHC:           https://www.haskell.org/ghc/
 
-  + Agda has been tested with GHC 8.0.2, 8.2.2, 8.4.4, 8.6.5, 8.8.4,
-    8.10.7, 9.0.2, 9.2.4 and 9.4.3.
+  + Agda has been tested with GHC 8.6.5, 8.8.4,
+    8.10.7, 9.0.2, 9.2.8, 9.4.8, 9.6.4, and 9.8.1.
 
 * cabal-install: https://www.haskell.org/cabal/
 * Alex:          https://www.haskell.org/alex/
@@ -47,6 +47,15 @@ You need recent versions of the following programs to compile Agda:
 
 You should also make sure that programs installed by *cabal-install*
 are on your shell's search path.
+The installation location is described by field ``installdir`` in the cabal configuration
+(check ``~/.cabal/config``; it defaults to ``~/.cabal/bin``).
+So, e.g. under Ubuntu or macOS, you may need to add
+
+.. code-block:: bash
+
+  export PATH=~/.cabal/bin:$PATH
+
+to your ``.profile`` or ``.bash_profile``.
 
 Non-Windows users need to ensure that the development files for the C
 libraries *zlib* and *ncurses* are installed (see http://zlib.net
@@ -60,26 +69,40 @@ it should suffice to run
 
 as root to get the correct files installed.
 
-Optionally one can also install the `ICU
-<http://site.icu-project.org>`_ library, which is used to implement
-the :option:`--count-clusters` flag. Under Debian or Ubuntu it may suffice
-to install ``libicu-dev``. Once the ICU library is installed one can
-hopefully enable the :option:`--count-clusters` flag by giving the
-:option:`enable-cluster-counting` flag to *cabal install*:
+.. _icu-install:
+
+ICU and cluster counting
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+Optionally one can also install the `ICU <http://site.icu-project.org>`_ library,
+which is used to implement the :option:`--count-clusters` option.
+Once the ICU library is installed and configured,
+one can enable the :option:`--count-clusters` option
+by giving the :option:`enable-cluster-counting` flag to *cabal install*:
 
 .. code-block:: bash
 
   cabal install -f enable-cluster-counting
 
-More information on installing the ICU prerequisite (like for other OSs)
-is available at
+Information on installing the ICU prerequisite on various OSs is available at
 https://github.com/haskell/text-icu/blob/master/README.markdown#prerequisites
 (retrieved 2022-02-09).
 
+- Under Debian or Ubuntu it may suffice to install ``libicu-dev``.
+
+- Under macOS, try ``brew install icu4c``.
+  Note that this installs ICU in a non-standard location.
+  You may need to set
+
+  .. code-block:: bash
+
+    export PKG_CONFIG_PATH="$(brew --prefix)/opt/icu4c/lib/pkgconfig"
+
+  See ``brew info icu4c`` for details.
 
 
-Installing the ``agda`` and the ``agda-mode`` programs
-------------------------------------------------------
+Step 2 : Installing the ``agda`` and the ``agda-mode`` programs
+---------------------------------------------------------------
 
 After installing the :ref:`prerequisites <prerequisites>` you can
 install the latest released version of Agda from `Hackage
@@ -165,13 +188,13 @@ For installing the ``agda`` and the ``agda-mode`` programs using
 
   cabal get Agda-X.Y.Z
   cd Agda-X.Y.Z
-  stack --stack-yaml stack-a.b.c.yaml install
+  stack --stack-yaml stack-x.y.z.yaml install
 
-replacing `X.Y.Z` and `a.b.c` for the Agda version on Hackage and your
-GHC version, respectively.
+replacing `X.Y.Z` by the Agda version on Hackage
+and `x.y.z` by your GHC version, respectively.
 
-Running the ``agda-mode`` program
----------------------------------
+Step 3 : Running the ``agda-mode`` program
+------------------------------------------
 **Warning**: Installing ``agda-mode`` via ``melpa`` is discouraged.
 It is strongly advised to install ``agda-mode`` for ``emacs`` as described below:
 
@@ -204,11 +227,11 @@ This can, in some cases, give a noticeable speedup.
 Emacs Lisp files, then Emacs may continue using the old, compiled
 files.
 
-Installing the standard library
--------------------------------
+Step 4 : Installing the standard library
+----------------------------------------
 
 Installing the standard library, should you choose to use it,
-is an additional step using `a separate repository <https://github.com/agda/agda-stdlib/blob/master/notes/installation-guide.md>`_.
+is an additional step using `a separate repository <https://github.com/agda/agda-stdlib/blob/master/doc/installation-guide.md>`_.
 
 
 .. _prebuilt-packages:
@@ -216,16 +239,17 @@ is an additional step using `a separate repository <https://github.com/agda/agda
 Prebuilt Packages and System-Specific Instructions
 ==================================================
 
-See also https://repology.org/project/agda/versions.
+**Warning** : Depending on the system, prebuild packages may not be
+the last release. See https://repology.org/project/agda/versions.
 
 Arch Linux
 ----------
 
 The following prebuilt packages are available:
 
-* `Agda <https://www.archlinux.org/packages/community/x86_64/agda/>`_
+* `Agda <https://www.archlinux.org/packages/extra/x86_64/agda/>`_
 
-* `Agda standard library <https://www.archlinux.org/packages/community/x86_64/agda-stdlib/>`_
+* `Agda standard library <https://www.archlinux.org/packages/extra/x86_64/agda-stdlib/>`_
 
 However, due to significant packaging bugs such as `this <https://bugs.archlinux.org/task/61904?project=5&string=agda>`_, you might want to use alternative installation methods.
 
@@ -265,16 +289,17 @@ Please report any bugs to Debian, using:
   reportbug -B debian agda
   reportbug -B debian agda-stdlib
 
-Fedora
-------
+Fedora / EPEL (Centos)
+----------------------
 
-Agda is packaged in Fedora (since before Fedora 18).
+Agda is `packaged <https://src.fedoraproject.org/rpms/Agda>`_ for Fedora Linux and EPEL.
+Agda-stdlib is `available <https://src.fedoraproject.org/rpms/Agda-stdlib/>`_ for Fedora.
 
 .. code-block:: bash
 
-  yum install Agda
+  dnf install Agda Agda-stdlib
 
-will pull in emacs-agda-mode and ghc-Agda-devel.
+will install Agda with the emacs mode and also agda-stdlib.
 
 FreeBSD
 -------
@@ -419,7 +444,11 @@ Installation of the Development Version
 After getting the development version from the Git `repository
 <https://github.com/agda/agda>`_
 
-* Install the :ref:`prerequisites <prerequisites>`
+* Install the :ref:`prerequisites <prerequisites>`.
+  Note that for the development version
+  :option:`enable-cluster-counting` is on by default,
+  so unless you manage to turn it off, you also need to
+  install the :ref:`ICU library <icu-install>`.
 
 * In the top-level directory of the Agda source tree, run:
 
@@ -428,30 +457,13 @@ After getting the development version from the Git `repository
     cabal update
     make install
 
-  Note that on a Mac, because ICU is installed in a non-standard location,
-  you may need to set
-
-  .. code-block:: bash
-
-    export PKG_CONFIG_PATH="/usr/local/opt/icu4c/lib/pkgconfig"
-
-  (cf. ``brew link icu4c``)
-  or specify this location on the command line:
-
-  .. code-block:: bash
-
-    make install CABAL_OPTS='--extra-lib-dirs=/usr/local/opt/icu4c/lib --extra-include-dirs=/usr/local/opt/icu4c/include'
-
-  You can also add the ``CABAL_OPTS`` variable to ``mk/config.mk`` (see
-  ``HACKING.md``) instead of passing it via the command line.
-
   To install via ``stack`` instead of ``cabal``, copy one of the
-  ``stack-x.x.x.yaml`` files of your choice to a ``stack.yaml`` file before
+  ``stack-x.y.z.yaml`` files of your choice to a ``stack.yaml`` file before
   running ``make``. For example:
 
   .. code-block:: bash
 
-    cp stack-8.10.1.yaml stack.yaml
+    cp stack-8.10.7.yaml stack.yaml
     make install
 
 .. _installation-flags:
@@ -461,14 +473,22 @@ Installation Flags
 
 When installing Agda the following flags can be used:
 
-.. option:: cpphs
-
-     Use `cpphs <https://hackage.haskell.org/package/cpphs>`_ instead
-     of cpp. Default: off.
-
 .. option:: debug
 
-     Enable debugging features that may slow Agda down. Default: off.
+     Enable debug printing. This makes Agda slightly slower, and
+     building Agda slower as well. The :option:`--verbose={N}` option
+     only has an effect when Agda was installed with this flag.
+     Default: off.
+
+.. option:: debug-serialisation
+
+     Enable debug mode in serialisation. This makes serialisation slower.
+     Default: off.
+
+.. option:: debug-parsing
+
+     Enable debug mode in the parser. This makes parsing slower.
+     Default: off.
 
 .. option:: enable-cluster-counting
 

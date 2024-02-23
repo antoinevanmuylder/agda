@@ -1,6 +1,7 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
+
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PolyKinds #-}
-
 
 -- | Interface for compiler backend writers.
 module Agda.Compiler.Backend
@@ -184,13 +185,13 @@ backendWithOpts (Backend backend) = Some (BackendWithOpts backend)
 forgetOpts :: BackendWithOpts opts -> Backend
 forgetOpts (BackendWithOpts backend) = Backend backend
 
-bOptions :: Lens' opts (BackendWithOpts opts)
+bOptions :: Lens' (BackendWithOpts opts) opts
 bOptions f (BackendWithOpts b) = f (options b) <&> \ opts -> BackendWithOpts b{ options = opts }
 
-embedFlag :: Lens' a b -> Flag a -> Flag b
+embedFlag :: Lens' b a -> Flag a -> Flag b
 embedFlag l flag = l flag
 
-embedOpt :: Lens' a b -> OptDescr (Flag a) -> OptDescr (Flag b)
+embedOpt :: Lens' b a -> OptDescr (Flag a) -> OptDescr (Flag b)
 embedOpt l = fmap (embedFlag l)
 
 parseBackendOptions :: [Backend] -> [String] -> CommandLineOptions -> OptM ([Backend], CommandLineOptions)
@@ -233,7 +234,7 @@ backendInteraction mainFile backends setup check = do
 
   -- print warnings that might have accumulated during compilation
   ws <- filter (not . isUnsolvedWarning . tcWarning) <$> getAllWarnings AllWarnings
-  unless (null ws) $ reportSDoc "warning" 1 $ P.vcat $ P.prettyTCM <$> ws
+  unless (null ws) $ alwaysReportSDoc "warning" 1 $ P.vcat $ P.prettyTCM <$> ws
 
 
 compilerMain :: Backend' opts env menv mod def -> IsMain -> CheckResult -> TCM ()

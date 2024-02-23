@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP #-}
+{-# OPTIONS_GHC -Wunused-imports #-}
 
 module Agda.Compiler.MAlonzo.Misc where
 
@@ -17,10 +17,6 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 
-#if !(MIN_VERSION_base(4,11,0))
-import Data.Semigroup
-#endif
-
 import qualified Agda.Utils.Haskell.Syntax as HS
 
 import Agda.Compiler.Common as CC
@@ -31,7 +27,7 @@ import Agda.Syntax.TopLevelModuleName
 
 import Agda.TypeChecking.Monad
 
-import Agda.Utils.Pretty
+import Agda.Syntax.Common.Pretty
 
 import Agda.Utils.Impossible
 
@@ -99,7 +95,8 @@ data GHCEnv = GHCEnv
     :: Maybe QName
     -- Various (possibly) builtin names.
   , ghcEnvIsTCBuiltin :: QName -> Bool
-    -- ^ Is the given name a @TC@ builtin (except for @TC@ itself)?
+  , ghcEnvListArity   :: Maybe Int
+  , ghcEnvMaybeArity  :: Maybe Int
   }
 
 -- | Module compilation environment, bundling the overall
@@ -264,7 +261,7 @@ conhqn :: QName -> HsCompileM HS.QName
 conhqn q = xhqn ConK =<< canonicalName q
 
 -- qualify name s by the module of builtin b
-bltQual :: String -> String -> HsCompileM HS.QName
+bltQual :: BuiltinId -> String -> HsCompileM HS.QName
 bltQual b s = do
   Def q _ <- getBuiltin b
   xqual q (HS.Ident s)

@@ -11,11 +11,10 @@ import qualified Data.Text as T
 import Agda.Syntax.Position
 import Agda.Syntax.Common
 import Agda.Syntax.Abstract.Name
-import {-# SOURCE #-} Agda.Syntax.TopLevelModuleName
-  (TopLevelModuleName)
-import Agda.Utils.FileName
+import Agda.Syntax.TopLevelModuleName.Boot (TopLevelModuleName')
+import Agda.Syntax.Position (Range)
 import Agda.Utils.Float ( doubleDenotEq, doubleDenotOrd )
-import Agda.Utils.Pretty
+import Agda.Syntax.Common.Pretty
 
 type RLiteral = Ranged Literal
 data Literal
@@ -25,15 +24,15 @@ data Literal
   | LitString !Text
   | LitChar   !Char
   | LitQName  !QName
-  | LitMeta   !TopLevelModuleName !MetaId
+  | LitMeta   !(TopLevelModuleName' Range) !MetaId
   deriving Show
 
 instance Pretty Literal where
-    pretty (LitNat n)     = pretty n
-    pretty (LitWord64 n)  = pretty n
-    pretty (LitFloat d)   = pretty d
-    pretty (LitString s)  = text $ showText s ""
-    pretty (LitChar c)    = text $ "'" ++ showChar' c "'"
+    pretty (LitNat n)     = hlNumber $ pretty n
+    pretty (LitWord64 n)  = hlNumber $ pretty n
+    pretty (LitFloat d)   = hlNumber $ pretty d
+    pretty (LitString s)  = hlString . text $ showText s ""
+    pretty (LitChar c)    = hlString . text $ "'" ++ showChar' c "'"
     pretty (LitQName x)   = pretty x
     pretty (LitMeta _ x)  = pretty x
 
@@ -92,7 +91,7 @@ instance KillRange Literal where
   killRange (LitFloat  x) = LitFloat  x
   killRange (LitString x) = LitString x
   killRange (LitChar   x) = LitChar   x
-  killRange (LitQName  x) = killRange1 LitQName x
+  killRange (LitQName  x) = killRangeN LitQName x
   killRange (LitMeta m x) = LitMeta (killRange m) x
 
 -- | Ranges are not forced.

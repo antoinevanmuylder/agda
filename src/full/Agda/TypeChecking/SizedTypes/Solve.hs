@@ -57,7 +57,7 @@ import Control.Monad.Trans.Maybe
 import Data.Either
 import Data.Foldable (forM_)
 import qualified Data.Foldable as Fold
-import Data.Function
+import Data.Function (on)
 import qualified Data.IntSet as IntSet
 import qualified Data.List as List
 import Data.Monoid
@@ -94,8 +94,8 @@ import qualified Agda.Utils.List1 as List1
 import Agda.Utils.Maybe
 import Agda.Utils.Monad
 import Agda.Utils.Null
-import Agda.Utils.Pretty (Pretty, prettyShow)
-import qualified Agda.Utils.Pretty as P
+import Agda.Syntax.Common.Pretty (Pretty, prettyShow)
+import qualified Agda.Syntax.Common.Pretty as P
 import Agda.Utils.Singleton
 import Agda.Utils.Size
 import qualified Agda.Utils.VarSet as VarSet
@@ -500,7 +500,7 @@ solveCluster flag ccs = do
     -- Solution does not contain metas
     u <- unSizeExpr $ fmap __IMPOSSIBLE__ a
     let SizeMeta _ xs = fromMaybe __IMPOSSIBLE__ $
-          List.find ((m==) . sizeMetaId) metas
+          List.find ((m ==) . sizeMetaId) metas
     -- Check that solution is well-scoped
     let ys = rigidIndex <$> Set.toList (rigids a)
         ok = all (`elem` xs) ys -- TODO: more efficient

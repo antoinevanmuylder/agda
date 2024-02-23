@@ -15,7 +15,6 @@ import Control.Monad.Fail (MonadFail)
 
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.List (nub)
 
 import Agda.Interaction.Options.Base
 
@@ -24,7 +23,6 @@ import qualified Agda.Syntax.Concrete.Name as C
 import Agda.Syntax.Abstract.Views (deepUnscope)
 import Agda.Syntax.Internal
 import Agda.Syntax.Internal.Pattern
-import Agda.Syntax.Internal.MetaVars (unblockOnAnyMetaIn)
 import Agda.Syntax.Common
 import Agda.Syntax.Position
 import qualified Agda.Syntax.Info as Info
@@ -50,15 +48,14 @@ import Agda.TypeChecking.Telescope
 import {-# SOURCE #-} Agda.TypeChecking.Rules.Term ( isType_ )
 
 import Agda.Utils.Either
+import Agda.Utils.Function (applyWhen)
+import Agda.Utils.Functor
 import Agda.Utils.List
-import Agda.Utils.List1 (List1, pattern (:|))
-import qualified Agda.Utils.List1 as List1
 import Agda.Utils.Maybe
 import Agda.Utils.Monad
 import Agda.Utils.Null
-import qualified Agda.Utils.Pretty as P
+import qualified Agda.Syntax.Common.Pretty as P
 import Agda.Utils.Size
-import Agda.Utils.WithDefault
 
 import Agda.Utils.Impossible
 
@@ -82,6 +79,10 @@ checkDataDef i name uc (A.DataDefParams gpars ps) cs =
               case theDef def of
                 DataOrRecSig n -> n
                 _              -> __IMPOSSIBLE__
+
+        -- If the data type is erased, then hard compile-time mode is
+        -- entered.
+        setHardCompileTimeModeIfErased' def $ do
 
         -- Make sure the shape of the type is visible
         let unTelV (TelV tel a) = telePi tel a
@@ -112,14 +113,11 @@ checkDataDef i name uc (A.DataDefParams gpars ps) cs =
               -- in case of a suspected dependency.
               s <- newSortMetaBelowInf
               catchError_ (addContext ixTel $ equalType s0 $ raise nofIxs $ sort s) $ \ err ->
-                  if any (`freeIn` s0) [0..nofIxs - 1] then typeError . GenericDocError =<<
-                     fsep [ "The sort of" <+> prettyTCM name
-                          , "cannot depend on its indices in the type"
-                          , prettyTCM t0
-                          ]
+                  if any (`freeIn` s0) [0..nofIxs - 1] then typeError $ SortCannotDependOnItsIndex name t0
                   else throwError err
               reduce s
 
+<<<<<<< HEAD
             withK <- not . collapseDefault . optWithoutK <$>
                      pragmaOptions
             -- Parameters are always hidden in constructors. For
@@ -130,6 +128,17 @@ checkDataDef i name uc (A.DataDefParams gpars ps) cs =
                 tel' = (if withK || nofIxs == 0
                         then applyQuantity zeroQuantity
                         else id) .
+=======
+            withK   <- not . optWithoutK <$>
+                       pragmaOptions
+            erasure <- optErasure <$> pragmaOptions
+            -- Parameters are always hidden in constructors. If
+            -- --erasure is used, then the parameters are erased for
+            -- non-indexed data types, and if --with-K is active this
+            -- applies also to indexed data types.
+            let tel  = abstract gtel ptel
+                tel' = applyWhen (erasure && (withK || nofIxs == 0)) (applyQuantity zeroQuantity) .
+>>>>>>> prep-2.6.4.2
                        hideAndRelParams <$>
                        tel
 
@@ -192,7 +201,7 @@ checkDataDef i name uc (A.DataDefParams gpars ps) cs =
         let cons   = map A.axiomName cs  -- get constructor names
 
         (mtranspix, transpFun) <-
-          ifM (collapseDefault . optCubicalCompatible <$> pragmaOptions)
+          ifM (optCubicalCompatible <$> pragmaOptions)
             (do mtranspix <- inTopContext $ defineTranspIx name
                 transpFun <- inTopContext $
                                defineTranspFun name mtranspix cons
@@ -217,23 +226,16 @@ checkDataSort name s = setCurrentRange name $ do
       yes :: TCM ()
       yes = return ()
       no  :: TCM ()
-      no  = typeError . GenericDocError =<<
-              fsep [ "The universe"
-                   , prettyTCM s
-                   , "of"
-                   , prettyTCM name
-                   , "does not admit data or record declarations"
-                   ]
+      no  = typeError $ SortDoesNotAdmitDataDefinitions name s
     case s of
       -- Sorts that admit data definitions.
-      Type _       -> yes
-      Prop _       -> yes
+      Univ _ _     -> yes
       Inf _ _      -> yes
-      SSet _       -> yes
       DefS _ _     -> yes
       -- Sorts that do not admit data definitions.
       SizeUniv     -> no
       LockUniv     -> no
+      LevelUniv    -> no
       IntervalUniv -> no
       CstrUniv     -> no      
       -- Blocked sorts.
@@ -288,9 +290,13 @@ checkConstructor d uc tel nofIxs s con@(A.Axiom _ i ai Nothing c e) =
           Quantityω{} -> return ()
           Quantity0{} -> return ()
           Quantity1{} -> typeError $ GenericError $ "Quantity-restricted constructors are not supported"
+
+        -- If the constructor is erased, then hard compile-time mode
+        -- is entered.
+        setHardCompileTimeModeIfErased' ai $ do
+
         -- check that the type of the constructor is well-formed
-        (t, isPathCons) <- applyQuantityToContext ai $
-                           checkConstructorType e d
+        (t, isPathCons) <- checkConstructorType e d
 
         -- compute which constructor arguments are forced (only point constructors)
         forcedArgs <- if isPathCons == PointCons
@@ -305,9 +311,8 @@ checkConstructor d uc tel nofIxs s con@(A.Axiom _ i ai Nothing c e) =
         let s' = case s of
               Prop l -> Type l
               _      -> s
-        arity <- traceCall (CheckConstructorFitsIn c t s') $
-                 applyQuantityToContext ai $
-                 fitsIn uc forcedArgs t s'
+        arity <- applyQuantityToJudgement ai $
+          fitsIn c uc forcedArgs t s'
         -- this may have instantiated some metas in s, so we reduce
         s <- reduce s
         debugAdd c t
@@ -337,26 +342,30 @@ checkConstructor d uc tel nofIxs s con@(A.Axiom _ i ai Nothing c e) =
             let con = ConHead c IsData Inductive $ zipWith (<$) names $ map argFromDom $ telToList fields
 
             defineProjections d con params names fields dataT
+            -- Andreas, 2024-01-05 issue #7048:
+            -- Only define hcomp when --cubical-compatible.
+            cubicalCompatible <- optCubicalCompatible <$> pragmaOptions
             -- Cannot compose indexed inductive types yet.
-            comp <- if nofIxs /= 0 || (Info.defAbstract i == AbstractDef)
-                    then return emptyCompKit
-                    else inTopContext $ defineCompData d con params names fields dataT boundary
+            comp <- if cubicalCompatible && nofIxs == 0 && Info.defAbstract i == ConcreteDef
+                    then inTopContext $ defineCompData d con params names fields dataT boundary
+                    else return emptyCompKit
             return (con, comp, Just names)
 
         -- add parameters to constructor type and put into signature
         escapeContext impossible (size tel) $ do
-
+          erasure <- optErasure <$> pragmaOptions
           addConstant' c ai c (telePi tel t) $ Constructor
               { conPars   = size tel
               , conArity  = arity
               , conSrcCon = con
               , conData   = d
               , conAbstr  = Info.defAbstract i
-              , conInd    = Inductive
               , conComp   = comp
               , conProj   = projNames
               , conForced = forcedArgs
               , conErased = Nothing  -- computed during compilation to treeless
+              , conErasure = erasure
+              , conInline  = False
               }
 
         -- Add the constructor to the instance table, if needed
@@ -425,14 +434,14 @@ defineCompData :: QName      -- datatype name
                -> TCM CompKit
 defineCompData d con params names fsT t boundary = do
   required <- mapM getTerm'
-    [ builtinInterval
-    , builtinIZero
-    , builtinIOne
-    , builtinIMin
-    , builtinIMax
-    , builtinINeg
-    , builtinPOr
-    , builtinItIsOne
+    [ someBuiltin builtinInterval
+    , someBuiltin builtinIZero
+    , someBuiltin builtinIOne
+    , someBuiltin builtinIMin
+    , someBuiltin builtinIMax
+    , someBuiltin builtinINeg
+    , someBuiltin builtinPOr
+    , someBuiltin builtinItIsOne
     ]
   bridges <- optBridges <$> pragmaOptions
   if not (all isJust required) then return $ emptyCompKit else do
@@ -679,7 +688,7 @@ defineProjections dataName con params names fsT t = do
     noMutualBlock $ do
       let cs = [ clause ]
       (mst, _, cc) <- compileClauses Nothing cs
-      let fun = emptyFunctionData
+      fun          <- emptyFunctionData <&> \fun -> fun
                 { _funClauses    = cs
                 , _funCompiled   = Just cc
                 , _funSplitTree  = mst
@@ -744,11 +753,11 @@ defineTranspIx d = do
       let deltaI = expTelescope interval ixs
       iz <- primIZero
       io@(Con c _ _) <- primIOne
-      imin <- getPrimitiveTerm "primIMin"
-      imax <- getPrimitiveTerm "primIMax"
-      ineg <- getPrimitiveTerm "primINeg"
+      imin <- getPrimitiveTerm builtinIMin
+      imax <- getPrimitiveTerm builtinIMax
+      ineg <- getPrimitiveTerm builtinINeg
       transp <- getPrimitiveTerm builtinTrans
-      por <- getPrimitiveTerm "primPOr"
+      por <- getPrimitiveTerm builtinPOr
       one <- primItIsOne
       -- reportSDoc "trans.rec" 20 $ text $ show params
       -- reportSDoc "trans.rec" 20 $ text $ show deltaI
@@ -794,7 +803,7 @@ defineTranspIx d = do
         let cs = [ clause ]
 --        we do not compile clauses as that leads to throwing missing clauses errors.
 --        (mst, _, cc) <- compileClauses Nothing cs
-        let fun = emptyFunctionData
+        fun <- emptyFunctionData <&> \fun -> fun
                   { _funClauses    = cs
                --   , _funCompiled   = Just cc
                --   , _funSplitTree  = mst
@@ -879,8 +888,9 @@ defineTranspFun d mtrX cons pathCons = do
 
 
       noMutualBlock $ do
+        fun <- emptyFunction
         inTopContext $ addConstant trD $
-          (defaultDefn defaultArgInfo trD theType (Cubical CErased) emptyFunction)
+          (defaultDefn defaultArgInfo trD theType (Cubical CErased) fun)
         let
           ctel = abstract telI $ ExtendTel (defaultDom $ subst 0 iz dTs) (Abs "t" EmptyTel)
           ps = telePatterns ctel []
@@ -905,7 +915,7 @@ defineTranspFun d mtrX cons pathCons = do
         ecs <- tryTranspError $ (clause:) <$> defineConClause trD (not $ null pathCons) mtrX npars nixs ixs telI sigma dTs cons
         caseEitherM (pure ecs) (\ cl -> debugNoTransp cl >> return Nothing) $ \ cs -> do
         (mst, _, cc) <- compileClauses Nothing cs
-        let fun = emptyFunctionData
+        fun <- emptyFunctionData <&> \fun -> fun
                   { _funClauses    = cs
                   , _funCompiled   = Just cc
                   , _funSplitTree  = mst
@@ -1042,7 +1052,7 @@ defineConClause trD' isHIT mtrX npars nixs xTel' telI sigma dT' cnames = do
                      ixsI <- open $ AbsN (teleNames parI) ixsI
                      parI <- open parI
                      abstract_trD $ \ delta _ _ -> do
-                     let delta0_refl = flip map delta $ \ p -> lam "i" $ \ _ -> p <@> pure iz
+                     let delta0_refl = for delta $ \ p -> lam "i" $ \ _ -> p <@> pure iz
                      abstractN (ixsI `applyN` delta0_refl) $ \ x' -> do
                      abstractN (pure $ intervalTel "phi'") $ \ _ -> do
                      ty <- dT `applyN` (delta0_refl ++ x' ++ [pure iz])
@@ -1080,13 +1090,13 @@ defineConClause trD' isHIT mtrX npars nixs xTel' telI sigma dT' cnames = do
                 let [t] = map (fmap unArg) as0
                 let [phi'] = phi's
                 let telXdeltai = bind "i" $ \ i -> applyN xTel (map (<@> i) delta)
-                let reflx1 = flip map x $ \ q -> lam "i" $ \ _ -> q <@> pure io
-                let symx' = flip map x' $ \ q' -> lam "i" $ \ i -> q' <@> neg i
+                let reflx1 = for x $ \ q -> lam "i" $ \ _ -> q <@> pure io
+                let symx' = for x' $ \ q' -> lam "i" $ \ i -> q' <@> neg i
                 x_tr <- mapM (open . unArg) =<< transpPathTel' telXdeltai symx' reflx1 phi' x
                 let baseTrX = trD `applyN` delta `applyN` x_tr `applyN` [phi `min` phi',t]
                 let sideTrX = lam "j" $ \ j -> ilam "o" $ \ _ -> do
-                      let trD_f = trD `applyN` (flip map delta $ \ p -> lam "i" $ \ i -> p <@> (i `min` neg j))
-                                      `applyN` (flip map x_tr  $ \ p -> lam "i" $ \ i -> p <@> (i `min` neg j))
+                      let trD_f = trD `applyN` (for delta $ \ p -> lam "i" $ \ i -> p <@> (i `min` neg j))
+                                      `applyN` (for x_tr  $ \ p -> lam "i" $ \ i -> p <@> (i `min` neg j))
                                       `applyN` [(phi `min` phi') `max` j,t]
                       let x_tr_f = fmap (fmap (\ (Abs n (Arg i t)) -> Arg i $ Lam defaultArgInfo (Abs n t)) . sequence) $
                            bind "i" $ \ i -> do
@@ -1249,7 +1259,7 @@ defineConClause trD' isHIT mtrX npars nixs xTel' telI sigma dT' cnames = do
                 let squeezedv0 = ilam "o" $ \ o -> do
                       let
                         delta_f :: [NamesT TCM Term]
-                        delta_f = flip map delta $ \ p -> lam "j" $ \ j -> p <@> (j `max` i)
+                        delta_f = for delta $ \ p -> lam "j" $ \ j -> p <@> (j `max` i)
                       x_f <- (mapM open =<<) $ lamTel $ bind "j" $ \ j ->
                                  (absApp <$> q2_f <*> j) `appTel` i
                       trD `applyN` delta_f `applyN` x_f `applyN` [phi `max` i, v0 <..> o]
@@ -1348,9 +1358,9 @@ defineTranspForFields pathCons applyProj name params fsT fns rect = do
   let deltaI = expTelescope interval params
   iz <- primIZero
   io <- primIOne
-  imin <- getPrimitiveTerm "primIMin"
-  imax <- getPrimitiveTerm "primIMax"
-  ineg <- getPrimitiveTerm "primINeg"
+  imin <- getPrimitiveTerm builtinIMin
+  imax <- getPrimitiveTerm builtinIMax
+  ineg <- getPrimitiveTerm builtinINeg
   transp <- getPrimitiveTerm builtinTrans
   -- por <- getPrimitiveTerm "primPOr"
   -- one <- primItIsOne
@@ -1373,9 +1383,12 @@ defineTranspForFields pathCons applyProj name params fsT fns rect = do
   reportSDoc "trans.rec" 60 $ text $ "sort = " ++ show (getSort rect')
 
   lang <- getLanguage
+  fun  <- emptyFunctionData
   noMutualBlock $ addConstant theName $
     (defaultDefn defaultArgInfo theName theType lang
-       (FunctionDefn $ emptyFunctionData { _funTerminates = Just True, _funIsKanOp = Just name }))
+       (FunctionDefn fun{ _funTerminates = Just True
+                        , _funIsKanOp    = Just name
+                        }))
       { defNoCompilation = True }
   -- ⊢ Γ = gamma = (δ : Δ^I) (φ : I) (u0 : R (δ i0))
   -- Γ ⊢     rtype = R (δ i1)
@@ -1503,13 +1516,13 @@ defineHCompForFields applyProj name params fsT fns rect = do
   let delta = params
   iz <- primIZero
   io <- primIOne
-  imin <- getPrimitiveTerm "primIMin"
-  imax <- getPrimitiveTerm "primIMax"
-  tIMax <- getPrimitiveTerm "primIMax"
-  ineg <- getPrimitiveTerm "primINeg"
+  imin <- getPrimitiveTerm builtinIMin
+  imax <- getPrimitiveTerm builtinIMax
+  tIMax <- getPrimitiveTerm builtinIMax
+  ineg <- getPrimitiveTerm builtinINeg
   hcomp <- getPrimitiveTerm builtinHComp
   transp <- getPrimitiveTerm builtinTrans
-  por <- getPrimitiveTerm "primPOr"
+  por <- getPrimitiveTerm builtinPOr
   one <- primItIsOne
   reportSDoc "comp.rec" 20 $ text $ show params
   reportSDoc "comp.rec" 20 $ text $ show delta
@@ -1531,9 +1544,12 @@ defineHCompForFields applyProj name params fsT fns rect = do
   reportSDoc "hcomp.rec" 60 $ text $ "sort = " ++ show (lTypeLevel rect)
 
   lang <- getLanguage
+  fun  <- emptyFunctionData
   noMutualBlock $ addConstant theName $
     (defaultDefn defaultArgInfo theName theType lang
-       (FunctionDefn $ emptyFunctionData { _funTerminates = Just True, _funIsKanOp = Just name }))
+       (FunctionDefn fun{ _funTerminates = Just True
+                        , _funIsKanOp    = Just name
+                        }))
       { defNoCompilation = True }
   --   ⊢ Γ = gamma = (δ : Δ) (φ : I) (_ : (i : I) -> Partial φ (R δ)) (_ : R δ)
   -- Γ ⊢     rtype = R δ
@@ -1670,8 +1686,7 @@ bindParameters
 bindParameters 0 [] a ret = ret EmptyTel a
 
 bindParameters 0 (par : _) _ _ = setCurrentRange par $
-  typeError . GenericDocError =<< do
-    text "Unexpected parameter" <+> prettyA par
+  typeError $ UnexpectedParameter par
 
 bindParameters npars [] t ret =
   case unEl t of
@@ -1679,24 +1694,18 @@ bindParameters npars [] t ret =
               x <- freshName_ (absName b)
               bindParameter npars [] x a b ret
            | otherwise ->
-              typeError . GenericDocError =<<
-                sep [ "Expected binding for parameter"
-                    , text (absName b) <+> text ":" <+> prettyTCM (unDom a) ]
+              typeError $ ExpectedBindingForParameter a b
     _ -> __IMPOSSIBLE__
 
 bindParameters npars par@(A.DomainFull (A.TBind _ _ xs e) : bs) a ret =
   setCurrentRange par $
-  typeError . GenericDocError =<< do
-    let s | length xs > 1 = "s"
-          | otherwise     = ""
-    text ("Unexpected type signature for parameter" ++ s) <+> sep (fmap prettyA xs)
+  typeError $ UnexpectedTypeSignatureForParameter xs
 
 bindParameters _ (A.DomainFull A.TLet{} : _) _ _ = __IMPOSSIBLE__
 
 bindParameters _ (par@(A.DomainFree _ arg) : ps) _ _
   | getModality arg /= defaultModality = setCurrentRange par $
-     typeError . GenericDocError =<< do
-       text "Unexpected modality/relevance annotation in" <+> prettyA par
+      typeError $ UnexpectedModalityAnnotationInParameter par
 
 bindParameters npars ps0@(par@(A.DomainFree _ arg) : ps) t ret = do
   let x          = namedArg arg
@@ -1705,11 +1714,9 @@ bindParameters npars ps0@(par@(A.DomainFree _ arg) : ps) t ret = do
     NoInsertNeeded -> continue ps $ A.unBind $ A.binderName x
     ImpInsert _    -> continue ps0 =<< freshName_ (absName b)
     BadImplicits   -> setCurrentRange par $
-     typeError . GenericDocError =<< do
-       text "Unexpected parameter" <+> prettyA par
+      typeError $ UnexpectedParameter par
     NoSuchName x   -> setCurrentRange par $
-      typeError . GenericDocError =<< do
-        text ("No parameter of name " ++ x)
+      typeError $ NoParameterOfName x
   where
     Pi dom@(Dom{domInfo = info', unDom = a}) b = unEl t -- TODO:: Defined but not used: info', a
     continue ps x = bindParameter npars ps x dom b ret
@@ -1729,11 +1736,11 @@ bindParameter npars ps x a b ret =
 --
 --   As a side effect, return the arity of the constructor.
 
-fitsIn :: UniverseCheck -> [IsForced] -> Type -> Sort -> TCM Int
-fitsIn uc forceds t s = do
+fitsIn :: QName -> UniverseCheck -> [IsForced] -> Type -> Sort -> TCM Int
+fitsIn con uc forceds conT s = do
   reportSDoc "tc.data.fits" 10 $
-    sep [ "does" <+> prettyTCM t
-        , "of sort" <+> prettyTCM (getSort t)
+    sep [ "does" <+> prettyTCM conT
+        , "of sort" <+> prettyTCM (getSort conT)
         , "fit in" <+> prettyTCM s <+> "?"
         ]
   -- The code below would be simpler, but doesn't allow datatypes
@@ -1744,11 +1751,12 @@ fitsIn uc forceds t s = do
   withoutK <- withoutKOption
   when withoutK $ do
     q <- viewTC eQuantity
-    usableAtModality' (Just s) ConstructorType (setQuantity q defaultModality) (unEl t)
+    usableAtModality' (Just s) ConstructorType (setQuantity q unitModality) (unEl conT)
 
-  fitsIn' withoutK forceds t s
+  li <- optLargeIndices <$> pragmaOptions
+  fitsIn' li forceds conT s
   where
-  fitsIn' withoutK forceds t s = do
+  fitsIn' li forceds t s = do
     vt <- do
       t <- pathViewAsPi t
       return $ case t of
@@ -1758,13 +1766,18 @@ fitsIn uc forceds t s = do
                     _              -> Nothing
     case vt of
       Just (isPath, dom, b) -> do
-        let (forced,forceds') = nextIsForced forceds
-        unless (isForced forced && not withoutK) $ do
+        let
+          (forced, forceds') = nextIsForced forceds
+          isf = isForced forced
+
+        unless (isf && li) $ do
           sa <- reduce $ getSort dom
           unless (isPath || uc == NoUniverseCheck || sa == SizeUniv) $
+            traceCall (CheckConArgFitsIn con isf (unDom dom) s) $
             sa `leqSort` s
+
         addContext (absName b, dom) $ do
-          succ <$> fitsIn' withoutK forceds' (absBody b) (raise 1 s)
+          succ <$> fitsIn' li forceds' (absBody b) (raise 1 s)
       _ -> do
         getSort t `leqSort` s
         return 0

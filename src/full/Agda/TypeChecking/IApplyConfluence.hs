@@ -1,4 +1,5 @@
 {-# LANGUAGE NondecreasingIndentation #-}
+
 module Agda.TypeChecking.IApplyConfluence where
 
 import Prelude hiding (null, (!!))  -- do not use partial functions like !!
@@ -16,7 +17,6 @@ import qualified Data.IntSet as IntSet
 
 import Agda.Syntax.Common
 import Agda.Syntax.Position
-import Agda.Syntax.Internal.Generic
 import Agda.Syntax.Internal
 import Agda.Syntax.Internal.Pattern
 
@@ -32,7 +32,6 @@ import Agda.TypeChecking.Telescope
 import Agda.TypeChecking.Conversion
 import Agda.TypeChecking.Substitute
 
-import qualified Agda.Utils.BiMap as BiMap
 import Agda.Utils.Monad
 import Agda.Utils.Null
 import Agda.Utils.Maybe
@@ -40,7 +39,6 @@ import Agda.Utils.Singleton
 import Agda.Utils.Size
 import Agda.Utils.Impossible
 import Agda.Utils.Functor
-import Control.Monad.Reader
 
 
 checkIApplyConfluence_ :: QName -> TCM ()
@@ -66,12 +64,15 @@ checkIApplyConfluence_ f = whenM (isJust . optCubical <$> pragmaOptions) $ do
         forM_ cls $ checkIApplyConfluence f
     _ -> return ()
 
--- | @addClause f (Clause {namedClausePats = ps})@ checks that @f ps@
+-- | @checkIApplyConfluence f (Clause {namedClausePats = ps})@ checks that @f ps@
 -- reduces in a way that agrees with @IApply@ reductions.
 checkIApplyConfluence :: QName -> Clause -> TCM ()
 checkIApplyConfluence f cl = case cl of
       Clause {clauseBody = Nothing} -> return ()
       Clause {clauseType = Nothing} -> __IMPOSSIBLE__
+      -- Inserted clause, will respect boundaries whenever the
+      -- user-written clauses do. Saves a ton of work!
+      Clause {namedClausePats = ps} | hasDefP ps -> pure ()
       cl@Clause { clauseTel = clTel
                 , namedClausePats = ps
                 , clauseType = Just t
@@ -90,14 +91,24 @@ checkIApplyConfluence f cl = case cl of
             let es = patternsToElims ps
             let lhs = Def f es
 
-            reportSDoc "tc.iapply" 40 $ text "clause:" <+> pretty ps <+> "->" <+> pretty body
-            reportSDoc "tc.iapply" 20 $ "body =" <+> prettyTCM body
+            reportSDoc "tc.cover.iapply" 40 $ text "clause:" <+> pretty ps <+> "->" <+> pretty body
+            reportSDoc "tc.cover.iapply" 20 $ "body =" <+> prettyTCM body
+            inTopContext $ reportSDoc "tc.cover.iapply" 20 $ "Γ =" <+> prettyTCM clTel
 
             let
               k :: Substitution -> Comparison -> Type -> Term -> Term -> TCM ()
+              -- TODO (Amy, 2023-07-08): Simplifying the LHS of a
+              -- generated clause in its context is loopy, see #6722
+              k phi cmp ty u v | hasDefP ps = compareTerm cmp ty u v
               k phi cmp ty u v = do
-                u_e <- simplify u
-                ty_e <- simplify ty
+                u_e   <- simplify u
+                -- Issue #6725: Print these terms in their own TC state.
+                -- If printing the values before entering the conversion
+                -- checker is too expensive then we could save the TC
+                -- state and print them when erroring instead, but that
+                -- might cause space leaks.
+                (u_p, v_p) <- (,) <$> prettyTCM u_e <*> (prettyTCM =<< simplify v)
+
                 let
                   -- Make note of the context (literally): we're
                   -- checking that this specific clause in f is
@@ -110,18 +121,19 @@ checkIApplyConfluence f cl = case cl of
 
                   -- But if the conversion checking failed really early, we drop the extra
                   -- information. In that case, it's just noise.
-                  maybeDropCall e@(TypeError x y err)
-                    | UnequalTerms _ u' v' _ <- clValue err = do
-                      u <- prettyTCM u_e
-                      v <- prettyTCM =<< simplify v
-                      enterClosure err $ \e' -> do
+                  maybeDropCall e@(TypeError loc s err)
+                    | UnequalTerms _ u' v' _ <- clValue err =
+                      -- Issue #6725: restore the TC state from the
+                      -- error before dealing with the stored terms.
+                      withTCState (const s) $ enterClosure err $ \e' -> do
                         u' <- prettyTCM =<< simplify u'
                         v' <- prettyTCM =<< simplify v'
+
                         -- Specifically, we compare how the things are pretty-printed, to avoid
                         -- double-printing, rather than a more refined heuristic, since the
                         -- “failure case” here is *at worst* accidentally reminding the user of how
                         -- IApplyConfluence works.
-                        if (u == u' && v == v')
+                        if (u_p == u' && v_p == v')
                           then localTC (\e -> e { envCall = oldCall }) $ typeError e'
                           else throwError e
                   maybeDropCall x = throwError x
@@ -139,6 +151,7 @@ checkIApplyConfluence f cl = case cl of
               if isCubicalVar then (compareTermOnFace' k CmpEq phi trhs lhs body) -- (equalTermOnFace phi trhs lhs body) 
               else (equalTermOnBridgeFace i trhs lhs body)
 
+<<<<<<< HEAD
             case body of
               MetaV m es_m' | Just es_m <- allApplyElims es_m' ->
                 caseMaybeM (isInteractionMeta m) (return ()) $ \ ii -> do
@@ -225,6 +238,8 @@ checkIApplyConfluence f cl = case cl of
                 modifyInteractionPoints (BiMap.adjust f ii)
               _ -> return ()
 
+=======
+>>>>>>> prep-2.6.4.2
 -- | current context is of the form Γ.Δ
 unifyElims :: Args
               -- ^ variables to keep   Γ ⊢ x_n .. x_0 : Γ
@@ -280,7 +295,7 @@ unifyElims vs ts k = do
                          else Just c) .
     zipWith (\i c -> (i, dropS (i + 1) s `applySubst` c)) [0..]
 
--- | Like @unifyElims@ but @Γ@ is from the the meta's @MetaInfo@ and
+-- | Like @unifyElims@ but @Γ@ is from the meta's @MetaInfo@ and
 -- the context extension @Δ@ is taken from the @Closure@.
 unifyElimsMeta :: MetaId -> Args -> Closure Constraint -> ([(Term,Term)] -> Constraint -> TCM a) -> TCM a
 unifyElimsMeta m es_m cl k = ifM (isNothing . optCubical <$> pragmaOptions) (enterClosure cl $ k []) $ do

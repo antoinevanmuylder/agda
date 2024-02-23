@@ -1,13 +1,8 @@
-{-# LANGUAGE CPP  #-}
+{-# OPTIONS_GHC -Wunused-imports #-}
 
 -- | More monoids.
 
 module Agda.Utils.Monoid where
-
-#if !(MIN_VERSION_base(4,11,0))
-import Data.Semigroup (Semigroup(..))
-#endif
-
 
 -- | Maximum of on-negative (small) natural numbers.
 
@@ -19,8 +14,5 @@ instance Semigroup MaxNat where
 
 instance Monoid MaxNat where
   mempty     = 0
-#if !(MIN_VERSION_base(4,11,0))
-  mappend    = (<>)
-#endif
   mconcat [] = 0
   mconcat ms = maximum ms

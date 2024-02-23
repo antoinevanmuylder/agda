@@ -23,13 +23,12 @@ import Control.Exception   ( bracket )
 import System.Win32        ( findFirstFile, findClose, getFindDataFileName )
 #endif
 
-import Data.Function
+import Data.Function (on)
 import Data.Hashable       ( Hashable )
 import Data.Text           ( Text )
 import qualified Data.Text as Text
 
 import Agda.Utils.Monad
-import Agda.Utils.Pretty
 
 import Agda.Utils.Impossible
 
@@ -44,9 +43,6 @@ newtype AbsolutePath = AbsolutePath { textPath :: Text }
 -- | Extract the 'AbsolutePath' to be used as 'FilePath'.
 filePath :: AbsolutePath -> FilePath
 filePath = Text.unpack . textPath
-
-instance Pretty AbsolutePath where
-  pretty = text . filePath
 
 -- | Constructs 'AbsolutePath's.
 --

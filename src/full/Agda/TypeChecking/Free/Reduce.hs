@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
 
 -- | Free variable check that reduces the subject to make certain variables not
 --   free. Used when pruning metavariables in Agda.TypeChecking.MetaVars.Occurs.
@@ -174,9 +175,7 @@ instance ForceNotFree Sort where
   -- Reduce for sorts already goes under all sort constructors, so we can get
   -- away without forceNotFreeR here.
   forceNotFree' = \case
-    Type l     -> Type     <$> forceNotFree' l
-    Prop l     -> Prop     <$> forceNotFree' l
-    SSet l     -> SSet     <$> forceNotFree' l
+    Univ u l     -> Univ u <$> forceNotFree' l
     PiSort a b c -> PiSort <$> forceNotFree' a <*> forceNotFree' b <*> forceNotFree' c
     FunSort a b -> FunSort <$> forceNotFree' a <*> forceNotFree' b
     UnivSort s -> UnivSort <$> forceNotFree' s
@@ -185,6 +184,7 @@ instance ForceNotFree Sort where
     s@(Inf _ _)-> return s
     s@SizeUniv -> return s
     s@LockUniv -> return s
+    s@LevelUniv -> return s
     s@IntervalUniv -> return s
     s@CstrUniv -> return s
     s@DummyS{} -> return s

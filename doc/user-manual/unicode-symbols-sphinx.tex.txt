@@ -90,6 +90,7 @@
 \DeclareUnicodeCharacter{1100}{\ensuremath{\mathrm{PDF\;TODO}}}  % Symbol ᄀ
 \DeclareUnicodeCharacter{11F9}{\ensuremath{\mathrm{PDF\;TODO}}}  % Symbol ᇹ
 
+\DeclareUnicodeCharacter{1D47}{\ensuremath{^b}}  % Symbol ᵇ
 \DeclareUnicodeCharacter{1D48}{\ensuremath{^d}}  % Symbol ᵈ
 \DeclareUnicodeCharacter{1D50}{\ensuremath{^m}}  % Symbol ᵐ
 \DeclareUnicodeCharacter{1D56}{\ensuremath{^p}}  % Symbol ᵖ
@@ -147,11 +148,11 @@
 \DeclareUnicodeCharacter{2190}{\ensuremath{\leftarrow}}       % Symbol ←
 \DeclareUnicodeCharacter{2192}{\ensuremath{\rightarrow}}      % Symbol →
 \DeclareUnicodeCharacter{2194}{\ensuremath{\leftrightarrow}}  % Symbol ↔
+\DeclareUnicodeCharacter{219D}{\ensuremath{\leadsto}}         % Symbol ↝
 
 % The command `\twoheadrightarrow` requires `\usepackage{amssymb}`.
 \DeclareUnicodeCharacter{21A0}{\ensuremath{\twoheadrightarrow}}  % Symbol ↠
 
-\DeclareUnicodeCharacter{21A6}{\ensuremath{\mapsto}}  % Symbol ↦
 \DeclareUnicodeCharacter{21A6}{\ensuremath{\mapsto}}  % Symbol ↦
 
 % The command `\restriction` requires `\usepackage{amssymb}`.

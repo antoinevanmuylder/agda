@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
 
 -- | Function for generating highlighted, hyperlinked HTML from Agda
 -- sources.
@@ -24,8 +25,7 @@ import Data.Function ( on )
 import Data.Foldable (toList, concatMap)
 import Data.Maybe
 import qualified Data.IntMap as IntMap
-import qualified Data.List   as List
-import Data.List.Split (splitWhen, chunksOf)
+import Data.List.Split (splitWhen)
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as T
 
@@ -62,8 +62,10 @@ import qualified Agda.TypeChecking.Monad as TCM
   )
 
 import Agda.Utils.Function
+import Agda.Utils.List1 (String1, pattern (:|))
+import qualified Agda.Utils.List1   as List1
 import qualified Agda.Utils.IO.UTF8 as UTF8
-import Agda.Utils.Pretty
+import Agda.Syntax.Common.Pretty
 
 import Agda.Utils.Impossible
 
@@ -107,11 +109,12 @@ instance NFData HtmlHighlight
 highlightOnlyCode :: HtmlHighlight -> FileType -> Bool
 highlightOnlyCode HighlightAll  _ = False
 highlightOnlyCode HighlightCode _ = True
-highlightOnlyCode HighlightAuto AgdaFileType = False
-highlightOnlyCode HighlightAuto MdFileType   = True
-highlightOnlyCode HighlightAuto RstFileType  = True
-highlightOnlyCode HighlightAuto OrgFileType  = True
-highlightOnlyCode HighlightAuto TexFileType  = False
+highlightOnlyCode HighlightAuto AgdaFileType  = False
+highlightOnlyCode HighlightAuto MdFileType    = True
+highlightOnlyCode HighlightAuto RstFileType   = True
+highlightOnlyCode HighlightAuto OrgFileType   = True
+highlightOnlyCode HighlightAuto TypstFileType = True
+highlightOnlyCode HighlightAuto TexFileType   = False
 
 -- | Determine the generated file extension
 
@@ -119,11 +122,12 @@ highlightedFileExt :: HtmlHighlight -> FileType -> String
 highlightedFileExt hh ft
   | not $ highlightOnlyCode hh ft = "html"
   | otherwise = case ft of
-      AgdaFileType -> "html"
-      MdFileType   -> "md"
-      RstFileType  -> "rst"
-      TexFileType  -> "tex"
-      OrgFileType  -> "org"
+      AgdaFileType  -> "html"
+      MdFileType    -> "md"
+      RstFileType   -> "rst"
+      TexFileType   -> "tex"
+      OrgFileType   -> "org"
+      TypstFileType -> "typ"
 
 -- | Options for HTML generation
 
@@ -270,7 +274,7 @@ page css
 
 type TokenInfo =
   ( Int
-  , String
+  , String1
   , Aspects
   )
 
@@ -281,11 +285,9 @@ tokenStream
      -> HighlightingInfo -- ^ Highlighting information.
      -> [TokenInfo]
 tokenStream contents info =
-  map (\cs -> case cs of
-          (mi, (pos, _)) : _ ->
-            (pos, map (snd . snd) cs, fromMaybe mempty mi)
-          [] -> __IMPOSSIBLE__) $
-  List.groupBy ((==) `on` fst) $
+  map (\ ((mi, (pos, c)) :| xs) ->
+            (pos, c :| map (snd . snd) xs, fromMaybe mempty mi)) $
+  List1.groupBy ((==) `on` fst) $
   zipWith (\pos c -> (IntMap.lookup pos infoMap, (pos, c))) [1..] (T.unpack contents)
   where
   infoMap = toMap info
@@ -301,12 +303,13 @@ code onlyCode fileType = mconcat . if onlyCode
          -- Explicitly written all cases, so people
          -- get compile error when adding new file types
          -- when they forget to modify the code here
-         RstFileType  -> map mkRst . splitByMarkup
-         MdFileType   -> map mkMd . chunksOf 2 . splitByMarkup
-         AgdaFileType -> map mkHtml
-         -- Any points for using this option?
-         TexFileType  -> map mkMd . chunksOf 2 . splitByMarkup
-         OrgFileType  -> map mkOrg . splitByMarkup
+         RstFileType   -> map mkRst . splitByMarkup
+         MdFileType    -> map mkMd . splitByMarkup
+         AgdaFileType  -> map mkHtml
+         OrgFileType   -> map mkOrg . splitByMarkup
+         -- Two useless cases, probably will never used by anyone
+         TexFileType   -> map mkMd . splitByMarkup
+         TypstFileType -> map mkMd . splitByMarkup
   else map mkHtml
   where
   trd (_, _, a) = a
@@ -318,30 +321,27 @@ code onlyCode fileType = mconcat . if onlyCode
   mkHtml (pos, s, mi) =
     -- Andreas, 2017-06-16, issue #2605:
     -- Do not create anchors for whitespace.
-    applyUnless (mi == mempty) (annotate pos mi) $ toHtml s
+    applyUnless (mi == mempty) (annotate pos mi) $ toHtml $ List1.toList s
+
+  backgroundOrAgdaToHtml :: TokenInfo -> Html
+  backgroundOrAgdaToHtml token@(_, s, mi) = case aspect mi of
+    Just Background -> preEscapedToHtml $ List1.toList s
+    Just Markup     -> __IMPOSSIBLE__
+    _               -> mkHtml token
 
   -- Proposed in #3373, implemented in #3384
   mkRst :: [TokenInfo] -> Html
-  mkRst = mconcat . (toHtml rstDelimiter :) . map go
-    where
-      go token@(_, s, mi) = if aspect mi == Just Background
-        then preEscapedToHtml s
-        else mkHtml token
+  mkRst = mconcat . (toHtml rstDelimiter :) . map backgroundOrAgdaToHtml
 
-  -- Proposed in #3137, implemented in #3313
-  -- Improvement proposed in #3366, implemented in #3367
-  mkMd :: [[TokenInfo]] -> Html
-  mkMd = mconcat . go
+  -- The assumption here and in mkOrg is that Background tokens and Agda tokens are always
+  -- separated by Markup tokens, so these runs only contain one kind.
+  mkMd :: [TokenInfo] -> Html
+  mkMd tokens = if containsCode then formatCode else formatNonCode
     where
-      work token@(_, s, mi) = case aspect mi of
-        Just Background -> preEscapedToHtml s
-        Just Markup     -> __IMPOSSIBLE__
-        _               -> mkHtml token
-      go [a, b] = [ mconcat $ work <$> a
-                  , Html5.pre ! Attr.class_ "Agda" $ mconcat $ work <$> b
-                  ]
-      go [a]    = work <$> a
-      go _      = __IMPOSSIBLE__
+      containsCode = any ((/= Just Background) . aspect . trd) tokens
+
+      formatCode = Html5.pre ! Attr.class_ "Agda" $ mconcat $ backgroundOrAgdaToHtml <$> tokens
+      formatNonCode = mconcat $ backgroundOrAgdaToHtml <$> tokens
 
   mkOrg :: [TokenInfo] -> Html
   mkOrg tokens = mconcat $ if containsCode then formatCode else formatNonCode
@@ -351,12 +351,8 @@ code onlyCode fileType = mconcat . if onlyCode
       startDelimiter = preEscapedToHtml orgDelimiterStart
       endDelimiter = preEscapedToHtml orgDelimiterEnd
 
-      formatCode = startDelimiter : foldr (\x -> (go x :)) [endDelimiter] tokens
-      formatNonCode = map go tokens
-
-      go token@(_, s, mi) = if aspect mi == Just Background
-        then preEscapedToHtml s
-        else mkHtml token
+      formatCode = startDelimiter : foldr (\x -> (backgroundOrAgdaToHtml x :)) [endDelimiter] tokens
+      formatNonCode = map backgroundOrAgdaToHtml tokens
 
   -- Put anchors that enable referencing that token.
   -- We put a fail safe numeric anchor (file position) for internal references

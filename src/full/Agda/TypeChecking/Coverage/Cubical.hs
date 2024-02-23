@@ -8,60 +8,41 @@ import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Trans ( lift )
 
-import Data.Foldable (for_)
-import qualified Data.List as List
-import Data.Map (Map)
-import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
 
 import Agda.Syntax.Common
 import Agda.Syntax.Position
-import Agda.Syntax.Internal hiding (DataOrRecord(..))
+import Agda.Syntax.Internal hiding (DataOrRecord)
 import Agda.Syntax.Internal.Pattern
-import Agda.Syntax.Translation.InternalToAbstract (NamedClause(..))
+import Agda.Syntax.Common.Pretty (prettyShow)
 
-import Agda.TypeChecking.Names
-import Agda.TypeChecking.Primitive hiding (Nat)
-import Agda.TypeChecking.Monad
-
-import Agda.TypeChecking.Rules.LHS (DataOrRecord(..), checkSortOfSplitVar)
-import Agda.TypeChecking.Rules.LHS.Problem (allFlexVars)
-import Agda.TypeChecking.Rules.LHS.Unify
-import Agda.TypeChecking.Rules.Term (unquoteTactic)
-
+import Agda.TypeChecking.Constraints () -- instance MonadConstraint TCM
 import Agda.TypeChecking.Coverage.Match
-import Agda.TypeChecking.Coverage.SplitTree
 import Agda.TypeChecking.Coverage.SplitClause
-
-
-import Agda.TypeChecking.Conversion (tryConversion, equalType)
-import Agda.TypeChecking.Datatypes (getConForm, getDatatypeArgs)
-import {-# SOURCE #-} Agda.TypeChecking.Empty ( checkEmptyTel, isEmptyTel, isEmptyType )
+import Agda.TypeChecking.Coverage.SplitTree
+import Agda.TypeChecking.Datatypes (getDatatypeArgs)
 import Agda.TypeChecking.Irrelevance
+import Agda.TypeChecking.Monad
+import Agda.TypeChecking.Names
 import Agda.TypeChecking.Pretty
-import Agda.TypeChecking.Substitute
+import Agda.TypeChecking.Primitive hiding (Nat)
 import Agda.TypeChecking.Reduce
-import Agda.TypeChecking.Records
+import Agda.TypeChecking.Substitute
 import Agda.TypeChecking.Telescope
 import Agda.TypeChecking.Telescope.Path
-import Agda.TypeChecking.MetaVars
-import Agda.TypeChecking.Warnings
 
-import Agda.Interaction.Options
-
-import Agda.Utils.Either
 import Agda.Utils.Functor
 import Agda.Utils.List
+import Agda.Utils.List1 ( pattern (:|) )
+import qualified Agda.Utils.List1 as List1
 import Agda.Utils.Maybe
 import Agda.Utils.Monad
 import Agda.Utils.Null
 import Agda.Utils.Permutation
-import Agda.Utils.Pretty (prettyShow)
 import Agda.Utils.Singleton
 import Agda.Utils.Size
-import Agda.Utils.WithDefault
 
 import Agda.Utils.Impossible
 
@@ -82,14 +63,14 @@ createMissingIndexedClauses f n x old_sc scs cs = do
       caseMaybe mc (return ([],cs)) $ \ ((sp,tree),cl) -> do
       let res = CoverResult tree (IntSet.singleton (length cs)) [] [cl] IntSet.empty
       return ([(sp,res)],snoc cs cl)
-    xs | not $ null infos -> do
+    xs | info:_ <- infos -> do
          reportSDoc "tc.cover.indexed" 20 $ text "size (xs,infos):" <+> pretty (size xs,size infos)
          reportSDoc "tc.cover.indexed" 20 $ text "xs :" <+> pretty (map fst xs)
 
-         unless (size xs == size infos + 1) $
+         unless (size xs == 1 + size infos) $
             reportSDoc "tc.cover.indexed" 20 $ text "missing some infos"
             -- Andrea: what to do when we only managed to build a unification proof for some of the constructors?
-         Constructor{conData} <- theDef <$> getConstInfo (fst (head infos))
+         Constructor{conData} <- theDef <$> getConstInfo (fst info)
          Datatype{dataPars = pars, dataIxs = nixs, dataTranspIx} <- theDef <$> getConstInfo conData
          hcomp <- fromMaybe __IMPOSSIBLE__ <$> getName' builtinHComp
          trX <- fromMaybe __IMPOSSIBLE__ <$> pure dataTranspIx
@@ -105,12 +86,12 @@ createMissingIndexedClauses f n x old_sc scs cs = do
              extraCl = [trX_cl, hcomp_cl]
                  --  = [trX_cl]
          let clauses = cls ++ extraCl
-         let tree = SplitAt ((+(pars+nixs+1)) <$> n) StrictSplit $
+         let tree = SplitAt (n <&> (+ (pars + nixs + 1))) StrictSplit $
                                            trees
                                         ++ extra
              res = CoverResult
                { coverSplitTree      = tree
-               , coverUsedClauses    = IntSet.fromList (map (length cs +) [0..length clauses-1])
+               , coverUsedClauses    = let l = length cs in IntSet.fromAscList [l .. l + length clauses - 1]
                , coverMissingClauses = []
                , coverPatterns       = clauses
                , coverNoExactClauses = IntSet.empty
@@ -118,9 +99,8 @@ createMissingIndexedClauses f n x old_sc scs cs = do
          reportSDoc "tc.cover.indexed" 20 $
            "tree:" <+> pretty tree
          addClauses f clauses
-         return $ ([(SplitCon trX,res)],cs++clauses)
---         return $ ([],[])
-    xs | otherwise -> return ([],cs)
+         return ([(SplitCon trX, res)], cs ++ clauses)
+    xs | otherwise -> return ([], cs)
 
 covFillTele :: QName -> Abs Telescope -> Term -> Args -> Term -> TCM [Term]
 covFillTele func tel face d j = do
@@ -262,7 +242,7 @@ createMissingTrXTrXClause q_trX f n x old_sc = do
     abstractN (xTelI `applyN` g1) $ \ p -> do
     abstractT "ψ" (pure interval) $ \ psi -> do
     abstractN (xTelI `applyN` g1) $ \ q -> do
-    abstractT "x0" (pure dT `applyN` g1 `applyN` (flip map q $ \ f -> f <@> pure iz)) $ \ x0 -> do
+    abstractT "x0" (pure dT `applyN` g1 `applyN` (for q $ \ f -> f <@> pure iz)) $ \ x0 -> do
     deltaPat g1 phi p psi q x0
 
   ps_ty_rhs <- runNamesT [] $ do
@@ -339,15 +319,15 @@ createMissingTrXTrXClause q_trX f n x old_sc = do
       c <- mkComp $ bindN ["i","j"] $ \ [i,j] -> do
         Abs n (data_ty,lines) <- bind "k" $ \ k -> do
           let phi_k = max phi (neg k)
-          let p_k = flip map p $ \ p -> lam "h" $ \ h -> p <@> (min k h)
-          data_ty <- pure dT `applyN` g1 `applyN` (flip map p $ \ p -> p <@> k)
+          let p_k = for p $ \ p -> lam "h" $ \ h -> p <@> (min k h)
+          data_ty <- pure dT `applyN` g1 `applyN` (for p $ \ p -> p <@> k)
           line1 <- trX `applyN` g1 `applyN` (phi_k:p_k) `applyN` [x0]
 
           line2 <- trX `applyN` g1
-                       `applyN` (max phi_k j      : (flip map p_k $ \ p -> lam "h" $ \ h -> p <@> (max h j)))
+                       `applyN` (max phi_k j      : (for p_k $ \ p -> lam "h" $ \ h -> p <@> (max h j)))
                        `applyN`
                   [trX `applyN` g1
-                       `applyN` (max phi_k (neg j): (flip map p_k $ \ p -> lam "h" $ \ h -> p <@> (min h j)))
+                       `applyN` (max phi_k (neg j): (for p_k $ \ p -> lam "h" $ \ h -> p <@> (min h j)))
                        `applyN` [x0]]
           pure (data_ty,[line1,line2])
         data_ty <- open $ Abs n data_ty
@@ -543,11 +523,11 @@ createMissingTrXHCompClause q_trX f n x old_sc = do
             fmap patternToTerm <$> hcompD' g1 v
   let pat' =
             bindN (map unArg gamma1ArgNames) $ \ g1 -> do
-            bindN (map unArg $ ([defaultArg "phi"] ++ xTelIArgNames)) $ \ phi_p -> do
+            bindN1 (fmap unArg (defaultArg "phi" :| xTelIArgNames)) $ \ phi_p -> do
             bindN ["psi","u","u0"] $ \ x0 -> do
             let trX = trX' `applyN` g1
-            let p0 = flip map (tail phi_p) $ \ p -> p <@> pure iz
-            trX `applyN` phi_p `applyN` [hcompD' g1 p0 `applyN` x0]
+            let p0 = for (List1.tail phi_p) $ \ p -> p <@> pure iz
+            trX `applyN` (List1.toList phi_p) `applyN` [hcompD' g1 p0 `applyN` x0]
       pat = (fmap . fmap . fmap) patternToTerm <$> pat'
   let deltaPat g1 phi p x0 =
         delta `applyN` (g1 ++ [pat `applyN` g1 `applyN` (phi:p) `applyN` x0])
@@ -556,7 +536,7 @@ createMissingTrXHCompClause q_trX f n x old_sc = do
     abstractN (pure gamma1) $ \ g1 -> do
     abstractT "φ" (pure interval) $ \ phi -> do
     abstractN (xTelI `applyN` g1) $ \ p -> do
-    let p0 = flip map p $ \ p -> p <@> pure iz
+    let p0 = for p $ \ p -> p <@> pure iz
     let ty = pure dT `applyN` g1 `applyN` p0
     abstractT "ψ" (pure interval) $ \ psi -> do
     abstractT "u" (pure interval --> pPi' "o" psi (\ _ -> ty)) $ \ u -> do
@@ -587,7 +567,7 @@ createMissingTrXHCompClause q_trX f n x old_sc = do
     -- Ξ ⊢ pat-rec[i] := trX .. (hfill ... (~ i))
     pat_rec <- (open =<<) $ bind "i" $ \ i -> do
           let tr x = trX `applyN` g1 `applyN` (phi:p) `applyN` [x]
-          let p0 = flip map p $ \ p -> p <@> pure iz
+          let p0 = for p $ \ p -> p <@> pure iz
           tr (hcomp (pure dT `applyN` g1 `applyN` p0)
                     [(psi,lam "j" $ \ j -> u <@> (min j (neg i)))
                     ,(i  ,lam "j" $ \ _ -> ilam "o" $ \ _ -> u0)]
@@ -900,7 +880,7 @@ createMissingTrXConClause q_trX f n x old_sc c (UE gamma gamma' xTel u v rho tau
         getModality $ fromMaybe __IMPOSSIBLE__ $ scTarget old_sc
   -- we follow what `cover` does when updating the modality from the target.
   applyModalityToContext mod $ do
-    unlessM (asksTC hasQuantity0) $ do
+    unlessM (hasQuantity0 <$> viewTC eQuantity) $ do
     reportSDoc "tc.cover.trxcon" 20 $ text "testing usable at mod: " <+> pretty mod
     addContext cTel $ usableAtModality IndexedClause mod rhs
 
@@ -1282,7 +1262,7 @@ createMissingHCompClause f n x old_sc (SClause tel ps _sigma' _cps (Just t)) cs 
                                       <@> u0
             return $ liftS (size delta) $ hc `consS` raiseS 3
           -- Γ,φ,u,u0,Δ(x = hcomp phi u u0) ⊢ raise 3+|Δ| hdom
-          hdom <- pure $ raise (3+size delta) hdom
+          hdom <- pure $ raise (3 + size delta) hdom
           htype <- open $ unEl . unDom $ hdom
           lvl <- open =<< (lift . getLevel $ unDom hdom)
 
@@ -1290,12 +1270,12 @@ createMissingHCompClause f n x old_sc (SClause tel ps _sigma' _cps (Just t)) cs 
           [phi,u,u0] <- mapM (open . raise (size delta) . var) [2,1,0]
           -- Γ,x,Δ ⊢ f old_ps
           -- Γ ⊢ abstract hdelta (f old_ps)
-          g <- open $ raise (3+size delta) $ abstract hdelta (Def f old_ps)
-          old_t <- open $ raise (3+size delta) $ abstract hdelta (unDom old_t)
+          g <- open $ raise (3 + size delta) $ abstract hdelta (Def f old_ps)
+          old_t <- open $ raise (3 + size delta) $ abstract hdelta (unDom old_t)
           let bapp a x = lazyAbsApp <$> a <*> x
           (delta_fill :: NamesT TCM (Abs Args)) <- (open =<<) $ do
             -- Γ,φ,u,u0,Δ(x = hcomp phi u u0) ⊢ x.Δ
-            delta <- open $ raise (3+size delta) delta
+            delta <- open $ raise (3 + size delta) delta
             -- Γ,φ,u,u0,Δ(x = hcomp phi u u0) ⊢ i.Δ(x = hfill phi u u0 (~ i))
             deltaf <- open =<< bind "i" (\ i ->
                            (delta `bapp` hfill lvl htype phi u u0 (ineg i)))
@@ -1335,7 +1315,7 @@ createMissingHCompClause f n x old_sc (SClause tel ps _sigma' _cps (Just t)) cs 
              sides <- forM alphab $ \ (psi,(side0,side1)) -> do
                 psi <- open $ hcompS `applySubst` psi
 
-                [side0,side1] <- mapM (open . raise (3+size delta) . abstract hdelta) [side0,side1]
+                [side0, side1] <- mapM (open . raise (3 + size delta) . abstract hdelta) [side0, side1]
                 return $ (ineg psi `imax` psi, \ i -> pOr_ty i (ineg psi) psi (ilam "o" $ \ _ -> apply_delta_fill i $ side0 <@> hfill lvl htype phi u u0 i)
                                                             (ilam "o" $ \ _ -> apply_delta_fill i $ side1 <@> hfill lvl htype phi u u0 i))
              let recurse []           i = __IMPOSSIBLE__
@@ -1387,5 +1367,5 @@ createMissingHCompClause f n x old_sc (SClause tel ps _sigma' _cps (Just t)) cs 
           , coverNoExactClauses = IntSet.empty
           }
   hcompName <- fromMaybe __IMPOSSIBLE__ <$> getName' builtinHComp
-  return ([(SplitCon hcompName,result)],cs++[cl])
+  return ([(SplitCon hcompName, result)], cs ++ [cl])
 createMissingHCompClause _ _ _ _ (SClause _ _ _ _ Nothing) _ = __IMPOSSIBLE__

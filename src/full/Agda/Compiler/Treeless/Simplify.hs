@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
+
 module Agda.Compiler.Treeless.Simplify (simplifyTTerm) where
 
 import Control.Arrow        ( (***), second )
@@ -216,7 +218,7 @@ simplify FunctionKit{..} = simpl
         k == j = tOp PLt v u
       | Just (PAdd, k, v) <- constArithView v,
         TApp (TPrim P64ToI) [u] <- u,
-        k >= 2^64, Just trueCon <- true = TCon trueCon
+        k >= 2 ^ 64, Just trueCon <- true = TCon trueCon
       | Just k <- intView u
       , Just j <- intView v
       , Just trueCon <- true
@@ -456,7 +458,7 @@ simplify FunctionKit{..} = simpl
           literal _ _ = False
 
           -- k + fromWord x ≤ y  if  k + 2^64 - 1 ≤ y
-          wordUpperBound (k, [Pos (TApp (TPrim P64ToI) _)]) y = go (k + 2^64 - 1, []) y
+          wordUpperBound (k, [Pos (TApp (TPrim P64ToI) _)]) y = go (k + 2 ^ 64 - 1, []) y
           wordUpperBound _ _ = False
 
           -- x ≤ k + fromWord y  if  x ≤ k

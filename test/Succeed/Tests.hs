@@ -43,11 +43,6 @@ tests = do
 makefileDependentTests :: [RegexFilter]
 makefileDependentTests =
   [ disable "Succeed/ExecAgda"
-  , disable "Succeed/Issue4967"
-      -- Andreas, 2022-03-26, issue #5619
-      -- Test #4967 is not actually "Makefile-dependent",
-      -- but it has race conditions in github/workflows/cabal-test
-      -- so we disable it in this test suite.
   ]
   where disable = RFInclude
 
@@ -73,9 +68,9 @@ mkSucceedTest extraOpts dir agdaFile =
   where
   testName = asTestName dir agdaFile
   baseName = dropAgdaExtension agdaFile
-  varFile  = baseName <.> ".vars"
-  flagFile = baseName <.> ".flags"
-  warnFile = baseName <.> ".warn"
+  varFile  = baseName <.> "vars"
+  flagFile = baseName <.> "flags"
+  warnFile = baseName <.> "warn"
 
   -- Unless we have a .warn file, we don't really have a golden
   -- file. Just use a dummy update function.
@@ -93,6 +88,8 @@ mkSucceedTest extraOpts dir agdaFile =
                    , "-vimpossible:10" -- BEWARE: no spaces allowed here
                    , "-vwarning:1"
                    , "--double-check"
+                   -- , "--ghc-flag=-outputdir=ghc-" ++ testName
+                   -- , "-vcompile.cmd:1"
                    ] ++
                    [ if testName == "Issue481"
                      then "--no-default-libraries"

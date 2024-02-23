@@ -1,7 +1,9 @@
-{-# LANGUAGE CPP #-}
+{-# OPTIONS_GHC -Wunused-imports #-}
+
 -- |  Possibly infinite sets of integers (but with finitely many consecutive
 --    segments). Used for checking guard coverage in int/nat cases in the
 --    treeless compiler.
+
 module Agda.Utils.IntSet.Infinite
   ( IntSet
   , empty, full, below, above, singleton
@@ -9,9 +11,6 @@ module Agda.Utils.IntSet.Infinite
   , invariant )
   where
 
-#if __GLASGOW_HASKELL__ < 804
-import Data.Semigroup hiding (All(..))
-#endif
 
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -168,4 +167,3 @@ invariant xs =
     invAbove hi (Some xs)    = all (< hi - 1) xs
     invAbove hi Above{}      = False
     invAbove hi (Below lo r) = lo < hi && invAbove hi r
-

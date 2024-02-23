@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
 
 module Agda.TypeChecking.Pretty.Call where
 
@@ -10,18 +11,20 @@ import Agda.Syntax.Fixity
 import qualified Agda.Syntax.Concrete.Definitions as D
 import qualified Agda.Syntax.Info as A
 import Agda.Syntax.Position
+import Agda.Syntax.Internal
 import Agda.Syntax.Scope.Monad
 import Agda.Syntax.Translation.AbstractToConcrete
 
 import Agda.TypeChecking.Monad.Base
+import Agda.TypeChecking.Substitute
+import Agda.TypeChecking.Telescope
 import Agda.TypeChecking.Monad.Context
-import Agda.TypeChecking.Monad.Closure
 import Agda.TypeChecking.Monad.Debug
 import Agda.TypeChecking.Pretty
 
 import Agda.Utils.Function
 import Agda.Utils.Null
-import qualified Agda.Utils.Pretty as P
+import qualified Agda.Syntax.Common.Pretty as P
 
 import Agda.Utils.Impossible
 
@@ -42,6 +45,7 @@ instance PrettyTCM CallInfo where
     if null $ P.pretty r
       then call
       else call $$ nest 2 ("(at" <+> prettyTCM r) <> ")"
+  {-# SPECIALIZE prettyTCM :: CallInfo -> TCM Doc #-}
 
 instance PrettyTCM Call where
   prettyTCM = withContextPrecedence TopCtx . \case
@@ -96,12 +100,22 @@ instance PrettyTCM Call where
       [ sep [ prettyTCM x <+> ":"
             , nest 2 $ prettyTCM t ] ]
 
-    CheckArguments r es t0 t1 -> fsep $
-      pwords "when checking that" ++
-      map hPretty es ++
-      pwords (P.singPlural es "is a valid argument" "are valid arguments") ++
-      pwords "to a function of type" ++
-      [prettyTCM t0]
+    CheckArguments r es t0 t1 -> do
+      TelV tel cod <- telView t0
+      let
+        prefix =
+          pwords "when checking that" ++
+          map hPretty es ++
+          pwords (P.singPlural es "is a valid argument" "are valid arguments")
+      case unEl cod of
+        Dummy{} -> fsep $
+          prefix ++
+          pwords "to a function accepting arguments of type" ++
+          [prettyTCM tel]
+        _ -> fsep $
+          prefix ++
+          pwords "to a function of type" ++
+          [prettyTCM t0]
 
     CheckMetaSolution r m a v -> fsep $
       pwords "when checking that the solution" ++ [prettyTCM v] ++
@@ -126,11 +140,20 @@ instance PrettyTCM Call where
 
     CheckConstructor{} -> __IMPOSSIBLE__
 
-    CheckConstructorFitsIn c t s -> fsep $
-      pwords "when checking that the type" ++ [prettyTCM t] ++
-      pwords "of the constructor" ++ [prettyTCM c] ++
-      pwords "fits in the sort" ++ [prettyTCM s] ++
-      pwords "of the datatype."
+    CheckConArgFitsIn c f t s -> do
+      woK <- withoutKOption
+      let
+        hint = fsep (pwords "Note: this argument is forced by the indices of" ++ [prettyTCM c <> comma] ++ pwords "so this definition would be allowed under --large-indices.")
+        -- Only add hint about large-indices when --with-K
+        addh d
+          | f && not woK = d $$ empty $$ hint
+          | otherwise    = d
+
+      addh $ fsep $
+        pwords "when checking that the type" ++ [prettyTCM t] ++
+        pwords "of an argument to the constructor" ++ [prettyTCM c] ++
+        pwords "fits in the sort" ++ [prettyTCM s] ++
+        pwords "of the datatype."
 
     CheckFunDefCall _ f _ _ ->
       fsep $ pwords "when checking the definition of" ++ [prettyTCM f]
@@ -142,6 +165,9 @@ instance PrettyTCM Call where
     CheckPrimitive _ x e -> fsep $
       pwords "when checking that the type of the primitive function" ++
       [prettyTCM x] ++ pwords "is" ++ [prettyA e]
+
+    CheckModuleParameters m _tel -> fsep $
+      pwords "when checking the parameters of module" ++ [prettyA m]
 
     CheckWithFunctionType a -> fsep $
       pwords "when checking that the type" ++
@@ -189,9 +215,9 @@ instance PrettyTCM Call where
 
     SetRange r -> fsep (pwords "when doing something at") <+> prettyTCM r
 
-    CheckSectionApplication _ m1 modapp -> fsep $
+    CheckSectionApplication _ erased m1 modapp -> fsep $
       pwords "when checking the module application" ++
-      [prettyA $ A.Apply info m1 modapp initCopyInfo empty]
+      [prettyA $ A.Apply info erased m1 modapp initCopyInfo empty]
       where
       info = A.ModuleInfo noRange noRange Nothing Nothing Nothing
 
@@ -213,3 +239,4 @@ instance PrettyTCM Call where
     hPretty a = do
       withContextPrecedence (ArgumentCtx PreferParen) $
         pretty =<< abstractToConcreteHiding a a
+  {-# SPECIALIZE prettyTCM :: Call -> TCM Doc #-}

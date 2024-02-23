@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
+
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | This module contains the rules for Agda's sort system viewed as a pure
@@ -37,7 +39,6 @@ import {-# SOURCE #-} Agda.TypeChecking.Conversion
 import {-# SOURCE #-} Agda.TypeChecking.MetaVars () -- instance only
 
 import Agda.TypeChecking.Monad.Base
-import Agda.TypeChecking.Monad.Builtin (HasBuiltins)
 import Agda.TypeChecking.Monad.Constraints (addConstraint, MonadConstraint)
 import Agda.TypeChecking.Monad.Context
 import Agda.TypeChecking.Monad.Debug
@@ -51,10 +52,11 @@ import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Substitute
 import Agda.TypeChecking.Telescope
 
-import Agda.Utils.Impossible
-import Agda.Utils.Lens
 import Agda.Utils.Monad
 
+import Agda.Utils.Impossible
+
+{-# SPECIALIZE inferUnivSort :: Sort -> TCM Sort #-}
 -- | Infer the sort of another sort. If we can compute the bigger sort
 --   straight away, return that. Otherwise, return @UnivSort s@ and add a
 --   constraint to ensure we can compute the sort eventually.
@@ -72,6 +74,7 @@ inferUnivSort s = do
       -- addConstraint $ HasBiggerSort s
       return $ UnivSort s
 
+{-# SPECIALIZE sortFitsIn :: Sort -> Sort -> TCM () #-}
 sortFitsIn :: MonadConversion m => Sort -> Sort -> m ()
 sortFitsIn a b = do
   b' <- inferUnivSort a
@@ -82,60 +85,95 @@ sortFitsIn a b = do
 hasBiggerSort :: Sort -> TCM ()
 hasBiggerSort = void . inferUnivSort
 
--- | Infer the sort of a pi type. If we can compute the sort straight away,
---   return that. Otherwise, return @PiSort a s2@ and add a constraint to
---   ensure we can compute the sort eventually.
-inferPiSort :: PureTCM m => Dom Type -> Abs Sort -> m Sort
-inferPiSort a s2 = do
-  s1' <- reduce $ getSort a
-  s2' <- mapAbstraction a reduce s2
-  -- we do instantiateFull here to perhaps remove some (flexible)
-  -- dependencies of s2 on var 0, thus allowing piSort' to reduce
-  s2' <- instantiateFull s2'
-
+{-# SPECIALIZE inferPiSort :: Dom Type -> Abs Sort -> TCM Sort #-}
+-- | Infer the sort of a Pi type.
+--   If we can compute the sort straight away, return that.
+--   Otherwise, return a 'PiSort' and add a constraint to ensure we can compute the sort eventually.
+--
+inferPiSort :: (PureTCM m, MonadConstraint m)
+  => Dom Type  -- ^ Domain of the Pi type.
+  -> Abs Sort  -- ^ (Dependent) sort of the codomain of the Pi type.
+  -> m Sort    -- ^ Sort of the Pi type.
+inferPiSort a s = do
+  s1' <- reduceB $ getSort a
+  s2' <- mapAbstraction a reduceB s
+  let s1 = ignoreBlocking s1'
+  let s2 = ignoreBlocking <$> s2'
   --Jesper, 2018-04-23: disabled PTS constraints for now,
   --this assumes that piSort can only be blocked by unsolved metas.
+  --Arthur Adjedj, 2023-02-27, Turned PTS back on,
+  --piSort can now be blocked by Leveluniv
+  case piSort' (unEl <$> a) s1 s2 of
+    Right s -> return s
+    Left b -> do
+      let b' = unblockOnEither (getBlocker s1') (getBlocker $ unAbs s2')
+      addConstraint (unblockOnEither b b') $ HasPTSRule a s2
+      return $ PiSort (unEl <$> a) s1 s2
 
-  --case piSort' s1 s2 of
-  --  Just s -> return s
-  --  Nothing -> do
-  --    addConstraint $ HasPTSRule s1 s2
-  --    return $ PiSort s1 s2
-
-  return $ piSort (unEl <$> a) s1' s2'
-
+{-# SPECIALIZE inferFunSort :: Dom Type -> Sort -> TCM Sort #-}
 -- | As @inferPiSort@, but for a nondependent function type.
-inferFunSort :: Sort -> Sort -> TCM Sort
-inferFunSort s1 s2 = funSort <$> reduce s1 <*> reduce s2
+--
+inferFunSort :: (PureTCM m, MonadConstraint m)
+  => Dom Type  -- ^ Domain of the function type.
+  -> Sort      -- ^ Sort of the codomain of the function type.
+  -> m Sort    -- ^ Sort of the function type.
+inferFunSort a s = do
+  s1' <- reduceB $ getSort a
+  s2' <- reduceB s
+  let s1 = ignoreBlocking s1'
+  let s2 = ignoreBlocking s2'
+  case funSort' s1 s2 of
+    Right s -> return s
+    Left b -> do
+      let b' = unblockOnEither (getBlocker s1') (getBlocker s2')
+      addConstraint (unblockOnEither b b') $ HasPTSRule a (NoAbs "_" s2)
+      return $ FunSort s1 s2
+  -- Andreas, 2023-05-20:  I made inferFunSort step-by-step analogous to inferPiSort.
+  -- Unifying them seems unfeasible, though; too much parametrization...
 
-ptsRule :: Dom Type -> Abs Sort -> Sort -> TCM ()
-ptsRule a b c = do
-  c' <- inferPiSort a b
-  ifM (optCumulativity <$> pragmaOptions)
-    (leqSort c' c)
-    (equalSort c' c)
-
--- | Non-dependent version of ptsRule
-ptsRule' :: Sort -> Sort -> Sort -> TCM ()
-ptsRule' a b c = do
-  c' <- inferFunSort a b
-  ifM (optCumulativity <$> pragmaOptions)
-    (leqSort c' c)
-    (equalSort c' c)
-
+-- | @hasPTSRule a x.s@ checks that we can form a Pi-type @(x : a) -> b@ where @b : s@.
+--
 hasPTSRule :: Dom Type -> Abs Sort -> TCM ()
-hasPTSRule a b = void $ inferPiSort a b
+hasPTSRule a s = do
+  reportSDoc "tc.conv.sort" 35 $ vcat
+    [ "hasPTSRule"
+    , "a =" <+> prettyTCM a
+    , "s =" <+> prettyTCM (unAbs s)
+    ]
+  if alwaysValidCodomain $ unAbs s
+  then yes
+  else do
+    sb <- reduceB =<< inferPiSort a s
+    case sb of
+      Blocked b t | neverUnblock == b -> no sb t
+      NotBlocked _ t@FunSort{}        -> no sb t
+      NotBlocked _ t@PiSort{}         -> no sb t
+      _ -> yes
+  where
+    -- Do we end in a standard sort (Prop, Type, SSet)?
+    alwaysValidCodomain = \case
+      Inf{} -> True
+      Univ{} -> True
+      FunSort _ s -> alwaysValidCodomain s
+      PiSort _ _ s -> alwaysValidCodomain $ unAbs s
+      _ -> False
+
+    yes = do
+      reportSLn "tc.conv.sort" 35 "hasPTSRule succeeded"
+    no sb t = do
+      reportSDoc "tc.conv.sort" 35 $ "hasPTSRule fails on" <+> prettyTCM sb
+      typeError $ InvalidTypeSort t
 
 -- | Recursively check that an iterated function type constructed by @telePi@
 --   is well-sorted.
 checkTelePiSort :: Type -> TCM ()
 -- Jesper, 2019-07-27: This is currently doing nothing (see comment in inferPiSort)
---checkTelePiSort (El s (Pi a b)) = do
---  -- Since the function type is assumed to be constructed by @telePi@,
---  -- we already know that @s == piSort (getSort a) (getSort <$> b)@,
---  -- so we just check that this sort is well-formed.
---  hasPTSRule a (getSort <$> b)
---  underAbstraction a b checkTelePiSort
+checkTelePiSort (El s (Pi a b)) = do
+  -- Since the function type is assumed to be constructed by @telePi@,
+  -- we already know that @s == piSort (getSort a) (getSort <$> b)@,
+  -- so we just check that this sort is well-formed.
+  hasPTSRule a (getSort <$> b)
+  underAbstraction a b checkTelePiSort
 checkTelePiSort _ = return ()
 
 ifIsSort :: (MonadReduce m, MonadBlock m) => Type -> (Sort -> m a) -> m a -> m a
@@ -149,20 +187,23 @@ ifIsSort t yes no = do
     _      | Blocked m _ <- bt -> patternViolation m
            | otherwise         -> no
 
+{-# SPECIALIZE ifNotSort :: Type -> TCM a -> (Sort -> TCM a) -> TCM a #-}
 ifNotSort :: (MonadReduce m, MonadBlock m) => Type -> m a -> (Sort -> m a) -> m a
 ifNotSort t = flip $ ifIsSort t
 
+{-# SPECIALIZE shouldBeSort :: Type -> TCM Sort #-}
 -- | Result is in reduced form.
 shouldBeSort
   :: (PureTCM m, MonadBlock m, MonadError TCErr m)
   => Type -> m Sort
 shouldBeSort t = ifIsSort t return (typeError $ ShouldBeASort t)
 
+{-# SPECIALIZE sortOf :: Term -> TCM Sort #-}
 -- | Reconstruct the sort of a term.
 --
 --   Precondition: given term is a well-sorted type.
 sortOf
-  :: forall m. (PureTCM m, MonadBlock m)
+  :: forall m. (PureTCM m, MonadBlock m, MonadConstraint m)
   => Term -> m Sort
 sortOf t = do
   reportSDoc "tc.sort" 60 $ "sortOf" <+> prettyTCM t
@@ -175,7 +216,7 @@ sortOf t = do
         let a = unEl $ unDom adom
         sa <- sortOf a
         sb <- mapAbstraction adom (sortOf . unEl) b
-        return $ piSort (unEl <$> adom) sa sb
+        inferPiSort (adom $> El sa a) sb
       Sort s     -> return $ univSort s
       Var i es   -> do
         a <- typeOfBV i
@@ -196,6 +237,7 @@ sortOf t = do
     sortOfE :: Type -> (Elims -> Term) -> Elims -> m Sort
     sortOfE a hd []     = ifIsSort a return __IMPOSSIBLE__
     sortOfE a hd (e:es) = do
+<<<<<<< HEAD
      reportSDoc "tc.sort" 50 $ vcat
        [ "sortOfE"
        , "  a  = " <+> prettyTCM a
@@ -219,9 +261,46 @@ sortOf t = do
       IApply x y r -> do
         (b , c) <- fromMaybe __IMPOSSIBLE__ <$> isPathBridge a
         sortOfE (c `absApp` r) (hd . (e:)) es
+=======
+      reportSDoc "tc.sort" 50 $ vcat
+        [ "sortOfE"
+        , "  a  = " <+> prettyTCM a
+        , "  hd = " <+> prettyTCM (hd [])
+        , "  e  = " <+> prettyTCM e
+        ]
+>>>>>>> prep-2.6.4.2
 
+      ba <- reduceB a
+
+      let
+        a' = ignoreBlocking ba
+        fallback = case ba of
+          Blocked m _ -> patternViolation m
+
+          -- Not IMPOSSIBLE because of possible non-confluent rewriting (see #5531)
+          _ -> ifM (optRewriting <$> pragmaOptions)
+            {-then-} (patternViolation neverUnblock)
+            {-else-} __IMPOSSIBLE__
+
+      case e of
+        Apply (Arg ai v) -> case unEl a' of
+          Pi b c -> sortOfE (c `absApp` v) (hd . (e:)) es
+          _ -> fallback
+
+        Proj o f -> case unEl a' of
+          Def{} -> do
+            ~(El _ (Pi b c)) <- fromMaybe __IMPOSSIBLE__ <$> getDefType f a'
+            hd' <- applyE <$> applyDef o f (argFromDom b $> hd [])
+            sortOfE (c `absApp` (hd [])) hd' es
+          _ -> fallback
+
+        IApply x y r -> do
+          (b , c) <- fromMaybe __IMPOSSIBLE__ <$> isPath a'
+          sortOfE (c `absApp` r) (hd . (e:)) es
+
+{-# INLINE sortOfType #-}
 -- | Reconstruct the minimal sort of a type (ignoring the sort annotation).
 sortOfType
-  :: forall m. (PureTCM m, MonadBlock m)
+  :: forall m. (PureTCM m, MonadBlock m,MonadConstraint m)
   => Type -> m Sort
 sortOfType = sortOf . unEl

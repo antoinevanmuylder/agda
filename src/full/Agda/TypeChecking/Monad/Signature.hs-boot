@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
 
 module Agda.TypeChecking.Monad.Signature where
 
@@ -14,9 +15,11 @@ import Agda.TypeChecking.Monad.Base
   )
 import Agda.TypeChecking.Monad.Debug (MonadDebug)
 
-import Agda.Utils.Pretty (prettyShow)
+import Agda.Syntax.Common.Pretty (prettyShow)
 
-data SigError = SigUnknown String | SigAbstract
+data SigError = SigUnknown String | SigAbstract | SigCubicalNotErasure
+
+notSoPrettySigCubicalNotErasure :: QName -> String
 
 class ( Functor m
       , Applicative m
@@ -31,6 +34,9 @@ class ( Functor m
       Left (SigUnknown err) -> __IMPOSSIBLE_VERBOSE__ err
       Left SigAbstract      -> __IMPOSSIBLE_VERBOSE__ $
         "Abstract, thus, not in scope: " ++ prettyShow q
+      Left SigCubicalNotErasure -> __IMPOSSIBLE_VERBOSE__ $
+        notSoPrettySigCubicalNotErasure q
+
   getConstInfo' :: QName -> m (Either SigError Definition)
   -- getConstInfo' q = Right <$> getConstInfo q
   getRewriteRulesFor :: QName -> m RewriteRules
@@ -48,4 +54,3 @@ instance HasConstInfo TCM where
 
 inFreshModuleIfFreeParams :: TCM a -> TCM a
 lookupSection :: (Functor m, ReadTCState m) => ModuleName -> m Telescope
-

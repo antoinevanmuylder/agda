@@ -51,6 +51,7 @@ import Agda.TypeChecking.Datatypes
 import Agda.TypeChecking.Functions
 import Agda.TypeChecking.Monad
 import Agda.TypeChecking.Pretty
+import Agda.TypeChecking.Forcing
 import Agda.TypeChecking.Records -- (isRecordConstructor, isInductiveRecord)
 import Agda.TypeChecking.Reduce (reduce, normalise, instantiate, instantiateFull, appDefE')
 import Agda.TypeChecking.SizedTypes
@@ -69,7 +70,7 @@ import Agda.Utils.List
 import Agda.Utils.Maybe
 import Agda.Utils.Monad -- (mapM', forM', ifM, or2M, and2M)
 import Agda.Utils.Null
-import Agda.Utils.Pretty (prettyShow)
+import Agda.Syntax.Common.Pretty (prettyShow)
 import Agda.Utils.Singleton
 import Agda.Utils.Size
 import qualified Agda.Utils.SmallSet as SmallSet
@@ -103,7 +104,7 @@ termDecl' = \case
     A.Field {}            -> return mempty
     A.Primitive {}        -> return mempty
     A.Mutual i ds         -> termMutual $ getNames ds
-    A.Section _ _ _ ds    -> termDecls ds
+    A.Section _ _ _ _ ds  -> termDecls ds
         -- section structure can be ignored as we are termination checking
         -- definitions lifted to the top-level
     A.Apply {}            -> return mempty
@@ -111,6 +112,7 @@ termDecl' = \case
     A.Pragma {}           -> return mempty
     A.Open {}             -> return mempty
     A.PatternSynDef {}    -> return mempty
+    A.UnfoldingDecl{}     -> return mempty
     A.Generalize {}       -> return mempty
         -- open, pattern synonym and generalize defs are just artifacts from the concrete syntax
     A.ScopedDecl scope ds -> {- withScope_ scope $ -} termDecls ds
@@ -133,10 +135,10 @@ termDecl' = \case
     -- The mutual names mentioned in the abstract syntax
     -- for symbols that need to be termination-checked.
     getNames = concatMap getName
-    getName (A.FunDef i x delayed cs)   = [x]
+    getName (A.FunDef i x cs)   = [x]
     getName (A.RecDef _ x _ _ _ _ ds)   = x : getNames ds
     getName (A.Mutual _ ds)             = getNames ds
-    getName (A.Section _ _ _ ds)        = getNames ds
+    getName (A.Section _ _ _ _ ds)      = getNames ds
     getName (A.ScopedDecl _ ds)         = getNames ds
     getName (A.UnquoteDecl _ _ xs _)    = xs
     getName (A.UnquoteDef _ xs _)       = xs
@@ -508,12 +510,11 @@ termDef name = terSetCurrent name $ inConcreteOrAbstractMode name $ \ def -> do
     applyWhenM terGetMaskResult terUnguarded $ do
 
       case theDef def of
-        Function{ funClauses = cls, funDelayed = delayed } ->
-          terSetDelayed delayed $ forM' cls $ \ cl -> do
-            if hasDefP (namedClausePats cl) -- generated hcomp clause, should be safe.
-                                            -- TODO find proper strategy.
-              then return empty
-              else termClause cl
+        Function{ funClauses = cls  } -> forM' cls $ \ cl -> do
+          if hasDefP (namedClausePats cl) -- generated hcomp clause, should be safe.
+                                          -- TODO find proper strategy.
+            then return empty
+            else termClause cl
 
         -- @record R pars : Set where field tel@
         -- is treated like function @R pars = tel@.
@@ -674,6 +675,18 @@ maskNonDataArgs ps = zipWith mask ps <$> terGetMaskArgs
     mask p@ProjP{} _ = Masked False p
     mask p         d = Masked d     p
 
+-- | Drop elements of the list which correspond to arguments forced by
+-- the constructor with the given QName.
+mapForcedArguments :: QName -> [a] -> (IsForced -> a -> Maybe b) -> TerM [b]
+mapForcedArguments c xs k = do
+  forcedArgs <- getForcedArgs c
+  let go xs (p:ps) = do
+        let (f, xs') = nextIsForced xs
+        case k f p of
+          Just b  -> b:go xs' ps
+          Nothing -> go xs' ps
+      go _ [] = []
+  pure $ go forcedArgs xs
 
 -- | Extract recursive calls from one clause.
 termClause :: Clause -> TerM Calls
@@ -701,22 +714,15 @@ termClause clause = do
     parseDotP = \case
       DotP o t -> termToDBP t
       p        -> return p
-    stripCoCon p = case p of
-      ConP (ConHead c _ _ _) _ _ -> do
-        ifM ((Just c ==) <$> terGetSizeSuc) (return p) $ {- else -} do
-        whatInduction c >>= \case
-          Inductive   -> return p
-          CoInductive -> return unusedVar
-      _ -> return p
+    stripCoCon = \case
+      ConP (ConHead c _ CoInductive _) _ _ -> return unusedVar
+      p -> return p
     reportBody :: Term -> TerM ()
     reportBody v = verboseS "term.check.clause" 6 $ do
       f       <- terGetCurrent
-      delayed <- terGetDelayed
       pats    <- terGetPatterns
       liftTCM $ reportSDoc "term.check.clause" 6 $ do
-        sep [ text ("termination checking " ++
-                    (if delayed == Delayed then "delayed " else "") ++
-                    "clause of")
+        sep [ text ("termination checking clause of")
                 <+> prettyTCM f
             , nest 2 $ "lhs:" <+> sep (map prettyTCM pats)
             , nest 2 $ "rhs:" <+> prettyTCM v
@@ -764,14 +770,19 @@ instance ExtractCalls Sort where
       reportSDoc "term.sort" 50 $
         text ("s = " ++ show s)
     case s of
-      Inf f n    -> return empty
+      Inf _ _    -> return empty
       SizeUniv   -> return empty
       LockUniv   -> return empty
+      LevelUniv  -> return empty
       IntervalUniv -> return empty
+<<<<<<< HEAD
       CstrUniv     -> return empty
       Type t     -> terUnguarded $ extract t  -- no guarded levels
       Prop t     -> terUnguarded $ extract t
       SSet t     -> terUnguarded $ extract t
+=======
+      Univ _ t       -> terUnguarded $ extract t  -- no guarded levels
+>>>>>>> prep-2.6.4.2
       PiSort a s1 s2 -> extract (a, s1, s2)
       FunSort s1 s2 -> extract (s1, s2)
       UnivSort s -> extract s
@@ -854,7 +865,6 @@ function g es0 = do
          cutoff <- terGetCutOff
          let ?cutoff = cutoff
 
-         delayed <- terGetDelayed
          -- Andreas, 2017-02-14, issue #2458:
          -- If we have inlined with-functions, we could be illtyped,
          -- hence, do not reduce anything.
@@ -905,7 +915,7 @@ function g es0 = do
                     -- guarding when we call a record and not termination checking a record
            Nothing
              -- only a delayed definition can be guarded
-             | Order.decreasing guarded && delayed == NotDelayed
+             | Order.decreasing guarded
                -> return Order.le
              | otherwise
                -> return guarded
@@ -1225,7 +1235,7 @@ compareProj d d'
           case def of
             Record{ recFields = fs } -> do
               fs <- return $ map unDom fs
-              case (List.find (d==) fs, List.find (d'==) fs) of
+              case (List.find (d ==) fs, List.find (d' ==) fs) of
                 (Just i, Just i')
                   -- earlier field is smaller
                   | i < i'    -> return Order.lt
@@ -1484,7 +1494,13 @@ compareVar i (Masked m p) = do
     ConP s _ [p] | Just (conName s) == suc ->
       setUsability True . decrease 1 <$> compareVar i (notMasked $ namedArg p)
 
-    ConP c _ ps -> if m then no else setUsability True <$> do
+    ConP c pi ps -> if m then no else setUsability True <$> do
+      let
+        dropit Forced _ = Nothing
+        dropit NotForced x = Just x
+      ps <- ifM (optForcedArgumentRecursion <$> pragmaOptions)
+        {- then -} (pure ps)
+        {- else -} (mapForcedArguments (conName c) ps dropit)
       decrease <$> offsetFromConstructor (conName c)
                <*> (Order.supremum <$> mapM (compareVar i . notMasked . namedArg) ps)
     DefP _ c ps -> if m then no else setUsability True <$> do

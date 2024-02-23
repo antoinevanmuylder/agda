@@ -1,5 +1,8 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
+
 module Agda.Utils.IO.Directory
   ( copyDirContent
+  , copyIfChanged
   )
 where
 

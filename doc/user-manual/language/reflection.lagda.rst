@@ -359,6 +359,26 @@ implement pretty printing for reflected terms.
   {-# BUILTIN AGDAERRORPARTTERM   termErr   #-}
   {-# BUILTIN AGDAERRORPARTNAME   nameErr   #-}
 
+Blockers
+~~~~~~~~
+
+A blocker represents a set of metavariables that impedes the progress of
+a reflective computation. Using a blocker containing all the metas in
+(for example) a term traversed by a macro is a lot more efficient than
+blocking on individual metas as they are encountered.
+
+::
+
+  data Blocker : Set where
+    blockerAny  : List Blocker → Blocker
+    blockerAll  : List Blocker → Blocker
+    blockerMeta : Meta → Blocker
+
+  {-# BUILTIN AGDABLOCKER     Blocker #-}
+  {-# BUILTIN AGDABLOCKERANY  blockerAny #-}
+  {-# BUILTIN AGDABLOCKERALL  blockerAll #-}
+  {-# BUILTIN AGDABLOCKERMETA blockerMeta #-}
+
 .. _reflection-tc-monad:
 
 Type checking computations
@@ -387,10 +407,10 @@ following primitive operations::
     -- Throw a type error. Can be caught by catchTC.
     typeError : ∀ {a} {A : Set a} → List ErrorPart → TC A
 
-    -- Block a type checking computation on a metavariable. This will abort
+    -- Block a type checking computation on a blocker. This will abort
     -- the computation and restart it (from the beginning) when the
-    -- metavariable is solved.
-    blockOnMeta : ∀ {a} {A : Set a} → Meta → TC A
+    -- blocker has been solved.
+    blockTC : ∀ {a} {A : Set a} → Blocker → TC A
 
     -- Prevent current solutions of metavariables from being rolled back in
     -- case 'blockOnMeta' is called.
@@ -423,9 +443,10 @@ following primitive operations::
     -- Extend the current context with a variable of the given type and its name.
     extendContext : ∀ {a} {A : Set a} → String → Arg Type → TC A → TC A
 
-    -- Set the current context. Takes a context telescope entries in
-    -- reverse order, as given by `getContext`. Each type should be valid
-    -- in the context formed by the remaining elements in the list.
+    -- Set the current context relative to the context the TC computation
+    -- is invoked from.  Takes a context telescope entries in reverse
+    -- order, as given by `getContext`. Each type should be valid in the
+    -- context formed by the remaining elements in the list.
     inContext : ∀ {a} {A : Set a} → Telescope → TC A → TC A
 
     -- Quote a value, returning the corresponding Term.
@@ -464,19 +485,42 @@ following primitive operations::
     -- 'declareDef' or with an explicit type signature in the program.
     defineFun : Name → List Clause → TC ⊤
 
-    -- Get the type of a defined name. Replaces 'primNameType'.
+    -- Get the type of a defined name relative to the current
+    -- module. Replaces 'primNameType'.
     getType : Name → TC Type
 
-    -- Get the definition of a defined name. Replaces 'primNameDefinition'.
+    -- Get the definition of a defined name relative to the current
+    -- module. Replaces 'primNameDefinition'.
     getDefinition : Name → TC Definition
 
     -- Check if a name refers to a macro
     isMacro : Name → TC Bool
 
+    -- Generate FOREIGN pragma with specified backend and top-level backend-dependent text.
+    pragmaForeign : String → String → TC ⊤
+
+    -- Generate COMPILE pragma with specified backend, associated name and backend-dependent text.
+    pragmaCompile : String → Name → String → TC ⊤
+
     -- Change the behaviour of inferType, checkType, quoteTC, getContext
     -- to normalise (or not) their results. The default behaviour is no
     -- normalisation.
     withNormalisation : ∀ {a} {A : Set a} → Bool → TC A → TC A
+    askNormalisation  : TC Bool
+
+    -- If 'true', makes the following primitives to reconstruct hidden arguments:
+    -- getDefinition, normalise, reduce, inferType, checkType and getContext
+    withReconstructed : ∀ {a} {A : Set a} → Bool → TC A → TC A
+    askReconstructed  : TC Bool
+
+    -- Whether implicit arguments at the end should be turned into metavariables
+    withExpandLast : ∀ {a} {A : Set a} → Bool → TC A → TC A
+    askExpandLast  : TC Bool
+
+    -- White/blacklist specific definitions for reduction while executing the TC computation
+    -- 'true' for whitelist, 'false' for blacklist
+    withReduceDefs : ∀ {a} {A : Set a} → (Σ Bool λ _ → List Name) → TC A → TC A
+    askReduceDefs  : TC (Σ Bool λ _ → List Name)
 
     -- Prints the third argument to the debug buffer in Emacs
     -- if the verbosity level (set by the -v flag to Agda)
@@ -487,16 +531,6 @@ following primitive operations::
 
     -- Return the formatted string of the argument using the internal pretty printer.
     formatErrorParts : List ErrorPart → TC String
-
-    -- Only allow reduction of specific definitions while executing the TC computation
-    onlyReduceDefs : ∀ {a} {A : Set a} → List Name → TC A → TC A
-
-    -- Don't allow reduction of specific definitions while executing the TC computation
-    dontReduceDefs : ∀ {a} {A : Set a} → List Name → TC A → TC A
-
-    -- Makes the following primitives to reconstruct hidden parameters:
-    -- getDefinition, normalise, reduce, inferType, checkType and getContext
-    withReconstructed : ∀ {a} {A : Set a} → TC A → TC A
 
     -- Fail if the given computation gives rise to new, unsolved
     -- "blocking" constraints.
@@ -513,7 +547,7 @@ following primitive operations::
 
   {-# BUILTIN AGDATCMUNIFY                      unify                      #-}
   {-# BUILTIN AGDATCMTYPEERROR                  typeError                  #-}
-  {-# BUILTIN AGDATCMBLOCKONMETA                blockOnMeta                #-}
+  {-# BUILTIN AGDATCMBLOCK                      blockTC                    #-}
   {-# BUILTIN AGDATCMCATCHERROR                 catchTC                    #-}
   {-# BUILTIN AGDATCMINFERTYPE                  inferType                  #-}
   {-# BUILTIN AGDATCMCHECKTYPE                  checkType                  #-}
@@ -536,9 +570,14 @@ following primitive operations::
   {-# BUILTIN AGDATCMCOMMIT                     commitTC                   #-}
   {-# BUILTIN AGDATCMISMACRO                    isMacro                    #-}
   {-# BUILTIN AGDATCMWITHNORMALISATION          withNormalisation          #-}
+  {-# BUILTIN AGDATCMWITHRECONSTRUCTED          withReconstructed          #-}
+  {-# BUILTIN AGDATCMWITHEXPANDLAST             withExpandLast             #-}
+  {-# BUILTIN AGDATCMWITHREDUCEDEFS             withReduceDefs             #-}
+  {-# BUILTIN AGDATCMASKNORMALISATION           askNormalisation           #-}
+  {-# BUILTIN AGDATCMASKRECONSTRUCTED           askReconstructed           #-}
+  {-# BUILTIN AGDATCMASKEXPANDLAST              askExpandLast              #-}
+  {-# BUILTIN AGDATCMASKREDUCEDEFS              askReduceDefs              #-}
   {-# BUILTIN AGDATCMDEBUGPRINT                 debugPrint                 #-}
-  {-# BUILTIN AGDATCMONLYREDUCEDEFS             onlyReduceDefs             #-}
-  {-# BUILTIN AGDATCMDONTREDUCEDEFS             dontReduceDefs             #-}
   {-# BUILTIN AGDATCMNOCONSTRAINTS              noConstraints              #-}
   {-# BUILTIN AGDATCMRUNSPECULATIVE             runSpeculative             #-}
   {-# BUILTIN AGDATCMGETINSTANCES               getInstances               #-}
@@ -782,6 +821,14 @@ Another form of ``unquoteDecl`` is used to declare data types:
 
 ``m`` is a metaprogram required to declare and define a data type ``x`` and
 its constructors ``c₁`` to ``cₙ`` using ``declareData`` and ``defineData``.
+
+.. note::
+   To debug code generated by ``unquoteDecl`` and ``unquoteDef`` it can be useful to
+   turn on the verbosity flags ``-v tc.unquote.decl:10`` (for type signatures) and
+   ``-v tc.unquote.def:10`` (for definition bodies). This will cause the generated code
+   to be printed on stdout when running from the command line or in the debug buffer
+   when loading from an editor.
+   Unlike other verbosity flags, these two are available even if Agda has been built without :option:`debug` facilities enabled.
 
 System Calls
 ~~~~~~~~~~~~

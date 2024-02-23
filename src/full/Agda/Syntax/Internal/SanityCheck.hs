@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
+
 -- | Sanity checking for internal syntax. Mostly checking variable scoping.
 module Agda.Syntax.Internal.SanityCheck where
 
@@ -9,7 +11,7 @@ import Agda.TypeChecking.Free
 import Agda.TypeChecking.Monad
 
 import Agda.Utils.List ( dropEnd, initWithDefault )
-import Agda.Utils.Pretty
+import Agda.Syntax.Common.Pretty
 import Agda.Utils.Size
 import Agda.Utils.Impossible
 
@@ -19,7 +21,7 @@ sanityCheckVars tel v =
   case filter bad (Set.toList $ allFreeVars v) of
     [] -> return ()
     xs -> do
-      reportSDoc "impossible" 1 . return $
+      alwaysReportSDoc "impossible" 1 . return $
         sep [ hang "Sanity check failed for" 2
                    (hang (pretty tel <+> "|-") 2 (pretty v))
             , text $ "out of scope: " ++ show xs ]
@@ -34,31 +36,41 @@ sanityCheckSubst gamma rho delta = go gamma rho delta
   where
     go gamma rho delta =
       case rho of
-        IdS      -> unless (size gamma == size delta) $ err $ "idS:" <+> hang (pretty gamma <+> "/=") 2 (pretty delta)
-        EmptyS _ -> unless (size delta == 0) $ err $ "emptyS:" <+> pretty delta <+> "is not empty"
+
+        IdS      -> do
+          unless (size gamma == size delta) $ err $
+            "idS:" <+> hang (pretty gamma <+> "/=") 2 (pretty delta)
+
+        EmptyS _ -> do
+          unless (null delta) $ err $
+            "emptyS:" <+> pretty delta <+> "is not empty"
+
         v :# rho -> do
-          unless (size delta > 0) $ err $ "consS: empty target"
+          when (null delta) $ err $ "consS: empty target"
           sanityCheckVars gamma v
           sanityCheckSubst gamma rho (dropLast delta)
+
         Strengthen _ n rho -> do
-          unless (size delta >= n) $ err $ "strS: empty target"
+          unless (natSize delta >= toEnum n) $ err $ "strS: empty target"
           sanityCheckSubst gamma rho (dropLastN n delta)
+
         Wk n rho -> do
-          unless (size gamma >= n) $ err $ "wkS:" <+> sep [ "|" <> pretty gamma <> "|"
-                                                               , text $ "< " ++ show n ]
+          unless (natSize gamma >= toEnum n) $ err $
+            "wkS:" <+> sep [ "|" <> pretty gamma <> "|" , text $ "< " ++ show n ]
           sanityCheckSubst (dropLastN n gamma) rho delta
+
         Lift n rho -> do
-          unless (size gamma >= n) $ err $ "liftS: source" <+> sep [ "|" <> pretty gamma <> "|"
-                                                                        , text $ "< " ++ show n ]
-          unless (size delta >= n) $ err $ "liftS: target" <+> sep [ "|" <> pretty delta <> "|"
-                                                                        , text $ "< " ++ show n ]
+          unless (natSize gamma >= toEnum n) $ err $
+            "liftS: source" <+> sep [ "|" <> pretty gamma <> "|" , text $ "< " ++ show n ]
+          unless (natSize delta >= toEnum n) $ err $
+            "liftS: target" <+> sep [ "|" <> pretty delta <> "|" , text $ "< " ++ show n ]
           sanityCheckSubst (dropLastN n gamma) rho (dropLastN n delta)
 
     dropLast = telFromList . initWithDefault __IMPOSSIBLE__ . telToList
     dropLastN n = telFromList . dropEnd n . telToList
 
     err reason = do
-      reportSDoc "impossible" 1 . return $
+      alwaysReportSDoc "impossible" 1 . return $
         sep [ hang "Sanity check failed for" 2 $
               hang (pretty gamma <+> "|-") 2 $
               hang (pretty rho <+> ":") 2 $

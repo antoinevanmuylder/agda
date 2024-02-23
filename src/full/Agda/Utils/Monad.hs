@@ -12,7 +12,7 @@ import Control.Monad          ( MonadPlus(..), guard, unless, when )
 import Control.Monad.Except   ( MonadError(catchError, throwError) )
 import Control.Monad.Identity ( runIdentity )
 import Control.Monad.State    ( MonadState(get, put) )
-import Control.Monad.Writer   ( Writer, WriterT, mapWriterT )
+import Control.Monad.Writer   ( MonadWriter(tell), Writer, WriterT, mapWriterT )
 
 import Data.Bifunctor         ( first, second )
 import Data.Bool              ( bool )
@@ -24,6 +24,7 @@ import Data.Monoid
 import Agda.Utils.Applicative
 import Agda.Utils.Either
 import Agda.Utils.Null (empty, ifNotNullM)
+import Agda.Utils.Singleton
 
 import Agda.Utils.Impossible
 
@@ -138,6 +139,9 @@ forMM_ = flip mapMM_
 
 -- Lists and monads -------------------------------------------------------
 
+concatMapM :: Monad m => (a -> m [b]) -> [a] -> m [b]
+concatMapM f xs = concat <$> Trav.mapM f xs
+
 -- | A monadic version of @'mapMaybe' :: (a -> Maybe b) -> [a] -> [b]@.
 mapMaybeM :: Monad m => (a -> m (Maybe b)) -> [a] -> m [b]
 mapMaybeM f xs = catMaybes <$> Trav.mapM f xs
@@ -238,3 +242,7 @@ localState = bracket_ get put
 
 embedWriter :: (Monoid w, Monad m) => Writer w a -> WriterT w m a
 embedWriter = mapWriterT (pure . runIdentity)
+
+-- | Output a single value.
+tell1 :: (Monoid ws, Singleton w ws, MonadWriter ws m) => w -> m ()
+tell1 = tell . singleton

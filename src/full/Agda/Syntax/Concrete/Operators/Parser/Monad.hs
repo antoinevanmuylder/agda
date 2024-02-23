@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
+
 ------------------------------------------------------------------------
 -- | The parser monad used by the operator parser
 ------------------------------------------------------------------------
@@ -18,9 +20,10 @@ module Agda.Syntax.Concrete.Operators.Parser.Monad
 
 import Data.Hashable
 import GHC.Generics (Generic)
-import Text.PrettyPrint.HughesPJ
 
 import Agda.Syntax.Common
+import Agda.Syntax.Common.Pretty
+
 import qualified Agda.Utils.Parser.MemoisedCPS as Parser
 
 -- | Memoisation keys.
@@ -40,7 +43,7 @@ instance Hashable MemoKey
 -- | The parser monad.
 
 type Parser tok a =
-#ifdef DEBUG
+#ifdef DEBUG_PARSING
   Parser.ParserWithGrammar
 #else
   Parser.Parser

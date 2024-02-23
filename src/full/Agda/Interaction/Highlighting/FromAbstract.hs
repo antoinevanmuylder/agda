@@ -13,7 +13,6 @@ module Agda.Interaction.Highlighting.FromAbstract
 import Prelude hiding (null)
 
 import Control.Applicative
-import Control.Monad         ( (<=<) )
 import Control.Monad.Reader  ( MonadReader(..), asks, Reader, runReader )
 
 import qualified Data.Map      as Map
@@ -40,7 +39,6 @@ import           Agda.Syntax.TopLevelModuleName
 import Agda.TypeChecking.Monad
   hiding (ModuleInfo, MetaInfo, Primitive, Constructor, Record, Function, Datatype)
 
-import           Agda.Utils.FileName
 import           Agda.Utils.Function
 import           Agda.Utils.Functor
 import           Agda.Utils.List                     ( initLast1 )
@@ -48,7 +46,7 @@ import           Agda.Utils.List1                    ( List1 )
 import qualified Agda.Utils.List1          as List1
 import           Agda.Utils.Maybe
 import qualified Agda.Utils.Maybe.Strict   as Strict
-import           Agda.Utils.Pretty
+import           Agda.Syntax.Common.Pretty
 import           Agda.Utils.Singleton
 import           Agda.Utils.Size
 
@@ -103,6 +101,7 @@ class Hilite a where
 instance Hilite a => Hilite [a]
 instance Hilite a => Hilite (List1 a)
 instance Hilite a => Hilite (Maybe a)
+instance Hilite a => Hilite (Ranged a)
 instance Hilite a => Hilite (WithHiding a)
 
 instance Hilite Void where
@@ -203,14 +202,15 @@ instance Hilite A.Declaration where
       A.Field _di x e                        -> hlField x <> hl e
       A.Primitive _di x e                    -> hl x <> hl e
       A.Mutual _mi ds                        -> hl ds
-      A.Section _r x tel ds                  -> hl x <> hl tel <> hl ds
-      A.Apply mi x a _ci dir                 -> hl mi <> hl x <> hl a <> hl dir
+      A.Section _r er x tel ds               -> hl er <> hl x <> hl tel <> hl ds
+      A.Apply mi er x a _ci dir              -> hl mi <> hl er <> hl x <>
+                                                hl a <> hl dir
       A.Import mi x dir                      -> hl mi <> hl x <> hl dir
       A.Open mi x dir                        -> hl mi <> hl x <> hl dir
-      A.FunDef _di x _delayed cs             -> hl x <> hl cs
-      A.DataSig _di x tel e                  -> hl x <> hl tel <> hl e
+      A.FunDef _di x cs                      -> hl x <> hl cs
+      A.DataSig _di er x tel e               -> hl er <> hl x <> hl tel <> hl e
       A.DataDef _di x _uc pars cs            -> hl x <> hl pars <> hl cs
-      A.RecSig _di x tel e                   -> hl x <> hl tel <> hl e
+      A.RecSig _di er x tel e                -> hl er <> hl x <> hl tel <> hl e
       A.RecDef _di x _uc dir bs e ds         -> hl x <> hl dir <> hl bs <> hl e <> hl ds
       A.PatternSynDef x xs p                 -> hl x <> hl xs <> hl p
       A.UnquoteDecl _mi _di xs e             -> hl xs <> hl e
@@ -218,6 +218,7 @@ instance Hilite A.Declaration where
       A.UnquoteData _i xs _uc _j cs e        -> hl xs <> hl cs <> hl e
       A.ScopedDecl s ds                      -> hl ds
       A.Pragma _r pragma                     -> hl pragma
+      A.UnfoldingDecl _r names               -> hl names
     where
     hl      a = hilite a
     hlField x = hiliteField (concreteQualifier x) (concreteBase x) (Just $ bindingSite x)
@@ -352,8 +353,9 @@ instance Hilite A.LetBinding where
   hilite = \case
       A.LetBind    _r ai x t e     -> hl ai <> hl x <> hl t <> hl e
       A.LetPatBind _r p e          -> hl p  <> hl e
-      A.LetApply   mi x es _ci dir -> hl mi <> hl x <> hl es <> hl dir
-      A.LetOpen    mi x dir        -> hl mi <> hl x <> hl dir
+      A.LetApply mi er x es _c dir -> hl mi <> hl er <> hl x <>
+                                      hl es <> hl dir
+      A.LetOpen mi x dir           -> hl mi <> hl x <> hl dir
       A.LetDeclaredVariable x      -> hl x
     where
     hl x = hilite x

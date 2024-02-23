@@ -24,11 +24,11 @@
 .stack-work-*/
 .stack-work/
 .sw[a-p]
-.vscode/settings.json
 .\#*
 /benchmark/Create/hs-import-*
 /benchmark/Create/import-*
 /benchmark/Create/import0-*
+/benchmark/logs
 /examples/**/MAlonzo
 /examples/compiler/main
 /hie.yaml
@@ -56,6 +56,12 @@
 /test/Compiler/with-stdlib/AllStdLib
 /test/Compiler/with-stdlib/agda-rts.js
 /test/Compiler/with-stdlib/highlight-hover.js
+/test/interaction/Issue6261?.out
+/test/Succeed/Issue296
+/test/Succeed/Issue867
+/test/Succeed/Options-in-right-order
+/test/Succeed/WErrorOverride
+/test/Succeed/exec-tc/executables
 agda-ffi/dist
 agda-stdlib
 autom4te.cache

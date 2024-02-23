@@ -7,13 +7,11 @@ module Agda.Utils.Pointer
 import Control.DeepSeq
 import Control.Concurrent.MVar
 
-import Data.Function
+import Data.Function (on)
 import Data.Hashable
 import Data.IORef
 
 import System.IO.Unsafe
-
-import Agda.Utils.Impossible
 
 data Ptr a = Ptr { ptrTag :: !Integer
                  , ptrRef :: !(IORef a) }

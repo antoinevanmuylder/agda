@@ -1,8 +1,7 @@
-
 module Agda.TypeChecking.Unquote where
 
 import Control.Arrow          ( first, second, (&&&) )
-import Control.Monad          ( (<=<), liftM2 )
+import Control.Monad          ( (<=<) )
 import Control.Monad.Except   ( MonadError(..), ExceptT(..), runExceptT )
 import Control.Monad.IO.Class ( MonadIO(..) )
 import Control.Monad.Reader   ( ReaderT(..), runReaderT )
@@ -32,7 +31,7 @@ import Agda.Syntax.Abstract.Views
 import Agda.Syntax.Translation.InternalToAbstract
 import Agda.Syntax.Literal
 import Agda.Syntax.Position
-import Agda.Syntax.Info
+import Agda.Syntax.Info as Info
 import Agda.Syntax.Translation.ReflectedToAbstract
 import Agda.Syntax.Scope.Base (KindOfName(ConName, DataName))
 
@@ -42,7 +41,6 @@ import Agda.Interaction.Options ( optTrustedExecutables, optAllowExec )
 import Agda.TypeChecking.Constraints
 import Agda.TypeChecking.Monad
 import Agda.TypeChecking.Free
-import Agda.TypeChecking.Irrelevance ( workOnTypes )
 import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Substitute
@@ -65,7 +63,7 @@ import Agda.Utils.Lens
 import Agda.Utils.List1 (List1, pattern (:|))
 import qualified Agda.Utils.List1 as List1
 import Agda.Utils.Monad
-import Agda.Utils.Pretty (prettyShow)
+import Agda.Syntax.Common.Pretty (prettyShow)
 import qualified Agda.Interaction.Options.Lenses as Lens
 
 import Agda.Utils.Impossible
@@ -120,8 +118,9 @@ liftU2 f m1 m2 = packUnquoteM $ \ cxt s -> f (unpackUnquoteM m1 cxt s) (unpackUn
 
 inOriginalContext :: UnquoteM a -> UnquoteM a
 inOriginalContext m =
-  packUnquoteM $ \ cxt s ->
-    unsafeModifyContext (const cxt) $ unpackUnquoteM m cxt s
+  packUnquoteM $ \ cxt s -> do
+    n <- getContextSize
+    escapeContext __IMPOSSIBLE__ (n - length cxt) $ unpackUnquoteM m cxt s
 
 isCon :: ConHead -> TCM Term -> UnquoteM Bool
 isCon con tm = do t <- liftTCM tm
@@ -301,12 +300,12 @@ instance PrettyTCM ErrorPart where
 -- | We do a little bit of work here to make it possible to generate nice
 --   layout for multi-line error messages. Specifically we split the parts
 --   into lines (indicated by \n in a string part) and vcat all the lines.
-prettyErrorParts :: [ErrorPart] -> TCM Doc
-prettyErrorParts = vcat . map (hcat . map prettyTCM) . splitLines
+renderErrorParts :: [ErrorPart] -> TCM Doc
+renderErrorParts = vcat . map (hcat . map prettyTCM) . splitLines
   where
     splitLines [] = []
     splitLines (StrPart s : ss) =
-      case break (=='\n') s of
+      case break (== '\n') s of
         (s0, '\n' : s1) -> [StrPart s0] : splitLines (StrPart s1 : ss)
         (s0, "")        -> consLine (StrPart s0) (splitLines ss)
         _               -> __IMPOSSIBLE__
@@ -413,6 +412,19 @@ instance Unquote a => Unquote (R.Abs a) where
 
     where hint x | not (null x) = x
                  | otherwise    = "_"
+
+instance Unquote Blocker where
+  unquote t = do
+    t <- reduceQuotedTerm t
+    case t of
+      Con c _ es | Just [x] <- allApplyElims es ->
+        choice
+          [ (c `isCon` primAgdaBlockerAny, UnblockOnAny . Set.fromList <$> unquoteN x)
+          , (c `isCon` primAgdaBlockerAll, UnblockOnAll . Set.fromList <$> unquoteN x)
+          , (c `isCon` primAgdaBlockerMeta, UnblockOnMeta <$> unquoteN x)]
+          __IMPOSSIBLE__
+      Con c _ _ -> __IMPOSSIBLE__
+      _ -> throwError $ NonCanonical "blocker" t
 
 instance Unquote MetaId where
   unquote t = do
@@ -565,6 +577,10 @@ evalTCM v = do
     I.Def f [] ->
       choice [ (f `isDef` primAgdaTCMGetContext,       tcGetContext)
              , (f `isDef` primAgdaTCMCommit,           tcCommit)
+             , (f `isDef` primAgdaTCMAskNormalisation, tcAskNormalisation)
+             , (f `isDef` primAgdaTCMAskReconstructed, tcAskReconstructed)
+             , (f `isDef` primAgdaTCMAskExpandLast,    tcAskExpandLast)
+             , (f `isDef` primAgdaTCMAskReduceDefs,    tcAskReduceDefs)
              ]
              failEval
     I.Def f [u] ->
@@ -586,29 +602,31 @@ evalTCM v = do
              , (f `isDef` primAgdaTCMDeclarePostulate, uqFun2 tcDeclarePostulate u v)
              , (f `isDef` primAgdaTCMDefineData, uqFun2 tcDefineData u v)
              , (f `isDef` primAgdaTCMDefineFun,  uqFun2 tcDefineFun  u v)
-             , (f `isDef` primAgdaTCMQuoteOmegaTerm, tcQuoteTerm (sort $ Inf IsFibrant 0) (unElim v))
+             , (f `isDef` primAgdaTCMQuoteOmegaTerm, tcQuoteTerm (sort $ Inf UType 0) (unElim v))
+             , (f `isDef` primAgdaTCMPragmaForeign, tcFun2 tcPragmaForeign u v)
              ]
              failEval
     I.Def f [l, a, u] ->
-      choice [ (f `isDef` primAgdaTCMReturn,      return (unElim u))
-             , (f `isDef` primAgdaTCMTypeError,   tcFun1 tcTypeError   u)
-             , (f `isDef` primAgdaTCMQuoteTerm,   tcQuoteTerm (mkT (unElim l) (unElim a)) (unElim u))
-             , (f `isDef` primAgdaTCMUnquoteTerm, tcFun1 (tcUnquoteTerm (mkT (unElim l) (unElim a))) u)
-             , (f `isDef` primAgdaTCMBlockOnMeta, uqFun1 tcBlockOnMeta u)
-             , (f `isDef` primAgdaTCMDebugPrint,  tcFun3 tcDebugPrint l a u)
-             , (f `isDef` primAgdaTCMNoConstraints, tcNoConstraints (unElim u))
-             , (f `isDef` primAgdaTCMWithReconsParams, tcWithReconsParams (unElim u))
+      choice [ (f `isDef` primAgdaTCMReturn,             return (unElim u))
+             , (f `isDef` primAgdaTCMTypeError,          tcFun1 tcTypeError   u)
+             , (f `isDef` primAgdaTCMQuoteTerm,          tcQuoteTerm (mkT (unElim l) (unElim a)) (unElim u))
+             , (f `isDef` primAgdaTCMUnquoteTerm,        tcFun1 (tcUnquoteTerm (mkT (unElim l) (unElim a))) u)
+             , (f `isDef` primAgdaTCMBlock,              uqFun1 tcBlock u)
+             , (f `isDef` primAgdaTCMDebugPrint,         tcFun3 tcDebugPrint l a u)
+             , (f `isDef` primAgdaTCMNoConstraints,      tcNoConstraints (unElim u))
              , (f `isDef` primAgdaTCMDeclareData, uqFun3 tcDeclareData l a u)
-             , (f `isDef` primAgdaTCMRunSpeculative, tcRunSpeculative (unElim u))
+             , (f `isDef` primAgdaTCMRunSpeculative,     tcRunSpeculative (unElim u))
              , (f `isDef` primAgdaTCMExec, tcFun3 tcExec l a u)
+             , (f `isDef` primAgdaTCMPragmaCompile, tcFun3 tcPragmaCompile l a u)
              ]
              failEval
     I.Def f [_, _, u, v] ->
-      choice [ (f `isDef` primAgdaTCMCatchError,    tcCatchError    (unElim u) (unElim v))
+      choice [ (f `isDef` primAgdaTCMCatchError,        tcCatchError    (unElim u) (unElim v))
              , (f `isDef` primAgdaTCMWithNormalisation, tcWithNormalisation (unElim u) (unElim v))
-             , (f `isDef` primAgdaTCMInContext,     tcInContext     (unElim u) (unElim v))
-             , (f `isDef` primAgdaTCMOnlyReduceDefs, tcOnlyReduceDefs (unElim u) (unElim v))
-             , (f `isDef` primAgdaTCMDontReduceDefs, tcDontReduceDefs (unElim u) (unElim v))
+             , (f `isDef` primAgdaTCMWithReconstructed, tcWithReconstructed (unElim u) (unElim v))
+             , (f `isDef` primAgdaTCMWithExpandLast,    tcWithExpandLast (unElim u) (unElim v))
+             , (f `isDef` primAgdaTCMWithReduceDefs,    tcWithReduceDefs (unElim u) (unElim v))
+             , (f `isDef` primAgdaTCMInContext,         tcInContext     (unElim u) (unElim v))
              ]
              failEval
     I.Def f [_, _, u, v, w] ->
@@ -637,22 +655,25 @@ evalTCM v = do
     tcCatchError m h =
       liftU2 (\ m1 m2 -> m1 `catchError` \ _ -> m2) (evalTCM m) (evalTCM h)
 
-    tcWithNormalisation :: Term -> Term -> UnquoteM Term
-    tcWithNormalisation b m = do
+    tcAskLens :: ToTerm a => Lens' TCEnv a -> UnquoteM Term
+    tcAskLens l = liftTCM (toTerm <*> asksTC (\ e -> e ^. l))
+
+    tcWithLens :: Unquote a => Lens' TCEnv a -> Term -> Term -> UnquoteM Term
+    tcWithLens l b m = do
       v <- unquote b
-      liftU1 (locallyTC eUnquoteNormalise $ const v) (evalTCM m)
+      liftU1 (locallyTC l $ const v) (evalTCM m)
 
-    tcOnlyReduceDefs = tcDoReduceDefs OnlyReduceDefs
-    tcDontReduceDefs = tcDoReduceDefs DontReduceDefs
+    tcWithNormalisation, tcWithReconstructed, tcWithExpandLast, tcWithReduceDefs :: Term -> Term -> UnquoteM Term
+    tcWithNormalisation = tcWithLens eUnquoteNormalise
+    tcWithReconstructed = tcWithLens eReconstructed
+    tcWithExpandLast    = tcWithLens eExpandLastBool
+    tcWithReduceDefs    = tcWithLens eReduceDefsPair
 
-    tcWithReconsParams :: Term -> UnquoteM Term
-    tcWithReconsParams m = liftU1 locallyReconstructed $ evalTCM m
-
-    tcDoReduceDefs :: (Set QName -> ReduceDefs) -> Term -> Term -> UnquoteM Term
-    tcDoReduceDefs reduceDefs v m = do
-      qs <- unquote v
-      let defs = reduceDefs $ Set.fromList qs
-      liftU1 (locallyTC eReduceDefs (<> defs)) (evalTCM m)
+    tcAskNormalisation, tcAskReconstructed, tcAskExpandLast, tcAskReduceDefs :: UnquoteM Term
+    tcAskNormalisation = tcAskLens eUnquoteNormalise
+    tcAskReconstructed = tcAskLens eReconstructed
+    tcAskExpandLast    = tcAskLens eExpandLastBool
+    tcAskReduceDefs    = tcAskLens eReduceDefsPair
 
     uqFun1 :: Unquote a => (a -> UnquoteM b) -> Elim -> UnquoteM b
     uqFun1 fun a = do
@@ -695,10 +716,11 @@ evalTCM v = do
       equalTerm a u v
       primUnitUnit
 
-    tcBlockOnMeta :: MetaId -> UnquoteM Term
-    tcBlockOnMeta x = do
+    tcBlock :: Blocker -> UnquoteM Term
+    tcBlock x = do
       s <- gets snd
-      throwError (BlockedOnMeta s $ unblockOnMeta x)
+      liftTCM $ reportSDoc "tc.unquote.block" 10 $ pretty (show x)
+      throwError (BlockedOnMeta s x)
 
     tcCommit :: UnquoteM Term
     tcCommit = do
@@ -710,14 +732,14 @@ evalTCM v = do
       liftTCM primUnitUnit
 
     tcFormatErrorParts :: [ErrorPart] -> TCM Term
-    tcFormatErrorParts msg = quoteString . prettyShow <$> prettyErrorParts msg
+    tcFormatErrorParts msg = quoteString . prettyShow <$> renderErrorParts msg
 
     tcTypeError :: [ErrorPart] -> TCM a
-    tcTypeError err = typeError . GenericDocError =<< prettyErrorParts err
+    tcTypeError err = typeError . GenericDocError =<< renderErrorParts err
 
     tcDebugPrint :: Text -> Integer -> [ErrorPart] -> TCM Term
     tcDebugPrint s n msg = do
-      reportSDoc (T.unpack s) (fromIntegral n) $ prettyErrorParts msg
+      alwaysReportSDoc (T.unpack s) (fromIntegral n) $ renderErrorParts msg
       primUnitUnit
 
     tcNoConstraints :: Term -> UnquoteM Term
@@ -832,7 +854,7 @@ evalTCM v = do
     tcInContext :: Term -> Term -> UnquoteM Term
     tcInContext c m = do
       c <- unquote c
-      liftU1 unsafeInTopContext $ go c (evalTCM m)
+      inOriginalContext $ go c (evalTCM m)
       where
         go :: [(Text , Arg R.Type)] -> UnquoteM Term -> UnquoteM Term
         go []             m = m
@@ -845,7 +867,7 @@ evalTCM v = do
     tcGetType :: QName -> TCM Term
     tcGetType x = do
       r  <- isReconstructed
-      ci <- constInfo x
+      ci <- constInfo x >>= instantiateDef
       let t = defType ci
       if r then do
         t <- locallyReduceAllDefs $ reconstructParametersInType t
@@ -868,11 +890,11 @@ evalTCM v = do
       if r then
         tcGetDefinitionRecons x
       else
-        quoteDefn =<< constInfo x
+        quoteDefn =<< instantiateDef =<< constInfo x
 
     tcGetDefinitionRecons :: QName -> TCM Term
     tcGetDefinitionRecons x = do
-      ci@(Defn {theDef=d}) <- constInfo x
+      ci@(Defn {theDef=d}) <- constInfo x >>= instantiateDef
       case d of
         f@(Function {funClauses=cs}) -> do
           cs' <- mapM reconsClause cs
@@ -916,14 +938,14 @@ evalTCM v = do
         "Cannot declare hidden function" <+> prettyTCM x
       tell [x]
       liftTCM $ do
-        reportSDoc "tc.unquote.decl" 10 $ sep
+        alwaysReportSDoc "tc.unquote.decl" 10 $ sep
           [ "declare" <+> prettyTCM x <+> ":"
           , nest 2 $ prettyR a
           ]
         a <- locallyReduceAllDefs $ isType_ =<< toAbstract_ a
         alreadyDefined <- isRight <$> getConstInfo' x
         when alreadyDefined $ genericError $ "Multiple declarations of " ++ prettyShow x
-        addConstant' x i x a emptyFunction
+        addConstant' x i x a =<< emptyFunction
         when (isInstance i) $ addTypedInstance x a
         primUnitUnit
 
@@ -937,7 +959,7 @@ evalTCM v = do
         "Cannot declare hidden function" <+> prettyTCM x
       tell [x]
       liftTCM $ do
-        reportSDoc "tc.unquote.decl" 10 $ sep
+        alwaysReportSDoc "tc.unquote.decl" 10 $ sep
           [ "declare Postulate" <+> prettyTCM x <+> ":"
           , nest 2 $ prettyR a
           ]
@@ -955,7 +977,7 @@ evalTCM v = do
       setDirty
       tell [x]
       liftTCM $ do
-        reportSDoc "tc.unquote.decl" 10 $ sep
+        alwaysReportSDoc "tc.unquote.decl" 10 $ sep
           [ "declare Data" <+> prettyTCM x <+> ":"
           , nest 2 $ prettyR t
           ]
@@ -966,7 +988,8 @@ evalTCM v = do
         let (tel, e') = splitPars (fromInteger npars) e
         ac <- asksTC (^. lensIsAbstract)
         let defIn = mkDefInfo (nameConcrete $ qnameName x) noFixity' PublicAccess ac noRange
-        checkSig DataName defIn x (A.GeneralizeTel Map.empty tel) e'
+        checkSig DataName defIn defaultErased x
+          (A.GeneralizeTel Map.empty tel) e'
         primUnitUnit
 
     tcDefineData :: QName -> [(QName, R.Type)] -> UnquoteM Term
@@ -982,7 +1005,7 @@ evalTCM v = do
         -- `addContext` before `toAbstract_` is different from substituting the type after
         -- `toAbstract_, so some dummy parameters are added and removed later.
         es <- mapM (toAbstract_ . addDummy npars . snd) cs
-        reportSDoc "tc.unquote.def" 10 $ vcat $
+        alwaysReportSDoc "tc.unquote.def" 10 $ vcat $
           [ "declaring constructors of" <+> prettyTCM x <+> ":" ] ++ map prettyA es
 
         -- Translate parameters from internal definitions back to abstract syntax.
@@ -1000,7 +1023,7 @@ evalTCM v = do
             as = zipWith toAxiom conNames es'
             lams = map (\case {A.TBind _ tac (b :| []) _ -> A.DomainFree (tbTacticAttr tac) b
                               ;_ -> __IMPOSSIBLE__ }) tel
-        reportSDoc "tc.unquote.def" 10 $ vcat $
+        alwaysReportSDoc "tc.unquote.def" 10 $ vcat $
           [ "checking datatype: " <+> prettyTCM x <+> " with constructors:"
           , nest 2 (vcat (map prettyTCM conNames))
           ]
@@ -1033,11 +1056,25 @@ evalTCM v = do
       whenM (isLeft <$> getConstInfo' x) $
         genericError $ "Missing declaration for " ++ prettyShow x
       cs <- mapM (toAbstract_ . QNamed x) cs
-      reportSDoc "tc.unquote.def" 10 $ vcat $ map prettyA cs
+      alwaysReportSDoc "tc.unquote.def" 10 $ vcat $ map prettyA cs
       let accessDontCare = __IMPOSSIBLE__  -- or ConcreteDef, value not looked at
       ac <- asksTC (^. lensIsAbstract)     -- Issue #4012, respect AbstractMode
-      let i = mkDefInfo (nameConcrete $ qnameName x) noFixity' accessDontCare ac noRange
-      locallyReduceAllDefs $ checkFunDef NotDelayed i x cs
+      oc <- asksTC (^. lensIsOpaque)       -- Issue #6959, respect current opaque block
+      let
+        i' = mkDefInfo (nameConcrete $ qnameName x) noFixity' accessDontCare ac noRange
+        i = i' { Info.defOpaque = oc }
+      locallyReduceAllDefs $ checkFunDef i x cs
+      primUnitUnit
+
+    tcPragmaForeign :: Text -> Text -> TCM Term
+    tcPragmaForeign backend code = do
+      addForeignCode (T.unpack backend) (T.unpack code)
+      primUnitUnit
+
+    tcPragmaCompile :: Text -> QName -> Text -> TCM Term
+    tcPragmaCompile backend name code = do
+      modifySignature $ updateDefinition name $
+        addCompilerPragma (T.unpack backend) $ CompilerPragma noRange (T.unpack code)
       primUnitUnit
 
     tcRunSpeculative :: Term -> UnquoteM Term

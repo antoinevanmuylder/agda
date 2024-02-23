@@ -1,8 +1,4 @@
-
 module Agda.TypeChecking.Pretty where
-
-import Control.Monad.Reader (ReaderT)
-import Control.Monad.State  (StateT)
 
 import Data.String (IsString)
 import Data.Semigroup (Semigroup)
@@ -11,16 +7,12 @@ import Agda.Syntax.Common (NameId)
 import Agda.Syntax.Internal
 
 import Agda.TypeChecking.Monad.Base
-import {-# SOURCE #-} Agda.TypeChecking.Monad.Builtin
-import {-# SOURCE #-} Agda.TypeChecking.Monad.Context (MonadAddContext)
-import Agda.TypeChecking.Monad.Debug (MonadDebug)
 import {-# SOURCE #-} Agda.TypeChecking.Monad.MetaVars (MonadInteractionPoints)
 import {-# SOURCE #-} Agda.TypeChecking.Monad.Pure (PureTCM)
-import {-# SOURCE #-} Agda.TypeChecking.Monad.Signature (HasConstInfo)
 
 import Agda.Utils.Null (Null)
-import Agda.Utils.Pretty (Doc)
-import qualified Agda.Utils.Pretty as P
+import Agda.Syntax.Common.Pretty (Doc)
+import qualified Agda.Syntax.Common.Pretty as P
 
 
 text                  :: Applicative m => String -> m Doc
@@ -30,6 +22,7 @@ hang                  :: Applicative m => m Doc -> Int -> m Doc -> m Doc
 nest                  :: Functor m => Int -> m Doc -> m Doc
 pretty                :: (Applicative m, P.Pretty a) => a -> m Doc
 prettyList_           :: (Applicative m, Semigroup (m Doc), Foldable t) => t (m Doc) -> m Doc
+pwords                :: Applicative m => String -> [m Doc]
 
 -- The definition of MonadAbsToCon is inlined so that the module
 -- Agda.Syntax.Translation.AbstractToConcrete does not need to be

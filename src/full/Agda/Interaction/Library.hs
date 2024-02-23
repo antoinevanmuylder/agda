@@ -20,6 +20,7 @@
 --
 module Agda.Interaction.Library
   ( findProjectRoot
+  , getAgdaAppDir
   , getDefaultLibraries
   , getInstalledLibraries
   , getTrustedExecutables
@@ -27,6 +28,7 @@ module Agda.Interaction.Library
   , getAgdaLibFiles'
   , getPrimitiveLibDir
   , LibName
+  , OptionsPragma(..)
   , AgdaLibFile(..)
   , ExeName
   , LibM
@@ -45,32 +47,30 @@ import qualified Control.Exception as E
 import Control.Monad          ( filterM, forM )
 import Control.Monad.Except
 import Control.Monad.State
-import Control.Monad.Writer   ( Writer, runWriter, WriterT(WriterT), runWriterT, tell )
+import Control.Monad.Writer   ( Writer, runWriterT, tell )
 import Control.Monad.IO.Class ( MonadIO(..) )
 
 import Data.Char
 import Data.Either
-import Data.Function
+import Data.Function (on)
 import Data.Map ( Map )
 import qualified Data.Map as Map
-import Data.Maybe ( catMaybes, fromMaybe )
 import qualified Data.List as List
 import qualified Data.Text as T
 
 import System.Directory
 import System.FilePath
 import System.Environment
-import Text.Printf
 
 import Agda.Interaction.Library.Base
 import Agda.Interaction.Library.Parse
-import Agda.Interaction.Options.Warnings
 
 import Agda.Utils.Environment
 import Agda.Utils.FileName
 import Agda.Utils.Functor ( (<&>) )
 import Agda.Utils.IO ( catchIO )
 import qualified Agda.Utils.IO.UTF8 as UTF8
+import Agda.Utils.Lens
 import Agda.Utils.List
 import Agda.Utils.List1             ( List1, pattern (:|) )
 import Agda.Utils.List2             ( List2 )
@@ -78,9 +78,10 @@ import qualified Agda.Utils.List1   as List1
 import qualified Agda.Utils.List2   as List2
 import Agda.Utils.Maybe
 import Agda.Utils.Monad
-import Agda.Utils.Pretty
+import Agda.Syntax.Common.Pretty
 import Agda.Utils.Singleton
 import Agda.Utils.String ( trim )
+import Agda.Utils.Tuple ( mapSndM )
 
 import Agda.Version
 
@@ -126,7 +127,10 @@ mkLibM libs m = do
 getAgdaAppDir :: IO FilePath
 getAgdaAppDir = do
   -- System-specific command to build the path to ~/.agda (Unix) or %APPDATA%\agda (Win)
-  let agdaDir = getAppUserDataDirectory "agda"
+  let agdaDir = getAppUserDataDirectory "agda" >>= \legacyAgdaDir ->
+        ifM (doesDirectoryExist legacyAgdaDir)
+            (pure legacyAgdaDir)
+            (getXdgDirectory XdgConfig "agda")
   -- The default can be overwritten by setting the AGDA_DIR environment variable
   caseMaybeM (lookupEnv "AGDA_DIR") agdaDir $ \ dir ->
       ifM (doesDirectoryExist dir) (canonicalizePath dir) $ do
@@ -190,16 +194,25 @@ findProjectConfig' root = do
   getCachedProjectConfig root >>= \case
     Just conf -> return conf
     Nothing   -> do
-      libFiles <- liftIO $ filter ((== ".agda-lib") . takeExtension) <$> getDirectoryContents root
+      libFiles <- liftIO $ getDirectoryContents root >>=
+        filterM (\file -> and2M
+          (pure $ takeExtension file == ".agda-lib")
+          (doesFileExist (root </> file)))
       case libFiles of
         []     -> liftIO (upPath root) >>= \case
           Just up -> do
             conf <- findProjectConfig' up
+            conf <- return $ case conf of
+                  DefaultProjectConfig{} -> conf
+                  ProjectConfig{..}      ->
+                    ProjectConfig{ configAbove = configAbove + 1
+                                 , ..
+                                 }
             storeCachedProjectConfig root conf
             return conf
           Nothing -> return DefaultProjectConfig
         files -> do
-          let conf = ProjectConfig root files
+          let conf = ProjectConfig root files 0
           storeCachedProjectConfig root conf
           return conf
 
@@ -227,15 +240,17 @@ findProjectConfig' root = do
 
 findProjectRoot :: FilePath -> LibM (Maybe FilePath)
 findProjectRoot root = findProjectConfig root <&> \case
-  ProjectConfig p _    -> Just p
+  ProjectConfig p _ _  -> Just p
   DefaultProjectConfig -> Nothing
 
 
 -- | Get the contents of @.agda-lib@ files in the given project root.
 getAgdaLibFiles' :: FilePath -> LibErrorIO [AgdaLibFile]
 getAgdaLibFiles' path = findProjectConfig' path >>= \case
-  DefaultProjectConfig    -> return []
-  ProjectConfig root libs -> parseLibFiles Nothing $ map ((0,) . (root </>)) libs
+  DefaultProjectConfig          -> return []
+  ProjectConfig root libs above ->
+    map (set libAbove above) <$>
+    parseLibFiles Nothing (map ((0,) . (root </>)) libs)
 
 -- | Get dependencies and include paths for given project root:
 --
@@ -384,9 +399,8 @@ getTrustedExecutables = mkLibM [] $ do
     file <- liftIO getExecutablesFile
     if not (efExists file) then return Map.empty else do
       es    <- liftIO $ stripCommentLines <$> UTF8.readFile (efPath file)
-      files <- liftIO $ sequence [ (i, ) <$> expandEnvironmentVariables s | (i, s) <- es ]
-      tmp   <- parseExecutablesFile file $ nubOn snd files
-      return tmp
+      lines <- liftIO $ mapM (mapSndM expandEnvironmentVariables) es
+      parseExecutablesFile file lines
   `catchIO` \ e -> do
     raiseErrors' [ ReadError e "Failed to read trusted executables." ]
     return Map.empty
@@ -404,21 +418,21 @@ parseExecutablesFile ef files = do
     let strExeName' = fromMaybe strExeName $ stripExtension exeExtension strExeName
     let txtExeName  = T.pack strExeName'
     exePath <- liftIO $ makeAbsolute fp
-    return (txtExeName, exePath)
+    return (txtExeName, (ln, exePath))
 
   -- Create a map from executable names to their location(s).
-  let exeMap1 :: Map ExeName (List1 FilePath)
-      exeMap1 = Map.fromListWith (<>) $ map (second singleton) executables
+  let exeMap1 :: Map ExeName (List1 (LineNumber, FilePath))
+      exeMap1 = Map.fromListWith (<>) $ map (second singleton) $ reverse executables
 
   -- Separate non-ambiguous from ambiguous mappings.
   let (exeMap, duplicates) = Map.mapEither List2.fromList1Either exeMap1
 
-  -- Report ambiguous mappings.
+  -- Report ambiguous mappings with line numbers.
   List1.unlessNull (Map.toList duplicates) $ \ duplicates1 ->
     raiseErrors' $ fmap (uncurry $ DuplicateExecutable $ efPath ef) duplicates1
 
-  -- Return non-ambiguous mappings.
-  return exeMap
+  -- Return non-ambiguous mappings without line numbers.
+  return $ fmap snd exeMap
 
 ------------------------------------------------------------------------
 -- * Resolving library names to include pathes

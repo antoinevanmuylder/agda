@@ -1,3 +1,115 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
+
+{-|
+
+This module implements the type checking part of generalisable variables. When we get here we have
+a type checking problem for a type (or telescope) containing a known set of generalisable variables
+and we need to produce a well typed type (or telescope) with the correct generalisations. For instance,
+given
+
+@
+variable
+  A  : Set
+  n  : Nat
+  xs : Vec A n
+
+foo : SomeType xs
+@
+
+generalisation should produce @{A : Set} {n : Nat} {xs : Vec A n} → SomeType xs@ for the type of
+@foo@.
+
+The functions `generalizeType` and `generalizeTelescope` don't have access to the abstract syntax to
+be type checked (@SomeType xs@ in the example). Instead they are provided a type checking action
+that delivers a `Type` or a `Telescope`. The challenge is setting up a context in which @SomeType
+xs@ can be type checked successfully by this action, without knowing what the telescope of
+generalised variables will be. Once we have computed this telescope the result needs to be
+transformed into a well typed type abstracted over it.
+
+__At no point are we allowed to cheat!__ Any transformation between well typed terms needs to be done
+by well typed substitutions.
+
+The key idea is to run the type checking action in the context of a single variable of an unknown
+type. Once we know what variables to generalise over this type is instantiated to a fresh record
+type with a field for each generalised variable. Turning the result of action into something valid
+in the context of the generalised variables is then a simple substitution unpacking the record
+variable.
+
+In more detail, generalisation proceeds as follows:
+
+- Add a variable @genTel@ of an unknown type to the context (`withGenRecVar`).
+
+@
+  (genTel : _GenTel)
+@
+
+- Create metavariables for the generalisable variables appearing in the problem and their
+  dependencies (`createGenValues`). In the example this would be
+
+@
+  (genTel : _GenTel) ⊢
+    _A  : Set
+    _n  : Nat
+    _xs : Vec _A _n
+@
+
+- Run the type checking action (`createMetasAndTypeCheck`), binding the mentioned generalisable
+  variables to the corresponding newly created metavariables. This binding is stored in
+  `eGeneralizedVars` and picked up in `Agda.TypeChecking.Rules.Application.inferDef`
+
+@
+  (genTel : _GenTel) ⊢ SomeType (_xs genTel)
+@
+
+- Compute the telescope of generalised variables (`computeGeneralization`). This is done by taking
+  the unconstrained metavariables created by `createGenValues` or created during the type checking
+  action and sorting them into a well formed telescope.
+
+@
+  {A : Set} {n : Nat} {xs : Vec A n}
+@
+
+- Create a record type @GeneralizeTel@ whose fields are the generalised variables and instantiate
+  the type of @genTel@ to it (`createGenRecordType`).
+
+@
+  record GeneralizeTel : Set₁ where
+    constructor mkGeneralizeTel
+    field
+      A  : Set
+      n  : Nat
+      xs : Vec A n
+@
+
+- Solve the metavariables with their corresponding projections from @genTel@.
+
+@
+  _A  := λ genTel → genTel .A
+  _n  := λ genTel → genTel .n
+  _xs := λ genTel → genTel .xs
+@
+
+- Build the unpacking substitution (`unpackSub`) that maps terms in @(genTel : GeneralizeTel)@ to
+  terms in the context of the generalised variables by substituting a record value for @genTel@.
+
+@
+  {A : Set} {n : Nat} {xs : Vec A n} ⊢ [mkGeneralizeTel A n xs / genTel] : (genTel : GeneralizeTel)
+@
+
+- Build the final result by applying the unpacking substitution to the result of the type checking
+  action and abstracting over the generalised telescope.
+
+@
+  {A : Set} {n : Nat} {xs : Vec A n} → SomeType (_xs (mkGeneralizeTel A n xs)) ==
+  {A : Set} {n : Nat} {xs : Vec A n} → SomeType xs
+@
+
+- In case of `generalizeType` return the resulting pi type.
+- In case of `generalizeTelescope` enter the resulting context, applying the unpacking substitution
+  to let bindings (TODO #6916: and also module applications!) created in the telescope, and call the
+  continuation.
+
+-}
 
 module Agda.TypeChecking.Generalize
   ( generalizeType
@@ -6,7 +118,7 @@ module Agda.TypeChecking.Generalize
 
 import Prelude hiding (null)
 
-import Control.Arrow (first)
+import Control.Arrow ((&&&), first)
 import Control.Monad
 import Control.Monad.Except
 
@@ -20,7 +132,10 @@ import Data.List (partition, sortBy)
 import Data.Monoid
 import Data.Function (on)
 
+import Agda.Interaction.Options.Base
+
 import Agda.Syntax.Common
+import Agda.Syntax.Common.Pretty (prettyShow, singPlural)
 import Agda.Syntax.Concrete.Name (LensInScope(..))
 import Agda.Syntax.Position
 import Agda.Syntax.Internal
@@ -32,7 +147,6 @@ import Agda.TypeChecking.Monad
 import Agda.TypeChecking.Constraints
 import Agda.TypeChecking.Conversion
 import Agda.TypeChecking.Free
-import Agda.TypeChecking.Irrelevance
 import Agda.TypeChecking.InstanceArguments (postponeInstanceConstraints)
 import Agda.TypeChecking.MetaVars
 import Agda.TypeChecking.Pretty
@@ -53,8 +167,6 @@ import Agda.Utils.Monad
 import Agda.Utils.Null
 import Agda.Utils.Size
 import Agda.Utils.Permutation
-import Agda.Utils.Pretty (prettyShow)
-import Agda.Utils.Tuple
 
 -- | Generalize a telescope over a set of generalizable variables.
 generalizeTelescope :: Map QName Name -> (forall a. (Telescope -> TCM a) -> TCM a) -> ([Maybe Name] -> Telescope -> TCM a) -> TCM a
@@ -66,6 +178,10 @@ generalizeTelescope vars typecheckAction ret = billTo [Typing, Generalize] $ wit
       cxt <- take (size tel) <$> getContext
       lbs <- getLetBindings -- This gives let-bindings valid in the current context
       return (map (fst . unDom) cxt, tel, lbs)
+
+  reportSDoc "tc.generalize.metas" 60 $ vcat
+    [ "open metas =" <+> (text . show . fmap ((miNameSuggestion &&& miGeneralizable) . mvInfo)) (openMetas $ allmetas)
+    ]
   -- Translate the QName to the corresponding bound variable
   (genTel, genTelNames, sub) <- computeGeneralization genRecMeta namedMetas allmetas
 
@@ -98,8 +214,10 @@ generalizeTelescope vars typecheckAction ret = billTo [Typing, Generalize] $ wit
   -- And we shouldn't forget about the let-bindings (#3470)
   --   Γ (r : R) Θ ⊢ letbinds
   --   Γ Δ Θρ      ⊢ letbinds' = letbinds(lift |Θ| ρ)
+  -- And modules created in the telescope (#6916)
+  --   TODO
   letbinds' <- applySubst (liftS (size tel) sub) <$> instantiateFull letbinds
-  let addLet (x, (v, dom)) = addLetBinding' x v dom
+  let addLet (x, LetBinding o v dom) = addLetBinding' o x v dom
 
   updateContext sub ((genTelCxt ++) . drop 1) $
     updateContext (raiseS (size tel')) (newTelCxt ++) $
@@ -117,6 +235,11 @@ generalizeType' :: Set QName -> TCM (Type, a) -> TCM ([Maybe QName], Type, a)
 generalizeType' s typecheckAction = billTo [Typing, Generalize] $ withGenRecVar $ \ genRecMeta -> do
 
   ((t, userdata), namedMetas, allmetas) <- createMetasAndTypeCheck s typecheckAction
+
+  reportSDoc "tc.generalize.metas" 60 $ vcat
+    [ "open metas =" <+> (text . show . fmap ((miNameSuggestion &&& miGeneralizable) . mvInfo)) (openMetas $ allmetas)
+    ]
+
   (genTel, genTelNames, sub) <- computeGeneralization genRecMeta namedMetas allmetas
 
   t' <- abstract genTel . applySubst sub <$> instantiateFull t
@@ -174,7 +297,8 @@ computeGeneralization genRecMeta nameMap allmetas = postponeInstanceConstraints 
   reportSDoc "tc.generalize" 10 $ "computing generalization for type" <+> prettyTCM genRecMeta
 
   -- Pair metas with their metaInfo
-  let mvs = MapS.assocs (openMetas allmetas) ++
+  let mvs :: [(MetaId, MetaVariable)]
+      mvs = MapS.assocs (openMetas allmetas) ++
             MapS.assocs (solvedMetas allmetas)
 
   -- Issue 4727: filter out metavariables that were created before the
@@ -182,9 +306,10 @@ computeGeneralization genRecMeta nameMap allmetas = postponeInstanceConstraints 
   -- TODO: make metasCreatedBy smarter so it doesn't see pruned
   -- versions of old metas as new metas.
   cp <- viewTC eCurrentCheckpoint
-  let isFreshMeta :: MonadReduce m => (MetaId, MetaVariable) -> m Bool
-      isFreshMeta (x,mv) = enterClosure mv $ \ _ -> isJust <$> checkpointSubstitution' cp
-  mvs <- filterM isFreshMeta mvs
+  let isFreshMeta :: MonadReduce m => MetaVariable -> m Bool
+      isFreshMeta mv = enterClosure mv $ \ _ -> isJust <$> checkpointSubstitution' cp
+  mvs :: [(MetaId, MetaVariable)] <- filterM (isFreshMeta . snd) mvs
+
   cs <- (++) <$> useTC stAwakeConstraints
              <*> useTC stSleepingConstraints
 
@@ -251,26 +376,25 @@ computeGeneralization genRecMeta nameMap allmetas = postponeInstanceConstraints 
               , text "permutation:" <+> text (show (m, xs))
               , text "subst:" <+> pretty msub ]
           return sameContext
-  inherited <- fmap Set.unions $ forM generalizableClosed $ \ (x, mv) ->
+
+  inherited :: Set MetaId <- Set.unions <$> forM generalizableClosed \ (x, mv) ->
     case mvInstantiation mv of
       InstV inst -> do
         parentName <- getMetaNameSuggestion x
         metas <- filterM canGeneralize . Set.toList .
                  allMetas Set.singleton =<<
                  instantiateFull (instBody inst)
-        let suggestNames i [] = return ()
-            suggestNames i (m : ms) = do
-              -- #4291: Override existing meta name suggestion. If we solved the parent with a new
-              --        meta use the parent name for that, otherwise suffix with a number.
-              let suf | null ms && i == 1,
-                        MetaV{} <- instBody inst = ""
-                      | otherwise                = "." ++ show i
-              setMetaNameSuggestion m (parentName ++ suf)
-              suggestNames (i + 1) ms
         unless (null metas) $
-          reportSDoc "tc.generalize" 40 $ hcat ["Inherited metas from ", prettyTCM x, ":"] <?> prettyList_ (map prettyTCM metas)
-                                    -- Don't suggest names for explicitly named generalizable metas
-        Set.fromList metas <$ suggestNames 1 (filter (`Map.notMember` nameMap) metas)
+          reportSDoc "tc.generalize" 40 $
+            hcat ["Inherited metas from ", prettyTCM x, ":"] <?> prettyList_ (map prettyTCM metas)
+        -- #4291: Override existing meta name suggestion.
+        -- Don't suggest names for explicitly named generalizable metas.
+        case filter (`Map.notMember` nameMap) metas of
+          -- If we solved the parent with a new meta use the parent name for that.
+          [m] | MetaV{} <- instBody inst -> setMetaNameSuggestion m parentName
+          -- Otherwise suffix with a number.
+          ms -> zipWithM_ (\ i m -> setMetaNameSuggestion m (parentName ++ "." ++ show i)) [1..] ms
+        return $ Set.fromList metas
       _ -> __IMPOSSIBLE__
 
   let (alsoGeneralize, reallyDontGeneralize) = partition (`Set.member` inherited) $ map fst nongeneralizableOpen
@@ -323,11 +447,11 @@ computeGeneralization genRecMeta nameMap allmetas = postponeInstanceConstraints 
   -- Build the telescope of generalized metas
   teleTypes <- do
     args <- getContextArgs
-    fmap concat $ forM sortedMetas $ \ m -> do
+    concat <$> forM sortedMetas \ m -> do
       mv <- lookupLocalMeta m
       let info =
-            hideOrKeepInstance $
-            getArgInfo $ miGeneralizable $ mvInfo mv
+            (hideOrKeepInstance $
+            getArgInfo $ miGeneralizable $ mvInfo mv) { argInfoOrigin = Generalization }
           HasType{ jMetaType = t } = mvJudgement mv
           perm = mvPermutation mv
       t' <- piApplyM t $ permute (takeP (length args) perm) args
@@ -335,7 +459,9 @@ computeGeneralization genRecMeta nameMap allmetas = postponeInstanceConstraints 
   let genTel = buildGeneralizeTel genRecCon teleTypes
 
   reportSDoc "tc.generalize" 40 $ vcat
-    [ text "genTel =" <+> prettyTCM genTel ]
+    [ text "teleTypes =" <+> prettyTCM teleTypes
+    , text "genTel    =" <+> prettyTCM genTel
+    ]
 
   -- Now we need to prune the unsolved metas to make sure they respect the new
   -- dependencies (#3672). Also update interaction points to point to pruned metas.
@@ -361,7 +487,7 @@ computeGeneralization genRecMeta nameMap allmetas = postponeInstanceConstraints 
     case mv of
       Nothing         -> __IMPOSSIBLE__
       Just Left{}     -> return False
-      Just (Right mv) -> isFreshMeta (m, mv)
+      Just (Right mv) -> isFreshMeta mv
 
   return (genTel, telNames, sub)
 
@@ -376,8 +502,7 @@ pruneUnsolvedMetas genRecName genRecCon genTel genRecFields interactionPoints is
     prune cxt tel (x : xs) | not (isGeneralized x) = do
       -- If x is a blocked term we shouldn't instantiate it.
       whenM (not <$> isBlockedTerm x) $ do
-        x <- if size tel > 0 then prePrune x
-                             else return x
+        x <- if null tel then return x else prePrune x
         pruneMeta (telFromList $ reverse cxt) x
       prune cxt tel xs
     prune cxt (ExtendTel a tel) (x : xs) = prune (fmap (x,) a : cxt) (unAbs tel) xs
@@ -658,11 +783,11 @@ pruneUnsolvedMetas genRecName genRecCon genTel genRecFields interactionPoints is
                      "clear, but simply mentioning the variables in the right order should also work."
           order = sep [ fwords "Dependency analysis suggested this (likely incorrect) order:",
                         nest 2 $ fwords (unwords names) ]
-          guess = "After constraint solving it looks like " ++ commas late ++ " actually depend" ++ s ++
-                  " on " ++ commas early
-            where
-              s | length late == 1 = "s"
-                | otherwise        = ""
+          guess = unwords
+            [ "After constraint solving it looks like", commas late
+            , singPlural late (++ "s") id "actually depend"
+            , "on", commas early
+            ]
       genericDocError =<< vcat
         [ fwords $ "Variable generalization failed."
         , nest 2 $ sep ["- Probable cause", nest 4 $ fwords cause]
@@ -710,7 +835,7 @@ unpackSub con infos i = recSub
 --    (x₂ : A₂ [ r := c x₁ _    .. _ ])
 --    (x₃ : A₃ [ r := c x₁ x₂ _ .. _ ])
 --    ...
-buildGeneralizeTel :: ConHead -> [(Arg String, Type)] -> Telescope
+buildGeneralizeTel :: ConHead -> [(Arg MetaNameSuggestion, Type)] -> Telescope
 buildGeneralizeTel con xs = go 0 xs
   where
     infos = map (argInfo . fst) xs
@@ -756,7 +881,7 @@ createGenValue x = setCurrentRange x $ do
   -- instantiated, and set the quantity of the meta to the declared
   -- quantity of the generalisable variable.
   updateMetaVar m $ \ mv ->
-    setQuantity (getQuantity (defArgInfo def)) $
+    setModality (getModality (defArgInfo def)) $
     mv { mvFrozen = Frozen }
 
   -- Set up names of arg metas
@@ -801,6 +926,7 @@ createGenRecordType genRecMeta@(El genRecSort _) sortedMetas = do
                   , conFields    = map argFromDom genRecFields
                   }
   projIx <- succ . size <$> getContext
+  erasure <- optErasure <$> pragmaOptions
   inTopContext $ forM_ (zip sortedMetas genRecFields) $ \ (meta, fld) -> do
     fieldTy <- getMetaType meta
     let field = unDom fld
@@ -817,14 +943,15 @@ createGenRecordType genRecMeta@(El genRecSort _) sortedMetas = do
                , funInv          = NotInjective
                , funMutual       = Just []
                , funAbstr        = ConcreteDef
-               , funDelayed      = NotDelayed
                , funProjection   = Right proj
+               , funErasure      = erasure
                , funFlags        = Set.empty
                , funTerminates   = Just True
                , funExtLam       = Nothing
                , funWith         = Nothing
                , funCovering     = []
                , funIsKanOp      = Nothing
+               , funOpaque       = TransparentDef
                }
   addConstant' (conName genRecCon) defaultArgInfo (conName genRecCon) __DUMMY_TYPE__ $ -- Filled in later
     Constructor { conPars   = 0
@@ -832,11 +959,12 @@ createGenRecordType genRecMeta@(El genRecSort _) sortedMetas = do
                 , conSrcCon = genRecCon
                 , conData   = genRecName
                 , conAbstr  = ConcreteDef
-                , conInd    = Inductive
                 , conComp   = emptyCompKit
                 , conProj   = Nothing
                 , conForced = []
                 , conErased = Nothing
+                , conErasure = erasure
+                , conInline  = False
                 }
   let dummyTel 0 = EmptyTel
       dummyTel n = ExtendTel (defaultDom __DUMMY_TYPE__) $ Abs "_" $ dummyTel (n - 1)

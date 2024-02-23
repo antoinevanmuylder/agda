@@ -12,12 +12,12 @@ import qualified Data.Map as Map
 import Data.Maybe
 
 import Agda.Syntax.Common
-import Agda.Syntax.Concrete (Expr(..))
+import Agda.Syntax.Concrete (Expr(..), TacticAttribute)
 import Agda.Syntax.Concrete.Pretty () --instance only
+import Agda.Syntax.Common.Pretty (prettyShow)
 import Agda.Syntax.Position
 
 import Agda.Utils.List1 (List1, pattern (:|))
-import Agda.Utils.Pretty (prettyShow)
 
 import Agda.Utils.Impossible
 
@@ -26,7 +26,7 @@ import Agda.Utils.Impossible
 data Attribute
   = RelevanceAttribute Relevance
   | QuantityAttribute  Quantity
-  | TacticAttribute Expr
+  | TacticAttribute (Ranged Expr)
   | CohesionAttribute Cohesion
   | LockAttribute      Lock
   deriving (Show)
@@ -93,24 +93,24 @@ cohesionAttributeTable =
   , ("flat" , Flat)
   ]
 
--- | Information about cohesion attributes (printed representations
--- and positions).
+-- | Information about attributes (attribute, range, printed
+-- representation).
 --
 -- This information is returned by the parser. Code that calls the
--- parser should, if appropriate, complain if support for cohesion
--- attributes has not been enabled and the returned list is non-empty.
--- This can be taken care of by
--- 'Agda.Syntax.Translation.ConcreteToAbstract.checkCohesionAttributes',
--- which should not be called until after pragma options have been set.
+-- parser should, if appropriate, complain if support for the given
+-- attributes has not been enabled. This can be taken care of by
+-- 'Agda.Syntax.Translation.ConcreteToAbstract.checkAttributes', which
+-- should not be called until after pragma options have been set.
 
-type CohesionAttributes = [(String, Range)]
+type Attributes = [(Attribute, Range, String)]
 
 -- | Modifiers for 'Quantity'.
 
 lockAttributeTable :: [(String, Lock)]
 lockAttributeTable = concat
   [ map (, IsNotLock) [ "notlock" ] -- default, shouldn't be used much
-  , map (, IsLock) [ "lock", "tick" ] -- 🔓
+  , map (, IsLock LockOTick) [ "tick" ] -- @tick
+  , map (, IsLock LockOLock) [ "lock" ] -- @lock
   ]
 
 
@@ -132,8 +132,9 @@ stringToAttribute = (`Map.lookup` attributesMap)
 -- | Parsing an expression into an attribute.
 
 exprToAttribute :: Expr -> Maybe Attribute
-exprToAttribute (Paren _ (Tactic _ t)) = Just $ TacticAttribute t
-exprToAttribute e = setRange (getRange e) $ stringToAttribute $ prettyShow e
+exprToAttribute = \case
+  e@(Paren _ (Tactic _ t)) -> Just $ TacticAttribute $ Ranged (getRange e) t
+  e -> setRange (getRange e) $ stringToAttribute $ prettyShow e
 
 -- | Setting an attribute (in e.g. an 'Arg').  Overwrites previous value.
 
@@ -214,7 +215,7 @@ isQuantityAttribute = \case
   QuantityAttribute q -> Just q
   _ -> Nothing
 
-isTacticAttribute :: Attribute -> Maybe Expr
+isTacticAttribute :: Attribute -> TacticAttribute
 isTacticAttribute (TacticAttribute t) = Just t
 isTacticAttribute _                   = Nothing
 

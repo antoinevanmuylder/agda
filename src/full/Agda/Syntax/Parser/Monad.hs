@@ -45,10 +45,9 @@ import Agda.Syntax.Concrete.Attribute
 import Agda.Syntax.Position
 import Agda.Syntax.Parser.Tokens ( Keyword( KwMutual ) )
 
-import Agda.Utils.FileName
 import Agda.Utils.List ( tailWithDefault )
 import qualified Agda.Utils.Maybe.Strict as Strict
-import Agda.Utils.Pretty
+import Agda.Syntax.Common.Pretty
 
 import Agda.Utils.Impossible
 
@@ -76,8 +75,9 @@ data ParseState = PState
                                              --   (states can be nested so we need a stack)
     , parseFlags    :: ParseFlags            -- ^ parametrization of the parser
     , parseWarnings :: ![ParseWarning]       -- ^ In reverse order.
-    , parseCohesion :: !CohesionAttributes
-      -- ^ Every encountered occurrence of a cohesion attribute.
+    , parseAttributes
+                    :: !Attributes
+      -- ^ Every encountered attribute.
     }
     deriving Show
 
@@ -295,7 +295,7 @@ initStatePos pos flags inp st =
                                                 -- Just for better errors on stray @constructor@ decls.
                 , parseFlags        = flags
                 , parseWarnings     = []
-                , parseCohesion     = []
+                , parseAttributes   = []
                 }
   where
   pos' = pos { srcFile = () }

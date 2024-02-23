@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
 
 module Agda.TypeChecking.CompiledClause.Compile where
 
@@ -8,6 +9,7 @@ import Control.Monad
 import Control.Monad.Trans.Identity
 
 import Data.Maybe
+import Data.List (partition)
 import qualified Data.Map as Map
 
 import Agda.Syntax.Common
@@ -26,7 +28,8 @@ import Agda.TypeChecking.Reduce
 import Agda.Utils.Functor
 import Agda.Utils.Maybe
 import Agda.Utils.List
-import qualified Agda.Utils.Pretty as P
+import qualified Agda.Syntax.Common.Pretty as P
+import Agda.Utils.Size
 import Agda.Utils.Update
 
 import Agda.Utils.Impossible
@@ -119,13 +122,12 @@ unBruijn c = Cl (applySubst sub $ (map . fmap) (fmap dbPatVarName . namedThing) 
 
 compileWithSplitTree :: SplitTree -> Cls -> CompiledClauses
 compileWithSplitTree t cs = case t of
-  SplitAt i lz ts -> Case i $ compiles lz ts $ splitOn (length ts == 1) (unArg i) cs
+  SplitAt i lz ts -> Case i $ compiles lz ts $ splitOn (natSize ts == 1) (unArg i) cs
         -- if there is just one case, we force expansion of catch-alls
         -- this is needed to generate a sound tree on which we can
         -- collapse record pattern splits
   SplittingDone n -> compile cs
     -- after end of split tree, continue with left-to-right strategy
-
   where
     compiles :: LazySplit -> SplitTrees -> Case Cls -> Case CompiledClauses
     compiles lz ts br@Branches{ projPatterns = cop
@@ -308,15 +310,35 @@ splitC n (Cl ps b) = caseMaybe mp fallback $ \case
 -- @
 expandCatchAlls :: Bool -> Int -> Cls -> Cls
 expandCatchAlls single n cs =
-  -- Andreas, 2013-03-22
-  -- if there is a single case (such as for record splits)
-  -- we force expansion
-  if single then doExpand =<< cs else
   case cs of
-  _                | all (isCatchAllNth . clPats) cs -> cs
-  c@(Cl ps b) : cs | not (isCatchAllNth ps) -> c : expandCatchAlls False n cs
-                   | otherwise -> map (expand c) expansions ++ c : expandCatchAlls False n cs
-  _ -> __IMPOSSIBLE__
+    _ -- Andreas, 2013-03-22
+      -- if there is a single case (such as for record splits)
+      -- we force expansion
+      | single -> doExpand =<< cs
+
+      -- If all clauses have a variable at the nth argument, expansion
+      -- would have no effect
+      | all (isCatchAllNth . clPats) cs -> cs
+
+    c@(Cl ps b):cs
+      -- If the head clause does not have a catch-all pattern for the
+      -- nth argument, we can keep it at the head and do no expansion
+      | not (isCatchAllNth ps) -> c : expandCatchAlls False n cs
+
+      -- If there's a DefP clause for this argument later on, then it
+      -- should take priority over catch-all clauses, so we rotate them
+      -- out of the way.
+      -- DefP clauses are always inserted by the system and should
+      -- "defeat" user-written inexact patterns.
+      | (defps@(_:_), rest) <- partition isDefPNth (c:cs)
+      -> defps ++ expandCatchAlls False n rest
+
+      -- If the head clause *does* have an irrefutable pattern for the
+      -- nth argument, and there's nothing more important after, then we
+      -- duplicate the subsequent overlapping clauses with c's RHS
+      -- instead.
+      | otherwise -> map (expand c) expansions ++ c : expandCatchAlls False n cs
+    _ -> __IMPOSSIBLE__
   where
     -- In case there is only one branch in the split tree, we expand all
     -- catch-alls for this position
@@ -336,6 +358,10 @@ expandCatchAlls single n cs =
     classify (ConP c _ _) = Right (Left c)
     classify (DefP _ q _) = Right (Right q)
     classify _            = __IMPOSSIBLE__
+
+    isDefPNth cl = case unArg <$> listToMaybe (drop n (clPats cl)) of
+      Just DefP{} -> True
+      _ -> False
 
     -- All non-catch-all patterns following this one (at position n).
     -- These are the cases the wildcard needs to be expanded into.

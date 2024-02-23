@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
 
 module Agda.Utils.Permutation where
 
@@ -47,7 +48,8 @@ instance Show Permutation where
           showList sep f (e:es) = f e ++ sep ++ showList sep f es
 
 instance Sized Permutation where
-  size (Perm _ xs) = size xs
+  size    (Perm _ xs) = size xs
+  natSize (Perm _ xs) = natSize xs
 
 instance Null Permutation where
   empty = Perm 0 []
@@ -154,7 +156,7 @@ droppedP (Perm n xs) = Perm n $ filter (notInXs !) [0 .. n - 1]
 --   Analogous to 'Agda.TypeChecking.Substitution.liftS',
 --   but Permutations operate on de Bruijn LEVELS, not indices.
 liftP :: Int -> Permutation -> Permutation
-liftP n (Perm m xs) = Perm (n + m) $ xs ++ [m..m+n-1]
+liftP n (Perm m xs) = Perm (n + m) $ xs ++ [m .. m + n - 1]
 -- liftP n (Perm m xs) = Perm (n + m) $ [0..n-1] ++ map (n+) xs -- WRONG, works for indices, but not for levels
 
 -- | @permute (compose p1 p2) == permute p1 . permute p2@

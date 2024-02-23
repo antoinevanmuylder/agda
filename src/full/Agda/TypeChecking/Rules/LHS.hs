@@ -7,7 +7,7 @@ module Agda.TypeChecking.Rules.LHS
   , LHSResult(..)
   , bindAsPatterns
   , IsFlexiblePattern(..)
-  , DataOrRecord(..)
+  , DataOrRecord
   , checkSortOfSplitVar
   ) where
 
@@ -16,7 +16,7 @@ import Prelude hiding ( null )
 import Data.Function (on)
 import Data.Maybe
 
-import Control.Arrow (left, second)
+import Control.Arrow (left)
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Reader
@@ -39,7 +39,7 @@ import Agda.Interaction.Highlighting.Generate
 import Agda.Interaction.Options
 import Agda.Interaction.Options.Lenses
 
-import Agda.Syntax.Internal as I hiding (DataOrRecord(..))
+import Agda.Syntax.Internal as I hiding (DataOrRecord)
 import Agda.Syntax.Internal.Pattern
 import qualified Agda.Syntax.Abstract as A
 import Agda.Syntax.Abstract.Views (asView, deepUnscope)
@@ -71,13 +71,13 @@ import Agda.TypeChecking.Substitute
 import Agda.TypeChecking.Telescope
 import Agda.TypeChecking.Telescope.Path
 import Agda.TypeChecking.Primitive hiding (Nat)
+import Agda.TypeChecking.Warnings (warning)
 
 import {-# SOURCE #-} Agda.TypeChecking.Rules.Term (checkExpr, isType_)
 import Agda.TypeChecking.Rules.LHS.Problem
 import Agda.TypeChecking.Rules.LHS.ProblemRest
 import Agda.TypeChecking.Rules.LHS.Unify
 import Agda.TypeChecking.Rules.LHS.Implicit
-import Agda.TypeChecking.Rules.Data
 
 import Agda.Utils.CallStack ( HasCallStack, withCallerCallStack )
 import Agda.Utils.Function
@@ -85,18 +85,16 @@ import Agda.Utils.Functor
 import Agda.Utils.Lens
 import Agda.Utils.List
 import Agda.Utils.List1 (List1, pattern (:|))
-import qualified Agda.Utils.List  as List
 import qualified Agda.Utils.List1 as List1
 import Agda.Utils.Maybe
 import Agda.Utils.Monad
 import Agda.Utils.Null
-import Agda.Utils.Pretty (prettyShow)
+import Agda.Syntax.Common.Pretty (prettyShow)
 import Agda.Utils.Singleton
 import Agda.Utils.Size
 import Agda.Utils.Tuple
 
 import Agda.Utils.Impossible
-import Agda.Utils.WithDefault
 import Agda.TypeChecking.Free (freeIn)
 
 --UNUSED Liang-Ting Chen 2019-07-16
@@ -200,7 +198,7 @@ updateProblemEqs eqs = do
 
     update :: ProblemEq -> TCM [ProblemEq]
     update eq@(ProblemEq A.WildP{} _ _) = return []
-    update eq@(ProblemEq p@A.ProjP{} _ _) = typeError $ IllformedProjectionPattern p
+    update eq@(ProblemEq p@A.ProjP{} _ _) = typeError $ IllformedProjectionPatternAbstract p
     update eq@(ProblemEq p@(A.AsP info x p') v a) =
       (ProblemEq (A.VarP x) v a :) <$> update (ProblemEq p' v a)
 
@@ -240,25 +238,16 @@ updateProblemEqs eqs = do
               "insertImplicitPatternsT returned" <+> fsep (map prettyA ps)
 
             -- Check argument count and hiding (not just count: #3074)
-            let checkArgs [] [] = return ()
-                checkArgs (p : ps) (v : vs)
-                  | getHiding p == getHiding v = checkArgs ps vs
-                  | otherwise                  = setCurrentRange p $ genericDocError =<< do
-                      fsep $ pwords ("Expected an " ++ which (getHiding v) ++ " argument " ++
-                                     "instead of "  ++ which (getHiding p) ++ " argument") ++
-                             [ prettyA p ]
-                  where which NotHidden  = "explicit"
-                        which Hidden     = "implicit"
-                        which Instance{} = "instance"
-                checkArgs [] vs = genericDocError =<< do
-                    fsep $ pwords "Too few arguments to constructor" ++ [prettyTCM c <> ","] ++
-                           pwords ("expected " ++ show n ++ " more explicit "  ++ arguments)
-                  where n = length (filter visible vs)
-                        arguments | n == 1    = "argument"
-                                  | otherwise = "arguments"
-                checkArgs (p : _) [] = setCurrentRange p $ genericDocError =<< do
-                  fsep $ pwords "Too many arguments to constructor" ++ [prettyTCM c]
-            checkArgs ps vs
+            let checkArgs [] [] _ _ = return ()
+                checkArgs (p : ps) (v : vs) nExpected nActual
+                  | getHiding p == getHiding v = checkArgs ps vs (nExpected + 1) (nActual + 1)
+                  | otherwise                  = setCurrentRange p $ typeError WrongHidingInLHS
+                checkArgs [] vs nExpected nActual = typeError $
+                  WrongNumberOfConstructorArguments (conName c) (nExpected + length vs) nActual
+                checkArgs (p : ps) [] nExpected nActual = setCurrentRange p $ typeError $
+                  WrongNumberOfConstructorArguments (conName c) nExpected (nActual + 1 + (length ps))
+
+            checkArgs ps vs 0 0
 
             updates $ zipWith3 ProblemEq (map namedArg ps) (map unArg vs) bs
 
@@ -365,46 +354,43 @@ noShadowingOfConstructors problem@(ProblemEq p _ (Dom{domInfo = info, unDom = El
       , nest 2 $ "position of variable =" <+> (text . show) (getRange x)
       ]
     reportSDoc "tc.lhs.shadow" 70 $ nest 2 $ "a =" <+> pretty a
-    a <- reduce a
-    case a of
-      Def t _ -> do
-        d <- theDef <$> getConstInfo t
-        case d of
-          Datatype { dataCons = cs } -> do
-            case filter ((A.nameConcrete x ==) . A.nameConcrete . A.qnameName) cs of
-              []      -> return ()
-              (c : _) -> setCurrentRange x $
-                typeError $ PatternShadowsConstructor (nameConcrete x) c
-          AbstractDefn{} -> return ()
+
+    -- Get a conflicting data or record constructor, if any.
+    mc <- runMaybeT do
+
+      -- Is the type of the pattern variable a data or pattern record type?
+      a  <- lift $ reduce a
+      (d, dr) <- MaybeT $ isDataOrRecord a
+      guard $ patternMatchingAllowed dr
+
+      -- Look for a constructor with the same name as the pattern variable.
+      cs <- lift $ getConstructors d
+      MaybeT $ pure $ List.find ((A.nameConcrete x ==) . A.nameConcrete . A.qnameName) cs
+
+    -- Alert if there is a constructor of the same name.
+    whenJust mc \ c -> setCurrentRange x $
+      warning $ PatternShadowsConstructor (nameConcrete x) c
+    --
+    -- Andreas, 2023-09-08, issue #6829:
+    -- I rewrote the code originally dating from 2009, commit:
+    -- https://github.com/agda/agda/commit/5d5095ba080b04f16867d4ed5af4ba7091f1a773
+    -- The code survived for almost 15 years, but it slept through the advent
+    -- of matchable record constructors in 2010 (Agda 2.2.8):
+    -- https://github.com/agda/agda/blob/283730b392d7c21c54b53b0f486802ec143e4af7/doc/release-notes/2.2.8.md#L7-L9
+    -- Here are comments on the last version of the code I'd like to preserve,
+    -- as they reflect some considerations and design decisions:
+    --
             -- Abstract constructors cannot be brought into scope,
             -- even by a bigger import list.
             -- Thus, they cannot be confused with variables.
             -- Alternatively, we could do getConstInfo in ignoreAbstractMode,
             -- then Agda would complain if a variable shadowed an abstract constructor.
-          Axiom       {} -> return ()
-          DataOrRecSig{} -> return ()
-          Function    {} -> return ()
-          Record      {} -> return ()
-          Constructor {} -> __IMPOSSIBLE__
-          GeneralizableVar{} -> __IMPOSSIBLE__
           -- TODO: in the future some stuck primitives might allow constructors
-          Primitive   {} -> return ()
-          PrimitiveSort{} -> return ()
-      Var   {} -> return ()
-      Pi    {} -> return ()
-      Sort  {} -> return ()
-      MetaV {} -> return ()
       -- TODO: If the type is a meta-variable, should the test be
       -- postponed? If there is a problem, then it will be caught when
       -- the completed module is type checked, so it is safe to skip
       -- the test here. However, users may be annoyed if they get an
       -- error in code which has already passed the type checker.
-      Lam   {} -> __IMPOSSIBLE__
-      Lit   {} -> __IMPOSSIBLE__
-      Level {} -> __IMPOSSIBLE__
-      Con   {} -> __IMPOSSIBLE__
-      DontCare{} -> __IMPOSSIBLE__
-      Dummy s _  -> __IMPOSSIBLE_VERBOSE__ s
 
 -- | Check that a dot pattern matches it's instantiation.
 checkDotPattern :: DotPattern -> TCM ()
@@ -608,16 +594,13 @@ bindAsPatterns (AsB x v a m : asb) ret = do
     sep [ ":" <+> prettyTCM a
         , "=" <+> prettyTCM v
         ]
-  addLetBinding (setModality m defaultArgInfo) x v a $ bindAsPatterns asb ret
+  addLetBinding (setModality m defaultArgInfo) Inserted x v a $ bindAsPatterns asb ret
 
 -- | Since with-abstraction can change the type of a variable, we have to
 --   recheck the stripped with patterns when checking a with function.
 recheckStrippedWithPattern :: ProblemEq -> TCM ()
 recheckStrippedWithPattern (ProblemEq p v a) = checkInternal v CmpLeq (unDom a)
-  `catchError` \_ -> typeError . GenericDocError =<< vcat
-    [ "Ill-typed pattern after with abstraction: " <+> prettyA p
-    , "(perhaps you can replace it by `_`?)"
-    ]
+  `catchError` \_ -> typeError $ IllTypedPatternAfterWithAbstraction p
 
 data PartialSplit
   = Csplit
@@ -898,19 +881,26 @@ conSplitModalityCheck
   -> Telescope -- ^ The telescope @Γ@ itself
   -> Type      -- ^ Target type of the clause.
   -> TCM ()
-conSplitModalityCheck mod rho blocking gamma target = do
+conSplitModalityCheck mod rho blocking gamma target = when (any ((/= defaultModality) . getModality) gamma) $ do
   reportSDoc "tc.lhs.top" 30 $ vcat
     [ "LHS modality check for modality: " <+> prettyTCM mod
     , "rho:    " <+> inTopContext (prettyTCM rho)
     , "gamma:  " <+> inTopContext (prettyTCM gamma)
-    , "target: " <+> prettyTCM target
+    , "target: " <+> prettyTCM target <+> parens (pretty target)
+    , "Δ'target: " <+> prettyTCM (applyPatSubst rho target)
     , "blocking:" <+> prettyTCM blocking
     ]
   case firstForced rho (length gamma) of
     Just ix -> do
+      -- We've found a forced argument. This means that the unifier has
+      -- decided to kill a unification variable, and any of its
+      -- occurrences in the generated term will be replaced by an
+      -- occurrence of a path, and any terms whose types mention that
+      -- variable will be transported.
       let
         (gamma0, delta) = splitTelescopeAt (length gamma - ix) gamma
         name = inTopContext . addContext gamma . nameOfBV
+        delta'target = applyPatSubst rho target
       reportSDoc "tc.lhs.top" 30 $ vcat
         [ "found forced argument!"
         , "forced: " <+> prettyTCM ix
@@ -929,11 +919,31 @@ conSplitModalityCheck mod rho blocking gamma target = do
         -- since Δ' is the context we are in. Then we have
         --   Γ ⊢ x[wkS |Δ|] : Type
         -- and consequently
-        --   Δ' ⊢ x[wkS |Δ][ρ] : Type
-        let rho' = composeS rho (wkS (arg + 1) idS)
+        --   Δ' ⊢ x[wkS |Δ|][ρ] : Type
+        let
+          rho' = composeS rho (wkS (arg + 1) idS)
+        ty' <- reduce (applyPatSubst rho' (unEl (snd (unDom d))))
+        let
+          -- It's actually rather tricky to know when, exactly, a
+          -- transport will be needed in a position that forces an
+          -- usable-at-modality check. Our current heuristic is:
+          --
+          -- The variable we're looking at has a fibrant type, with the
+          -- first forced variable free.
+          -- The variable appears free in the result type.
+          docheck = and
+            [ ix `freeIn` applySubst (wkS (arg + 1) idS) (unEl (snd (unDom d)))
+            , arg /= blocking
+            , arg `freeIn` target
+            ]
+        reportSDoc "tc.lhs.top" 30 $ vcat
+          [ "arg:        " <+> pretty arg
+          , "arg type:   " <+> prettyTCM (applySubst (wkS (arg + 1) idS) (unEl (snd (unDom d))))
+          , "check       " <+> pretty docheck
+          ]
         argn <- name arg
-        when (ix `freeIn` applySubst (wkS (arg + 1) idS) (snd <$> d) && arg /= blocking) $
-          usableAtModality (IndexedClauseArg forced argn) mod (applyPatSubst rho'  (unEl (snd (unDom d))))
+        when docheck $
+          usableAtModality (IndexedClauseArg forced argn) mod ty'
     Nothing -> pure ()
 
   -- ALways check the target clause type. Specifically, we check it both
@@ -1066,7 +1076,7 @@ checkLHS mf = updateModality checkLHS_ where
       i <- liftTCM $ addContext tel $ ifJustM (isEtaVar v a) return $
              softTypeError $ SplitOnNonVariable v a
 
-      let pos = size tel - (i+1)
+      let pos = size tel - (i + 1)
           (delta1, tel'@(ExtendTel dom adelta2)) = splitTelescopeAt pos tel -- TODO:: tel' defined but not used
 
       reportSDoc "tc.lhs.split" 30 $ sep
@@ -1119,8 +1129,7 @@ checkLHS mf = updateModality checkLHS_ where
         addContext tel $ disambiguateProjection h ambProjName target
 
       unless comatchingAllowed $ do
-        hardTypeError . GenericDocError =<< do
-          liftTCM $ "Copattern matching is disabled for record" <+> prettyTCM recName
+        hardTypeError $ ComatchingDisabledForRecord recName
 
       -- Compute the new rest type by applying the projection type to 'self'.
       -- Note: we cannot be in a let binding.
@@ -1134,7 +1143,7 @@ checkLHS mf = updateModality checkLHS_ where
                        Arg ai $ Named Nothing (ProjP orig projName)
           ip'      = ip ++ [projP]
           -- drop the projection pattern (already splitted)
-          problem' = over problemRestPats tail problem
+          problem' = over problemRestPats (drop 1) problem
       liftTCM $ updateLHSState (LHSState tel ip' problem' target' psplit ixsplit)
 
 
@@ -1535,8 +1544,7 @@ checkLHS mf = updateModality checkLHS_ where
     splitPartial delta1 dom adelta2 ts = do
 
       unless (domIsFinite dom) $ liftTCM $ addContext delta1 $
-        softTypeError . GenericDocError =<<
-        vcat [ "Splitting on partial elements is only allowed at the type Partial, but the domain here is" , nest 2 $ prettyTCM $ unDom dom ]
+        softTypeError $ SplitOnPartial dom
 
       tInterval <- liftTCM $ primIntervalType
 
@@ -1591,8 +1599,7 @@ checkLHS mf = updateModality checkLHS_ where
                        getBuiltinName' builtinIsOne
                      case a of
                        Def q [Apply phi] | q == isone -> return (unArg phi)
-                       _           -> typeError . GenericDocError =<< do
-                         prettyTCM a <+> " is not IsOne."
+                       _           -> typeError $ BuiltinMustBeIsOne a
 
                    _  -> foldl (\ x y -> primIMin <@> x <@> y) primIOne (map pure ts)
          reportSDoc "tc.lhs.split.partial" 10 $ text "phi           =" <+> prettyTCM phi
@@ -1746,9 +1753,8 @@ checkLHS mf = updateModality checkLHS_ where
 
       -- Jesper, 2019-09-13: if the data type we split on is a strict
       -- set, we locally enable --with-K during unification.
-      withKIfStrict <- reduce (getSort a) >>= \case
-        SSet{} -> return $ locallyTC eSplitOnStrict $ const True
-        _      -> return id
+      withKIfStrict <- reduce (getSort a) <&> \ dsort ->
+        applyWhen (isStrictDataSort dsort) $ locallyTC eSplitOnStrict $ const True
 
       -- The constructor should construct an element of this datatype
       (c :: ConHead, b :: Type) <- liftTCM $ addContext delta1 $ case ambC of
@@ -1946,10 +1952,11 @@ checkLHS mf = updateModality checkLHS_ where
                      Quantityω{} -> q
 
           liftTCM $ addContext delta' $ do
-            withoutK <- collapseDefault . optWithoutK <$> pragmaOptions
-            cubical <- collapseDefault . optCubicalCompatible <$> pragmaOptions
+            withoutK <- optWithoutK <$> pragmaOptions
+            cubical <- optCubicalCompatible <$> pragmaOptions
+            mod <- currentModality
             when ((withoutK || cubical) && not (null ixs)) $
-              conSplitModalityCheck (getModality target) rho (length delta2) tel (unArg target)
+              conSplitModalityCheck mod rho (length delta2) tel (unArg target)
 
           -- if rest type reduces,
           -- extend the split problem by previously not considered patterns
@@ -1973,7 +1980,7 @@ checkMatchingAllowed :: (MonadTCError m)
   -> DataOrRecord  -- ^ Information about data or (co)inductive (no-)eta-equality record.
   -> m ()
 checkMatchingAllowed d = \case
-  IsRecord ind eta
+  IsRecord InductionAndEta { recordInduction=ind, recordEtaEquality=eta }
     | Just CoInductive <- ind -> typeError $
         GenericError "Pattern matching on coinductive types is not allowed"
     | not $ patternMatchingAllowed eta -> typeError $ SplitOnNonEtaRecord d
@@ -2000,13 +2007,7 @@ softTypeError err = withCallerCallStack $ \loc ->
 hardTypeError :: (HasCallStack, MonadTCM m) => TypeError -> m a
 hardTypeError = withCallerCallStack $ \loc -> liftTCM . typeError' loc
 
-data DataOrRecord
-  = IsData
-  | IsRecord
-    { recordInduction   :: Maybe Induction
-    , recordEtaEquality :: EtaEquality
-    }
-  deriving (Show)
+type DataOrRecord = DataOrRecord' InductionAndEta
 
 -- | Check if the type is a data or record type and return its name,
 --   definition, parameters, and indices. Fails softly if the type could become
@@ -2033,18 +2034,16 @@ isDataOrRecordType a0 = ifBlocked a0 blocked $ \case
 
       Record{ recInduction, recEtaEquality' } -> do
         let pars = fromMaybe __IMPOSSIBLE__ $ allApplyElims es
-        return (IsRecord recInduction recEtaEquality', d, pars, [])
+        return (IsRecord InductionAndEta {recordInduction=recInduction, recordEtaEquality=recEtaEquality' }, d, pars, [])
 
       -- Issue #2253: the data type could be abstract.
-      AbstractDefn{} -> hardTypeError . GenericDocError =<< do
-        liftTCM $ "Cannot split on abstract data type" <+> prettyTCM d
+      AbstractDefn{} -> hardTypeError $ SplitOnAbstract d
 
       -- the type could be an axiom
       Axiom{} -> hardTypeError =<< notData
 
       -- Can't match before we have the definition
-      DataOrRecSig{} -> hardTypeError . GenericDocError =<< do
-        liftTCM $ "Cannot split on data type" <+> prettyTCM d <+> "whose definition has not yet been checked"
+      DataOrRecSig{} -> hardTypeError $ SplitOnUnchecked d
 
       -- Issue #2997: the type could be a Def that does not reduce for some reason
       -- (abstract, failed termination checking, NON_TERMINATING, ...)
@@ -2137,11 +2136,7 @@ disambiguateProjection h ambD@(AmbQ ds) b = do
           tryDisambiguate True fs r vs comatching $ \case
             ([]   , []      ) -> __IMPOSSIBLE__
             (err:_, []      ) -> throwError err
-            (_    , disambs@((d,a):_)) -> typeError . GenericDocError =<< vcat
-              [ "Ambiguous projection " <> prettyTCM d <> "."
-              , "It could refer to any of"
-              , nest 2 $ vcat $ map (prettyDisambProj . fst) disambs
-              ]
+            (_    , disambs@((d,a):_)) -> typeError $ AmbiguousProjection d (map fst disambs)
     _ -> __IMPOSSIBLE__
 
   where
@@ -2164,20 +2159,8 @@ disambiguateProjection h ambD@(AmbQ ds) b = do
 
     wrongProj :: (MonadTCM m, MonadError TCErr m, ReadTCState m) => QName -> m a
     wrongProj d = softTypeError =<< do
-      liftTCM $ GenericDocError <$> sep
-        [ "Cannot eliminate type "
-        , prettyTCM (unArg b)
-        , " with projection "
-        , if isAmbiguous ambD then
-            text . prettyShow =<< dropTopLevelModule d
-          else
-            prettyTCM d
-        ]
-
-    wrongHiding :: (MonadTCM m, MonadError TCErr m, ReadTCState m) => QName -> m a
-    wrongHiding d = softTypeError =<< do
-      liftTCM $ GenericDocError <$> sep
-        [ "Wrong hiding used for projection " , prettyTCM d ]
+      liftTCM $ if isAmbiguous ambD then CannotEliminateWithProjection b True <$> dropTopLevelModule d
+                else pure $ CannotEliminateWithProjection b False d
 
     tryProj
       :: Bool                 -- Are we allowed to create new constraints?
@@ -2225,7 +2208,8 @@ disambiguateProjection h ambD@(AmbQ ds) b = do
         -- Andreas, 2016-12-31, issue #2374:
         -- We can also disambiguate by hiding info.
         -- Andreas, 2018-10-18, issue #3289: postfix projections have no hiding info.
-        unless (caseMaybe h True $ sameHiding $ projArgInfo proj) $ wrongHiding d
+        unless (caseMaybe h True $ sameHiding $ projArgInfo proj) $
+          softTypeError $ WrongHidingInProjection d
 
         -- Andreas, 2016-12-31, issue #1976: Check parameters.
         let chk = checkParameters qr r vs
@@ -2266,11 +2250,8 @@ disambiguateConstructor ambC@(AmbQ cs) d pars = do
         -- meaning that only the parameters may differ,
         -- then throw more specific error.
         (_    , [_]) -> typeError $ CantResolveOverloadedConstructorsTargetingSameDatatype d cs
-        (_    , disambs@(((c,_,_):|_):_)) -> typeError . GenericDocError =<< vcat
-          [ "Ambiguous constructor " <> pretty (qnameName c) <> "."
-          , "It could refer to any of"
-          , nest 2 $ vcat $ map (prettyDisambCons . conName . snd3) $ List1.concat disambs
-          ]
+        (_    , disambs@(((c,_,_) :| _) : _)) -> typeError $
+          AmbiguousConstructor c (map (conName . snd3) $ List1.concat disambs)
 
   where
     tryDisambiguate
@@ -2343,9 +2324,10 @@ disambiguateConstructor ambC@(AmbQ cs) d pars = do
            -- its type, and maybe the state obtained after checking it
            -- (which may contain new constraints/solutions).
     tryCon constraintsOk cons d pars c = getConstInfo' c >>= \case
-      Left (SigUnknown err) -> __IMPOSSIBLE__
-      Left SigAbstract -> abstractConstructor c
-      Right def -> do
+      Left (SigUnknown err)     -> __IMPOSSIBLE__
+      Left SigCubicalNotErasure -> __IMPOSSIBLE__
+      Left SigAbstract          -> abstractConstructor c
+      Right def                 -> do
         let con = conSrcCon (theDef def) `withRangeOf` c
         unless (conName con `elem` cons) $ wrongDatatype c d
 
@@ -2411,19 +2393,6 @@ disambiguateConstructor ambC@(AmbQ cs) d pars = do
           (Just{},  Just{})  -> return False
       inState st m = localTCState $ do putTC st; m
 
-
-prettyDisamb :: (QName -> Maybe (Range' SrcFile)) -> QName -> TCM Doc
-prettyDisamb f x = do
-  let d  = pretty =<< dropTopLevelModule x
-  caseMaybe (f x) d $ \ r -> d <+> ("(introduced at " <> prettyTCM r <> ")")
-
--- | For Ambiguous Projection errors, print the last range in 'qnameModule'.
---   For Ambiguous Constructor errors, print the range in 'qnameName'. This fixes the bad
---   error message in #4130.
-prettyDisambProj, prettyDisambCons :: QName -> TCM Doc
-prettyDisambProj = prettyDisamb $ lastMaybe . filter (noRange /=) . map nameBindingSite . mnameToList . qnameModule
-prettyDisambCons = prettyDisamb $ Just . nameBindingSite . qnameName
-
 -- | @checkConstructorParameters c d pars@ checks that the data/record type
 --   behind @c@ is has initial parameters (coming e.g. from a module instantiation)
 --   that coincide with an prefix of @pars@.
@@ -2463,18 +2432,17 @@ checkSortOfSplitVar :: (MonadTCM m, PureTCM m, MonadError TCErr m,
                     => DataOrRecord -> a -> Telescope -> Maybe ty -> m ()
 checkSortOfSplitVar dr a tel mtarget = do
   liftTCM (reduce $ getSort a) >>= \case
-    sa@Type{} -> whenM isTwoLevelEnabled checkFibrantSplit
+    Type{} -> whenM isTwoLevelEnabled checkFibrantSplit
     Prop{} -> checkPropSplit
-    Inf IsFibrant _ -> whenM isTwoLevelEnabled checkFibrantSplit
-    Inf IsStrict _ -> return ()
     SSet{} -> return ()
+    Inf u _ -> when (univFibrancy u == IsFibrant) $ whenM isTwoLevelEnabled checkFibrantSplit
     sa      -> softTypeError =<< do
       liftTCM $ SortOfSplitVarError <$> isBlocked sa <*> sep
         [ "Cannot split on datatype in sort" , prettyTCM (getSort a) ]
 
   where
     checkPropSplit
-      | IsRecord Nothing _ <- dr = return ()
+      | IsRecord InductionAndEta { recordInduction=Nothing } <- dr = return ()
       | Just target <- mtarget = do
         reportSDoc "tc.sort.check" 20 $ "target prop:" <+> prettyTCM target
         checkIsProp target
@@ -2488,7 +2456,7 @@ checkSortOfSplitVar dr a tel mtarget = do
       Right True  -> return ()
 
     checkFibrantSplit
-      | IsRecord _ _ <- dr     = return ()
+      | IsRecord _ <- dr       = return ()
       | Just target <- mtarget = do
           reportSDoc "tc.sort.check" 20 $ "target:" <+> prettyTCM target
           checkIsFibrant target
@@ -2512,15 +2480,7 @@ checkSortOfSplitVar dr a tel mtarget = do
       Right False -> splitOnFibrantError Nothing
       Right True  -> return ()
 
-    splitOnPropError dr = softTypeError =<< do
-      liftTCM $ GenericDocError <$>
-        ("Cannot split on" <+> kindOfData dr <+> "in Prop unless target is in Prop")
-      where
-        kindOfData :: DataOrRecord -> TCM Doc
-        kindOfData IsData                          = "datatype"
-        kindOfData (IsRecord Nothing _)            = "record type"
-        kindOfData (IsRecord (Just Inductive) _)   = "inductive record type"
-        kindOfData (IsRecord (Just CoInductive) _) = "coinductive record type"
+    splitOnPropError dr = softTypeError $ SplitInProp dr
 
     splitOnFibrantError' t mb = softTypeError =<< do
       liftTCM $ SortOfSplitVarError mb <$> fsep

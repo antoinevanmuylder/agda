@@ -126,7 +126,7 @@ isntTypeConf :: TermConfiguration -> TermConfiguration
 isntTypeConf conf = conf { tcIsType = False }
 
 extendConf :: TermConfiguration -> TermConfiguration
-extendConf conf = conf { tcFreeVariables = 0 : map (1+) (tcFreeVariables conf) }
+extendConf conf = conf { tcFreeVariables = 0 : map (1 +) (tcFreeVariables conf) }
 
 extendWithTelConf :: Telescope -> TermConfiguration -> TermConfiguration
 extendWithTelConf tel conf = foldr (const extendConf) conf (telToList tel)
@@ -476,6 +476,7 @@ instance ShrinkC Sort where
     Inf f _    -> []
     SizeUniv   -> []
     LockUniv   -> []
+    LevelUniv   -> []
     IntervalUniv -> []
     CstrUniv -> []
     PiSort a s1 s2 -> __IMPOSSIBLE__

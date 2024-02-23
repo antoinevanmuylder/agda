@@ -1,9 +1,12 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
+
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Agda.TypeChecking.Serialise.Instances.Highlighting where
 
 import qualified Data.Map.Strict as Map
 import Data.Strict.Tuple (Pair(..))
+import Data.Int (Int32)
 
 import qualified Agda.Interaction.Highlighting.Range   as HR
 import qualified Agda.Interaction.Highlighting.Precise as HP
@@ -74,39 +77,39 @@ instance EmbPrj HP.Aspect where
     valu _          = malformed
 
 instance EmbPrj HP.OtherAspect where
-  icod_ HP.Error                = icodeN 0 ()
-  icod_ HP.ErrorWarning         = icodeN 1 ()
-  icod_ HP.DottedPattern        = icodeN' HP.DottedPattern
-  icod_ HP.UnsolvedMeta         = icodeN 2 ()
-  icod_ HP.TerminationProblem   = icodeN 3 ()
-  icod_ HP.IncompletePattern    = icodeN 4 ()
-  icod_ HP.TypeChecks           = icodeN 5 ()
-  icod_ HP.UnsolvedConstraint   = icodeN 6 ()
-  icod_ HP.PositivityProblem    = icodeN 7 ()
-  icod_ HP.Deadcode             = icodeN 8 ()
-  icod_ HP.CoverageProblem      = icodeN 9 ()
-  icod_ HP.CatchallClause       = icodeN 10 ()
-  icod_ HP.ConfluenceProblem    = icodeN 11 ()
-  icod_ HP.MissingDefinition    = icodeN 12 ()
-  icod_ HP.ShadowingInTelescope = icodeN 13 ()
+  icod_ HP.Error                = pure 0
+  icod_ HP.ErrorWarning         = pure 1
+  icod_ HP.DottedPattern        = pure 2
+  icod_ HP.UnsolvedMeta         = pure 3
+  icod_ HP.TerminationProblem   = pure 4
+  icod_ HP.IncompletePattern    = pure 5
+  icod_ HP.TypeChecks           = pure 6
+  icod_ HP.UnsolvedConstraint   = pure 7
+  icod_ HP.PositivityProblem    = pure 8
+  icod_ HP.Deadcode             = pure 9
+  icod_ HP.CoverageProblem      = pure 10
+  icod_ HP.CatchallClause       = pure 11
+  icod_ HP.ConfluenceProblem    = pure 12
+  icod_ HP.MissingDefinition    = pure 13
+  icod_ HP.ShadowingInTelescope = pure 14
 
-  value = vcase valu where
-    valu [0] = valuN HP.Error
-    valu [1] = valuN HP.ErrorWarning
-    valu []  = valuN HP.DottedPattern
-    valu [2] = valuN HP.UnsolvedMeta
-    valu [3] = valuN HP.TerminationProblem
-    valu [4] = valuN HP.IncompletePattern
-    valu [5] = valuN HP.TypeChecks
-    valu [6] = valuN HP.UnsolvedConstraint
-    valu [7] = valuN HP.PositivityProblem
-    valu [8] = valuN HP.Deadcode
-    valu [9] = valuN HP.CoverageProblem
-    valu [10] = valuN HP.CatchallClause
-    valu [11] = valuN HP.ConfluenceProblem
-    valu [12] = valuN HP.MissingDefinition
-    valu [13] = valuN HP.ShadowingInTelescope
-    valu _   = malformed
+  value = \case
+    0  -> pure HP.Error
+    1  -> pure HP.ErrorWarning
+    2  -> pure HP.DottedPattern
+    3  -> pure HP.UnsolvedMeta
+    4  -> pure HP.TerminationProblem
+    5  -> pure HP.IncompletePattern
+    6  -> pure HP.TypeChecks
+    7  -> pure HP.UnsolvedConstraint
+    8  -> pure HP.PositivityProblem
+    9  -> pure HP.Deadcode
+    10 -> pure HP.CoverageProblem
+    11 -> pure HP.CatchallClause
+    12 -> pure HP.ConfluenceProblem
+    13 -> pure HP.MissingDefinition
+    14 -> pure HP.ShadowingInTelescope
+    _  -> malformed
 
 instance EmbPrj HP.Aspects where
   icod_ (HP.Aspects a b c d e) = icodeN' HP.Aspects a b c d e
@@ -122,28 +125,30 @@ instance EmbPrj a => EmbPrj (RM.RangeMap a) where
   -- Write the RangeMap as flat list rather than a list of (Int, (Int, x)). Much
   -- like Map, we need to call `convert' in the tail position and so the output
   -- list is written (and read) in reverse order.
-  icod_ (RM.RangeMap f) = icodeNode =<< convert [] (Map.toAscList f) where
-    convert ys [] = return ys
-    convert ys ((start, RM.PairInt (end :!: entry)):xs) = do
-      start <- icode start
-      end <- icode end
-      entry <- icode entry
-      convert (start:end:entry:ys) xs
+  icod_ (RM.RangeMap f) = icodeNode =<< convert Empty (Map.toAscList f) where
+    convert :: Node -> [(Int, RM.PairInt a)] -> S Node
+    convert !ys [] = return ys
+    convert  ys ((start, RM.PairInt (end :!: entry)):xs) = do
+      !start <- icode start
+      !end <- icode end
+      !entry <- icode entry
+      convert (Cons start (Cons end (Cons entry ys))) xs
 
   value = vcase (fmap (RM.RangeMap . Map.fromDistinctAscList) . convert []) where
-    convert ys [] = return ys
-    convert ys (start:end:entry:xs) = do
-      start <- value start
-      end <- value end
-      entry <- value entry
+    convert :: [(Int, RM.PairInt a)] -> [Int32] -> R [(Int, RM.PairInt a)]
+    convert !ys [] = return ys
+    convert  ys (start:end:entry:xs) = do
+      !start <- value start
+      !end <- value end
+      !entry <- value entry
       convert ((start, RM.PairInt (end :!: entry)):ys) xs
     convert _ _ = malformed
 
 instance EmbPrj HP.TokenBased where
-  icod_ HP.TokenBased        = icodeN 0 ()
-  icod_ HP.NotOnlyTokenBased = icodeN' HP.NotOnlyTokenBased
+  icod_ HP.TokenBased        = pure 0
+  icod_ HP.NotOnlyTokenBased = pure 1
 
-  value = vcase valu where
-    valu [0] = valuN HP.TokenBased
-    valu []  = valuN HP.NotOnlyTokenBased
-    valu _   = malformed
+  value = \case
+    0 -> pure HP.TokenBased
+    1 -> pure HP.NotOnlyTokenBased
+    _ -> malformed

@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 
 {-| Agda main module.
 -}
@@ -30,6 +31,7 @@ import Agda.Interaction.FindFile ( SourceFile(SourceFile) )
 import qualified Agda.Interaction.Imports as Imp
 
 import Agda.TypeChecking.Monad
+import Agda.TypeChecking.Errors
 import qualified Agda.TypeChecking.Monad.Benchmark as Bench
 import Agda.TypeChecking.Errors
 import Agda.TypeChecking.Warnings
@@ -40,13 +42,16 @@ import Agda.Compiler.Builtin
 
 import Agda.VersionCommit
 
+import qualified Agda.Utils.Benchmark as UtilsBench
+import qualified Agda.Syntax.Common.Pretty.ANSI as ANSI
+import qualified Agda.Syntax.Common.Pretty as P
 import Agda.Utils.FileName (absolute, filePath, AbsolutePath)
+import Agda.Utils.String
 import Agda.Utils.Monad
 import Agda.Utils.Null
-import Agda.Utils.String
-import qualified Agda.Utils.Benchmark as UtilsBench
 
 import Agda.Utils.Impossible
+import Agda.Interaction.Library (getAgdaAppDir)
 
 -- | The main function
 runAgda :: [Backend] -> IO ()
@@ -57,8 +62,10 @@ runAgda' :: [Backend] -> IO ()
 runAgda' backends = runTCMPrettyErrors $ do
   progName <- liftIO getProgName
   argv     <- liftIO getArgs
+  let (z, warns) = runOptM $ parseBackendOptions backends argv defaultOptions
+  mapM_ (warning . OptionWarning) warns
   conf     <- liftIO $ runExceptT $ do
-    (bs, opts) <- ExceptT $ runOptM $ parseBackendOptions backends argv defaultOptions
+    (bs, opts) <- ExceptT $ pure z
     -- The absolute path of the input file, if provided
     inputFile <- liftIO $ mapM absolute $ optInputFile opts
     mode      <- getMainMode bs inputFile opts
@@ -84,10 +91,11 @@ runAgda' backends = runTCMPrettyErrors $ do
           IO.hSetEncoding IO.stderr enc
 
       case mode of
-        MainModePrintHelp hp   -> liftIO $ printUsage bs hp
-        MainModePrintVersion   -> liftIO $ printVersion bs
-        MainModePrintAgdaDir   -> liftIO $ printAgdaDir
-        MainModeRun interactor -> do
+        MainModePrintHelp hp     -> liftIO $ printUsage bs hp
+        MainModePrintVersion o   -> liftIO $ printVersion bs o
+        MainModePrintAgdaDataDir -> liftIO $ printAgdaDataDir
+        MainModePrintAgdaAppDir  -> liftIO $ printAgdaAppDir
+        MainModeRun interactor   -> do
           setTCLens stBackends bs
           runAgdaWithOptions interactor progName opts
 
@@ -95,17 +103,19 @@ runAgda' backends = runTCMPrettyErrors $ do
 data MainMode
   = MainModeRun (Interactor ())
   | MainModePrintHelp Help
-  | MainModePrintVersion
-  | MainModePrintAgdaDir
+  | MainModePrintVersion PrintAgdaVersion
+  | MainModePrintAgdaDataDir
+  | MainModePrintAgdaAppDir
 
 -- | Determine the main execution mode to run, based on the configured backends and command line options.
 -- | This is pure.
 getMainMode :: MonadError String m => [Backend] -> Maybe AbsolutePath -> CommandLineOptions -> m MainMode
 getMainMode configuredBackends maybeInputFile opts
-  | Just hp <- optPrintHelp opts = return $ MainModePrintHelp hp
-  | optPrintVersion opts         = return $ MainModePrintVersion
-  | optPrintAgdaDir opts         = return $ MainModePrintAgdaDir
-  | otherwise                    = do
+  | Just hp <- optPrintHelp opts    = return $ MainModePrintHelp hp
+  | Just o  <- optPrintVersion opts = return $ MainModePrintVersion o
+  | optPrintAgdaDataDir opts        = return $ MainModePrintAgdaDataDir
+  | optPrintAgdaAppDir opts         = return $ MainModePrintAgdaAppDir
+  | otherwise = do
       mi <- getInteractor configuredBackends maybeInputFile opts
       -- If there was no selection whatsoever (e.g. just invoked "agda"), we just show help and exit.
       return $ maybe (MainModePrintHelp GeneralHelp) MainModeRun mi
@@ -235,7 +245,7 @@ runAgdaWithOptions interactor progName opts = do
           -- Print accumulated warnings
           unlessNullM (tcWarnings . classifyWarnings <$> getAllWarnings AllWarnings) $ \ ws -> do
             let banner = text $ "\n" ++ delimiter "All done; warnings encountered"
-            reportSDoc "warning" 1 $
+            alwaysReportSDoc "warning" 1 $
               vcat $ punctuate "\n" $ banner : (prettyTCM <$> ws)
 
           return result
@@ -255,15 +265,41 @@ backendUsage (Backend b) =
     map void (commandLineFlags b)
 
 -- | Print version information.
-printVersion :: [Backend] -> IO ()
-printVersion backends = do
+printVersion :: [Backend] -> PrintAgdaVersion -> IO ()
+printVersion _ PrintAgdaNumericVersion = putStrLn versionWithCommitInfo
+printVersion backends PrintAgdaVersion = do
   putStrLn $ "Agda version " ++ versionWithCommitInfo
+  unless (null flags) $
+    mapM_ putStrLn $ ("Built with flags (cabal -f)" :) $ map bullet flags
   mapM_ putStrLn
-    [ "  - " ++ name ++ " backend version " ++ ver
+    [ bullet $ name ++ " backend version " ++ ver
     | Backend Backend'{ backendName = name, backendVersion = Just ver } <- backends ]
+  where
+  bullet = (" - " ++)
+  -- Print cabal flags that were involved in compilation.
+  flags =
+#ifdef COUNT_CLUSTERS
+    "enable-cluster-counting: unicode cluster counting in LaTeX backend using the ICU library" :
+#endif
+#ifdef OPTIMISE_HEAVILY
+    "optimise-heavily: extra optimisations" :
+#endif
+#ifdef DEBUG
+    "debug: enable debug printing ('-v' verbosity flags)" :
+#endif
+#ifdef DEBUG_PARSING
+    "debug-parsing: enable printing grammars for operator parsing via '-v scope.grammar:10'" :
+#endif
+#ifdef DEBUG_SERIALISATION
+    "debug-serialisation: extra debug info during serialisation into '.agdai' files" :
+#endif
+    []
 
-printAgdaDir :: IO ()
-printAgdaDir = putStrLn =<< getDataDir
+printAgdaDataDir :: IO ()
+printAgdaDataDir = putStrLn =<< getDataDir
+
+printAgdaAppDir :: IO ()
+printAgdaAppDir = putStrLn =<< getAgdaAppDir
 
 -- | What to do for bad options.
 optionError :: String -> IO ()
@@ -294,9 +330,9 @@ runTCMPrettyErrors tcm = do
           `catchError` \err -> do
             s2s <- prettyTCWarnings' =<< getAllWarningsOfTCErr err
             s1  <- prettyError err
-            let ss = filter (not . null) $ s2s ++ [s1]
-            unless (null s1) (liftIO $ putStr $ unlines ss)
-            liftIO $ helpForLocaleError err
+            ANSI.putDoc (P.vcat s2s P.$+$ s1)
+            liftIO $ do
+              helpForLocaleError err
             return (Just TCMError)
       ) `catchImpossible` \e -> do
           liftIO $ putStr $ E.displayException e

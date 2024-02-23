@@ -1,12 +1,8 @@
-{-# LANGUAGE CPP          #-}
 
 -- | Tree traversal for internal syntax.
 
 module Agda.Syntax.Internal.Generic where
 
-#if __GLASGOW_HASKELL__ < 804
-import Data.Monoid ((<>))
-#endif
 import Agda.Syntax.Common
 import Agda.Syntax.Internal
 import Agda.Utils.Functor
@@ -125,12 +121,11 @@ instance TermLike Type where
 
 instance TermLike Sort where
   traverseTermM f = \case
-    Type l     -> Type <$> traverseTermM f l
-    Prop l     -> Prop <$> traverseTermM f l
+    Univ u l   -> Univ u <$> traverseTermM f l
     s@(Inf _ _)-> pure s
-    SSet l     -> SSet <$> traverseTermM f l
     s@SizeUniv -> pure s
     s@LockUniv -> pure s
+    s@LevelUniv -> pure s
     s@IntervalUniv -> pure s
     s@CstrUniv -> pure s
     PiSort a b c -> PiSort   <$> traverseTermM f a <*> traverseTermM f b <*> traverseTermM f c
@@ -141,12 +136,11 @@ instance TermLike Sort where
     s@(DummyS _) -> pure s
 
   foldTerm f = \case
-    Type l     -> foldTerm f l
-    Prop l     -> foldTerm f l
+    Univ _ l   -> foldTerm f l
     Inf _ _    -> mempty
-    SSet l     -> foldTerm f l
     SizeUniv   -> mempty
     LockUniv   -> mempty
+    LevelUniv  -> mempty
     IntervalUniv -> mempty
     CstrUniv -> mempty
     PiSort a b c -> foldTerm f a <> foldTerm f b <> foldTerm f c

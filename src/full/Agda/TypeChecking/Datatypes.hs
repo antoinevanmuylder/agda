@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
 
 module Agda.TypeChecking.Datatypes where
 
@@ -11,11 +12,13 @@ import Agda.Syntax.Internal
 
 import Agda.TypeChecking.Monad
 import Agda.TypeChecking.Telescope
+import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Substitute
 import Agda.TypeChecking.Pretty
 
 import Agda.Utils.Either
-import Agda.Utils.Pretty ( prettyShow )
+import Agda.Utils.Functor        ( (<.>) )
+import Agda.Syntax.Common.Pretty ( prettyShow )
 import Agda.Utils.Size
 
 import Agda.Utils.Impossible
@@ -78,50 +81,6 @@ isPathCons c = do
     Record{} -> return False
     _  -> __IMPOSSIBLE__
 
--- | @getConType c t@ computes the constructor parameters from type @t@
---   and returns them plus the instantiated type of constructor @c@.
---   This works also if @t@ is a function type ending in a data/record type;
---   the term from which @c@ comes need not be fully applied
---
---   @Nothing@ if @t@ is not a data/record type or does not have
---   a constructor @c@.
-getConType
-  :: PureTCM m
-  => ConHead  -- ^ Constructor.
-  -> Type     -- ^ Ending in data/record type.
-  -> m (Maybe ((QName, Type, Args), Type))
-       -- ^ @Nothing@ if not ends in data or record type.
-       --
-       --   @Just ((d, dt, pars), ct)@ otherwise, where
-       --     @d@    is the data or record type name,
-       --     @dt@   is the type of the data or record name,
-       --     @pars@ are the reconstructed parameters,
-       --     @ct@   is the type of the constructor instantiated to the parameters.
-getConType c t = do
-  reportSDoc "tc.getConType" 30 $ sep $
-    [ "getConType: constructor "
-    , prettyTCM c
-    , " at type "
-    , prettyTCM t
-    ]
-  TelV tel t <- telView t
-  -- Now @t@ lives under @tel@, we need to remove the dependency on @tel@.
-  -- This will succeed if @t@ is indeed a data/record type that is the
-  -- type of a constructor coming from a term
-  -- (applied to at least the parameters).
-  -- Note: @t@ will have some unbound deBruijn indices if view outside of @tel@.
-  reportSLn "tc.getConType" 35 $ "  target type: " ++ prettyShow t
-  applySubst (strengthenS impossible (size tel)) <$> do
-    addContext tel $ getFullyAppliedConType c t
-  -- Andreas, 2017-08-18, issue #2703:
-  -- The original code
-  --    getFullyAppliedConType c $ applySubst (strengthenS impossible (size tel)) t
-  -- crashes because substitution into @Def@s is slightly too strict
-  -- (see @defApp@ and @canProject@).
-  -- Strengthening the parameters after the call to @getFullyAppliedConType@
-  -- does not produce intermediate terms with __IMPOSSIBLE__s and this thus
-  -- robust wrt. strictness/laziness of substitution.
-
 -- | @getFullyAppliedConType c t@ computes the constructor parameters
 --   from data type @t@ and returns them
 --   plus the instantiated type of constructor @c@.
@@ -145,37 +104,120 @@ getFullyAppliedConType
 getFullyAppliedConType c t = do
   reportSLn "tc.getConType" 35 $ unwords $
     [ "getFullyAppliedConType", prettyShow c, prettyShow t ]
-  c <- fromRight __IMPOSSIBLE__ <$> do getConHead $ conName c
+  c <- fromRight __IMPOSSIBLE__ <$> getConHead (conName c)
+  cdef <- getConstInfo $ conName c
+  let ctype = defType cdef
+      cdata = conData $ theDef cdef
+      npars = conPars $ theDef cdef
   case unEl t of
-    -- Note that if we come e.g. from getConType,
-    -- then the non-parameter arguments of @es@ might contain __IMPOSSIBLE__
-    -- coming from strengthening.  (Thus, printing them is not safe.)
-    Def d es -> do
+    Def d es | d == cdata -> do
       reportSLn "tc.getConType" 35 $ unwords $
         [ "getFullyAppliedConType: case Def", prettyShow d, prettyShow es ]
-      def <- getConstInfo d
-      let cont n = do
-            -- At this point we can be sure that the parameters are well-scoped.
-            let pars = fromMaybe __IMPOSSIBLE__ $ allApplyElims $ take n es
-            Just . ((d, defType def, pars),) <$> do
-              (`piApplyM` pars) . defType =<< getConInfo c
-      case theDef def of
-        Datatype { dataPars = n, dataCons   = cs  } | conName c `elem` cs -> cont n
-        Record   { recPars  = n, recConHead = con } | c == con            -> cont n
-        _ ->  return Nothing
+      dt <- defType <$> getConstInfo d
+      let pars = fromMaybe __IMPOSSIBLE__ $ allApplyElims $ take npars es
+      ctPars <- ctype `piApplyM` pars
+      return $ Just ((d, dt, pars), ctPars)
     _ -> return Nothing
 
-data ConstructorInfo
-  = DataCon Nat
-      -- ^ Arity.
-  | RecordCon PatternOrCopattern HasEta [Dom QName]
-      -- ^ List of field names.
+-- | Make sure a constructor is fully applied and infer the type of the constructor.
+--   Raises a type error if the constructor does not belong to the given type.
+fullyApplyCon
+  :: (PureTCM m, MonadBlock m, MonadTCError m)
+  => ConHead -- ^ Constructor.
+  -> Elims    -- ^ Constructor arguments.
+  -> Type    -- ^ Type of the constructor application.
+  -> (QName -> Type -> Args -> Type -> Elims -> Telescope -> Type -> m a)
+       -- ^ Name of the data/record type,
+       --   type of the data/record type,
+       --   reconstructed parameters,
+       --   type of the constructor (applied to parameters),
+       --   full application arguments,
+       --   types of missing arguments (already added to context),
+       --   type of the full application.
+  -> m a
+fullyApplyCon c vs t ret = fullyApplyCon' c vs t ret $
+  typeError . DoesNotConstructAnElementOf (conName c)
 
--- | Return the number of non-parameter arguments to a data constructor,
---   or the field names of a record constructor.
+-- | Like @fullyApplyCon@, but calls the given fallback function if
+--   it encounters something other than a datatype.
+fullyApplyCon'
+  :: (PureTCM m, MonadBlock m)
+  => ConHead -- ^ Constructor.
+  -> Elims    -- ^ Constructor arguments.
+  -> Type    -- ^ Type of the constructor application.
+  -> (QName -> Type -> Args -> Type -> Elims -> Telescope -> Type -> m a) -- ^ See @fullyApplyCon@
+  -> (Type -> m a) -- ^ Fallback function
+  -> m a
+fullyApplyCon' c vs t0 ret err = do
+  reportSDoc "tc.getConType" 30 $ sep $
+    [ "fullyApplyCon': constructor "
+    , prettyTCM c
+    , " with arguments"
+    , prettyTCM vs
+    , " at type "
+    , prettyTCM t0
+    ]
+  (TelV tel t, boundary) <- telViewPathBoundaryP t0
+  -- The type of the constructor application may still be a function
+  -- type.  In this case, we introduce the domains @tel@ into the context
+  -- and apply the constructor to these fresh variables.
+  addContext tel $ do
+    reportSLn "tc.getConType" 35 $ "  target type: " ++ prettyShow t
+    t <- abortIfBlocked t
+    getFullyAppliedConType c t >>= \case
+      Nothing -> err t
+      Just ((d, dt, pars), a) ->
+        ret d dt pars a (raise (size tel) vs ++ teleElims tel boundary) tel t
+
+-- | @getConType c t@ computes the constructor parameters from type @t@
+--   and returns them plus the instantiated type of constructor @c@.
+--   This works also if @t@ is a function type ending in a data/record type;
+--   the term from which @c@ comes need not be fully applied
 --
---   For getting just the arity of constructor @c@,
---   use @either id size <$> getConstructorArity c@.
+--   @Nothing@ if @t@ is not a data/record type or does not have
+--   a constructor @c@.
+getConType
+  :: (PureTCM m, MonadBlock m)
+  => ConHead  -- ^ Constructor.
+  -> Type     -- ^ Ending in data/record type.
+  -> m (Maybe ((QName, Type, Args), Type))
+       -- ^ @Nothing@ if not ends in data or record type.
+       --
+       --   @Just ((d, dt, pars), ct)@ otherwise, where
+       --     @d@    is the data or record type name,
+       --     @dt@   is the type of the data or record name,
+       --     @pars@ are the reconstructed parameters,
+       --     @ct@   is the type of the constructor instantiated to the parameters.
+getConType ch t = do
+  let c = conName ch
+  -- Optimization: if the constructor has no parameters, there
+  -- is no need to reduce the type.
+  npars <- getNumberOfParameters c
+  if | npars == Just 0 -> do
+      ctype <- defType <$> getConstInfo c
+      d  <- getConstructorData c
+      dtype <- defType <$> getConstInfo d
+      return $ Just ((d,dtype,[]),ctype)
+     | otherwise -> fullyApplyCon' ch [] t
+      (\d dt pars ct es tel a -> return $
+        -- Now @dt@, @pars@, and @ct@ live under @tel@,
+        -- so we need to remove the dependency on @tel@.
+        let escape = applySubst (strengthenS impossible (size tel)) in
+        Just $ escape ((d, dt, pars), ct))
+      (\_ -> return Nothing)
+
+data ConstructorInfo
+  = DataCon Arity
+      -- ^ Arity of the data constructor.
+  | RecordCon PatternOrCopattern HasEta
+      Arity
+      -- ^ Arity of the record constructor.
+      [Dom QName]
+      -- ^ List of field names. Has length 'Arity'.
+
+-- | Return the number of non-parameter arguments to a constructor (arity).
+--   In case of record constructors, also return the field names (plus other info).
+--
 getConstructorInfo :: HasConstInfo m => QName -> m ConstructorInfo
 getConstructorInfo c = fromMaybe __IMPOSSIBLE__ <$> getConstructorInfo' c
 
@@ -185,7 +227,7 @@ getConstructorInfo' c = do
     Constructor{ conData = d, conArity = n } -> Just <$> do
       (theDef <$> getConstInfo d) >>= \case
         r@Record{ recFields = fs } ->
-           return $ RecordCon (recPatternMatching r) (recEtaEquality r) fs
+           return $ RecordCon (recPatternMatching r) (recEtaEquality r) n fs
         Datatype{} ->
            return $ DataCon n
         _ -> __IMPOSSIBLE__
@@ -208,14 +250,20 @@ isDatatype d = do
 isDataOrRecordType :: QName -> TCM (Maybe DataOrRecord)
 isDataOrRecordType d = do
   (theDef <$> getConstInfo d) >>= \case
-    Record{ recPatternMatching } -> return $ Just $ IsRecord recPatternMatching
+    Record{ recEtaEquality', recPatternMatching } -> return $ Just $ IsRecord $
+      case recPatternMatching of
+        -- If the user explicitly asked for @pattern@, pattern matching is allowed.
+        p@PatternMatching -> p
+        -- Otherwise, 'recEtaEquality' might allow pattern matching.
+        CopatternMatching ->
+          if patternMatchingAllowed recEtaEquality' then PatternMatching else CopatternMatching
     Datatype{} -> return $ Just IsData
     _          -> return $ Nothing
 
 -- | Precodition: 'Term' is 'reduce'd.
-isDataOrRecord :: Term -> TCM (Maybe QName)
+isDataOrRecord :: Term -> TCM (Maybe (QName, DataOrRecord))
 isDataOrRecord = \case
-    Def d _ -> fmap (const d) <$> isDataOrRecordType d
+    Def d _ -> fmap (d,) <$> isDataOrRecordType d
     _       -> return Nothing
 
 getNumberOfParameters :: HasConstInfo m => QName -> m (Maybe Nat)
@@ -246,9 +294,7 @@ getDatatypeArgs t = do
 
 getNotErasedConstructors :: QName -> TCM [QName]
 getNotErasedConstructors d = do
-  cs <- getConstructors d
-  flip filterM cs $ \ c -> do
-    usableModality <$> getConstInfo c
+  filterM (usableModality <.> getConstInfo) =<< getConstructors d
 
 -- | Precondition: Name is a data or record type.
 getConstructors :: QName -> TCM [QName]

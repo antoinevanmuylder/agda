@@ -6,16 +6,17 @@ module Agda.TypeChecking.Rules.Application
   , checkApplication
   , inferApplication
   , checkProjAppToKnownPrincipalArg
+  , univChecks
+  , suffixToLevel
   ) where
 
 import Prelude hiding ( null )
 
 import Control.Applicative        ( (<|>) )
-import Control.Monad              ( forM, forM_, guard, liftM2 )
-import Control.Monad.Except
+import Control.Monad              ( filterM, forM, forM_, guard, liftM2 )
+import Control.Monad.Except       ( ExceptT, runExceptT, MonadError, catchError, throwError )
 import Control.Monad.Trans
 import Control.Monad.Trans.Maybe
-import Control.Monad.Reader
 
 import Data.Bifunctor
 import Data.Maybe
@@ -26,7 +27,6 @@ import qualified Data.IntMap   as IntMap
 
 import Agda.Interaction.Highlighting.Generate
   ( storeDisambiguatedConstructor, storeDisambiguatedProjection )
-import Agda.Interaction.Options
 
 import qualified Agda.Syntax.Abstract as A
 import Agda.Syntax.Abstract.Views as A
@@ -40,13 +40,12 @@ import Agda.TypeChecking.Conversion
 import Agda.TypeChecking.Constraints
 import Agda.TypeChecking.Datatypes
 import Agda.TypeChecking.Free
-import Agda.TypeChecking.Free.Lazy (VarMap, lookupVarMap)
 import Agda.TypeChecking.Implicit
 import Agda.TypeChecking.Injectivity
-import Agda.TypeChecking.Irrelevance
 import Agda.TypeChecking.InstanceArguments (postponeInstanceConstraints)
 import Agda.TypeChecking.Level
 import Agda.TypeChecking.MetaVars
+import Agda.TypeChecking.Modalities
 import Agda.TypeChecking.Names
 import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Primitive hiding (Nat)
@@ -61,7 +60,7 @@ import Agda.TypeChecking.Telescope
 import Agda.Utils.Either
 import Agda.Utils.Functor
 import Agda.Utils.Lens
-import Agda.Utils.List  ( (!!!), groupOn, initWithDefault )
+import Agda.Utils.List  ( (!!!), initWithDefault )
 import qualified Agda.Utils.List as List
 import Agda.Utils.List1 ( List1, pattern (:|) )
 import qualified Agda.Utils.List1 as List1
@@ -69,8 +68,12 @@ import qualified Data.List as List ( sort )
 import Agda.Utils.Maybe
 import Agda.Utils.Monad
 import Agda.Utils.Null
+<<<<<<< HEAD
 import Agda.Utils.Pretty ( prettyShow )
 import qualified Agda.Utils.Pretty as P
+=======
+import Agda.Syntax.Common.Pretty ( prettyShow )
+>>>>>>> prep-2.6.4.2
 import Agda.Utils.Size
 import Agda.Utils.Tuple
 
@@ -133,12 +136,14 @@ checkApplication cmp hd args e t =
     -- Subcase: unambiguous constructor
     A.Con ambC | Just c <- getUnambiguous ambC -> do
       -- augment c with record fields, but do not revert to original name
-      con <- fromRightM (sigError __IMPOSSIBLE_VERBOSE__ (typeError $ AbstractConstructorNotInScope c)) $
-        getOrigConHead c
+      con <-
+        fromRightM
+          (sigError (typeError $ AbstractConstructorNotInScope c)) $
+          getOrigConHead c
       checkConstructorApplication cmp e t con args
 
     -- Subcase: ambiguous constructor
-    A.Con (AmbQ cs0) -> disambiguateConstructor cs0 t >>= \ case
+    A.Con (AmbQ cs0) -> disambiguateConstructor cs0 args t >>= \ case
       Left unblock -> postponeTypeCheckingProblem (CheckExpr cmp e t) unblock
       Right c      -> checkConstructorApplication cmp e t c args
 
@@ -245,11 +250,7 @@ inferApplication exh hd args e = postponeInstanceConstraints $ do
   SortKit{..} <- sortKit
   case unScope hd of
     A.Proj o p | isAmbiguous p -> inferProjApp e o (unAmbQ p) args
-    A.Def' x s | x == nameOfSet      -> inferSet e x s args
-    A.Def' x s | x == nameOfProp     -> inferProp e x s args
-    A.Def' x s | x == nameOfSSet     -> inferSSet e x s args
-    A.Def' x s | x == nameOfSetOmega IsFibrant -> inferSetOmega e x IsFibrant s args
-    A.Def' x s | x == nameOfSetOmega IsStrict  -> inferSetOmega e x IsStrict s args
+    A.Def' x s | Just (sz, u) <- isNameOfUniv x -> inferUniv sz u e x s args
     _ -> do
       (f, t0) <- inferHead hd
       let r = getRange hd
@@ -296,7 +297,7 @@ inferHead e = do
       -- The available quantity for variable x must be below
       -- the required quantity to construct the term x.
       -- Note: this whole thing does not work for linearity, where we need some actual arithmetics.
-      unlessM ((getQuantity a `moreQuantity`) <$> asksTC getQuantity) $
+      unlessM ((getQuantity a `moreQuantity`) <$> viewTC eQuantity) $
         typeError $ VariableIsErased x
 
       unless (usableCohesion a) $
@@ -318,8 +319,10 @@ inferHead e = do
 
       -- First, inferDef will try to apply the constructor
       -- to the free parameters of the current context. We ignore that.
-      con <- fromRightM (sigError __IMPOSSIBLE_VERBOSE__ (typeError $ AbstractConstructorNotInScope c)) $
-        getOrigConHead c
+      con <-
+        fromRightM
+          (sigError (typeError $ AbstractConstructorNotInScope c)) $
+          getOrigConHead c
       (u, a) <- inferDef (\ _ -> Con con ConOCon []) c
 
       -- Next get the number of parameters in the current context.
@@ -369,10 +372,10 @@ inferDef mkTerm x =
             v = mkTerm vs -- applies x to vs, dropping parameters
 
         -- Andrea 2019-07-16, Check that the supplied arguments
-        -- respect the cohesion modalities of the current context.
-        -- Cohesion is purely based on left-division, so it does not
-        -- rely on "position" like Relevance/Quantity.
-        checkCohesionArgs vs
+        -- respect the pure modalities of the current context.
+        -- Pure modalities are based on left-division, so it does not
+        -- rely on "position" like positional modalities.
+        checkModalityArgs d0 vs
 
         debug vs t v
         return (v, t)
@@ -385,81 +388,6 @@ inferDef mkTerm x =
         [ "inferred def " <+> prettyTCM x <+> hsep (map prettyTCM vs)
         , nest 2 $ ":" <+> prettyTCM t
         , nest 2 $ "-->" <+> prettyTCM v ]
-
-checkCohesionArgs :: Args -> TCM ()
-checkCohesionArgs vs = do
-  let
-    vmap :: VarMap
-    vmap = freeVars vs
-
-  -- we iterate over all vars in the context and their ArgInfo,
-  -- checking for each that "vs" uses them as allowed.
-  as <- getContextArgs
-  forM_ as $ \ (Arg avail t) -> do
-    let m = do
-          v <- deBruijnView t
-          varModality <$> lookupVarMap v vmap
-    whenJust m $ \ used -> do
-        unless (getCohesion avail `moreCohesion` getCohesion used) $
-           (genericDocError =<<) $ fsep $
-                ["Variable" , prettyTCM t]
-             ++ pwords "is used as" ++ [text $ show $ getCohesion used]
-             ++ pwords "but only available as" ++ [text $ show $ getCohesion avail]
-
--- | The second argument is the definition of the first.
---   Returns 'Nothing' if ok, otherwise the error message.
-checkRelevance' :: QName -> Definition -> TCM (Maybe TypeError)
-checkRelevance' x def = do
-  case getRelevance def of
-    Relevant -> return Nothing -- relevance functions can be used in any context.
-    drel -> do
-      -- Andreas,, 2018-06-09, issue #2170
-      -- irrelevant projections are only allowed if --irrelevant-projections
-      ifM (return (isJust $ isProjection_ $ theDef def) `and2M`
-           (not .optIrrelevantProjections <$> pragmaOptions)) {-then-} needIrrProj {-else-} $ do
-        rel <- asksTC getRelevance
-        reportSDoc "tc.irr" 50 $ vcat
-          [ "declaration relevance =" <+> text (show drel)
-          , "context     relevance =" <+> text (show rel)
-          ]
-        return $ if (drel `moreRelevant` rel) then Nothing else Just $ DefinitionIsIrrelevant x
-  where
-  needIrrProj = Just . GenericDocError <$> do
-    sep [ "Projection " , prettyTCM x, " is irrelevant."
-        , " Turn on option --irrelevant-projections to use it (unsafe)."
-        ]
-
--- | The second argument is the definition of the first.
---   Returns 'Nothing' if ok, otherwise the error message.
-checkQuantity' :: QName -> Definition -> TCM (Maybe TypeError)
-checkQuantity' x def = do
-  case getQuantity def of
-    dq@Quantityω{} -> do
-      reportSDoc "tc.irr" 50 $ vcat
-        [ "declaration quantity =" <+> text (show dq)
-        -- , "context     quantity =" <+> text (show q)
-        ]
-      return Nothing -- Abundant definitions can be used in any context.
-    dq -> do
-      q <- asksTC getQuantity
-      reportSDoc "tc.irr" 50 $ vcat
-        [ "declaration quantity =" <+> text (show dq)
-        , "context     quantity =" <+> text (show q)
-        ]
-      return $ if (dq `moreQuantity` q) then Nothing else Just $ DefinitionIsErased x
-
--- | The second argument is the definition of the first.
-checkModality' :: QName -> Definition -> TCM (Maybe TypeError)
-checkModality' x def = do
-  checkRelevance' x def >>= \case
-    Nothing    -> checkQuantity' x def
-    err@Just{} -> return err
-
--- | The second argument is the definition of the first.
-checkModality :: QName -> Definition -> TCM ()
-checkModality x def = justToError $ checkModality' x def
-  where
-  justToError m = maybe (return ()) typeError =<< m
 
 -- | @checkHeadApplication e t hd args@ checks that @e@ has type @t@,
 -- assuming that @e@ has the form @hd args@. The corresponding
@@ -486,11 +414,7 @@ checkHeadApplication cmp e t hd args = do
   mMHComp <- getNameOfConstrained builtinMHComp
   mMpor   <- getNameOfConstrained builtin_mpor
   case hd of
-    A.Def' c s | c == nameOfSet      -> checkSet cmp e t c s args
-    A.Def' c s | c == nameOfProp     -> checkProp cmp e t c s args
-    A.Def' c s | c == nameOfSSet     -> checkSSet cmp e t c s args
-    A.Def' c s | c == nameOfSetOmega IsFibrant -> checkSetOmega cmp e t c IsFibrant s args
-    A.Def' c s | c == nameOfSetOmega IsStrict  -> checkSetOmega cmp e t c IsStrict s args
+    A.Def' c s | Just (sz, u) <- isNameOfUniv c -> checkUniv sz u cmp e t c s args
 
     -- Type checking #. The # that the user can write will be a Def, but the
     -- sharp we generate in the body of the wrapper is a Con.
@@ -836,15 +760,16 @@ checkArgumentsE'
                   let e' = e { nameOf = (nameOf e) <|> dname }
                   checkNamedArg (Arg info' e') a
 
-                let c | IsLock == getLock info' =
-                        Just $ Abs "t" $
+                let
+                  c = case getLock info' of
+                    IsLock{} -> Just $ Abs "t" $
                         CheckLockedVars (Var 0 []) (raise 1 sFun)
                           (raise 1 $ Arg info' u) (raise 1 a)
-                      | otherwise = Nothing
+                    _ -> Nothing
                 lift $ reportSDoc "tc.term.lock" 40 $ text "lock =" <+> text (show $ getLock info')
                 lift $ reportSDoc "tc.term.lock" 40 $
                   addContext (defaultDom $ sFun) $
-                  maybe (text "nothing") prettyTCM (absBody <$> c)
+                  maybe (text "nothing") (prettyTCM . absBody) c
                 -- save relevance info' from domain in argument
                 addCheckedArgs us (getRange e) (Apply $ Arg info' u) c $
                   checkArgumentsE' s{ sFun = absApp b u }
@@ -1111,11 +1036,20 @@ checkConstructorApplication cmp org t c args = do
                               | otherwise = dropPar this ps
         dropPar _ [] = Nothing
 
+-- | Return an unblocking action in case of failure.
+type DisambiguateConstructor = TCM (Either Blocker ConHead)
+
 -- | Returns an unblocking action in case of failure.
+<<<<<<< HEAD
 --   TODO-antva: duplicate path code in the case of bridge if relevant?
 disambiguateConstructor :: List1 QName -> Type -> TCM (Either Blocker ConHead)
 disambiguateConstructor cs0 t = do
+=======
+disambiguateConstructor :: List1 QName -> A.Args -> Type -> DisambiguateConstructor
+disambiguateConstructor cs0 args t = do
+>>>>>>> prep-2.6.4.2
   reportSLn "tc.check.term.con" 40 $ "Ambiguous constructor: " ++ prettyShow cs0
+  reportSDoc "tc.check.term.con" 40 $ vcat $ "Arguments:" : map (nest 2 . prettyTCM) args
 
   -- Get the datatypes of the various constructors
   let getData Constructor{conData = d} = d
@@ -1134,27 +1068,135 @@ disambiguateConstructor cs0 t = do
     [(c0,con)] -> do
       let c = setConName c0 con
       reportSLn "tc.check.term.con" 40 $ "  only one non-abstract constructor: " ++ prettyShow c
-      storeDisambiguatedConstructor (conInductive c) (conName c)
-      return (Right c)
+      decideOn c
     (c0,_):_   -> do
-      dcs <- forM ccons $ \ (c, con) -> (, setConName c con) . getData . theDef <$> getConInfo con
+      dcs :: [(QName, Type, ConHead)] <- forM ccons $ \ (c, con) -> do
+        t   <- defType <$> getConstInfo c
+        def <- getConInfo con
+        pure (getData (theDef def), t, setConName c con)
       -- Type error
       let badCon t = typeError $ DoesNotConstructAnElementOf c0 t
+
       -- Lets look at the target type at this point
       TelV tel t1 <- telViewPath t
       addContext tel $ do
        reportSDoc "tc.check.term.con" 40 $ nest 2 $
          "target type: " <+> prettyTCM t1
-       ifBlocked t1 (\ b t -> return $ Left b) $ \ _ t' ->
-         caseMaybeM (isDataOrRecord $ unEl t') (badCon t') $ \ d ->
-           case [ c | (d', c) <- dcs, d == d' ] of
-             [c] -> do
-               reportSLn "tc.check.term.con" 40 $ "  decided on: " ++ prettyShow c
-               storeDisambiguatedConstructor (conInductive c) (conName c)
-               return $ Right c
+       -- If we don't have a target type yet, try to look at the argument types.
+       ifBlocked t1 (\ b _ -> disambiguateByArgs dcs $ return $ Left b) $ \ _ t' ->
+         caseMaybeM (isDataOrRecord $ unEl t') (badCon t') $ \ (d, _) -> do
+           let dcs' = filter ((d ==) . fst3) dcs
+           case map thd3 dcs' of
+             [c] -> decideOn c
              []  -> badCon $ t' $> Def d []
-             c:cs-> typeError $ CantResolveOverloadedConstructorsTargetingSameDatatype d $
-                      fmap conName $ c :| cs
+             -- If the information from the target type did not eliminate ambiguity fully,
+             -- try to further eliminate alternatives by looking at the arguments.
+             c:cs-> disambiguateByArgs dcs' $
+                      typeError $ CantResolveOverloadedConstructorsTargetingSameDatatype d $
+                        fmap conName $ c :| cs
+  where
+  decideOn :: ConHead -> DisambiguateConstructor
+  decideOn c = do
+    reportSLn "tc.check.term.con" 40 $ "  decided on: " ++ prettyShow c
+    storeDisambiguatedConstructor (conInductive c) (conName c)
+    return $ Right c
+
+  -- Look at simple visible arguments (variables (bound and generalizable ones) and defined names).
+  -- From these we can compute an approximate type effortlessly:
+  -- 1. Throw away hidden domains (needed for generalizable variables).
+  -- 2. If the remainder is a defined name that is not blocked on anything, we take this name as
+  --    approximate type of the argument.
+  -- This gives us a skeleton @[Maybe QName]@.  Compute the same from the constructor types
+  -- of the candidates and see if we find any mismatches that allow us to rule out the candidate.
+  disambiguateByArgs :: [(QName, Type, ConHead)] -> DisambiguateConstructor -> DisambiguateConstructor
+  disambiguateByArgs dcs fallback = do
+
+    -- Look for visible arguments that are just variables,
+    -- so that we can get their type directly from the context
+    -- without full-fledged type inference.
+    askel <- visibleVarArgs
+    reportSDoc "tc.check.term.con" 40 $ hsep $
+      "trying disambiguation by arguments" : map prettyTCM askel
+    reportSDoc "tc.check.term.con" 80 $ hsep $
+      "trying disambiguation by arguments" : map pretty askel
+
+    -- Filter out candidates with definitive mismatches.
+    cands <- filterM (\ (_d, t, _c) -> matchSkel askel =<< visibleConDoms t) dcs
+    case cands of
+      [(_d, _t, c)] -> decideOn c
+      _ -> fallback
+    where
+
+    -- @match@ is successful if there no name conflict (q ≠ q')
+    -- and the argument skeleton is not longer thatn the constructor skeleton.
+    match ::
+          [Maybe QName]   -- Specification (argument skeleton).
+       -> [Maybe QName]   -- Candidate (constructor skeleton).
+       -> Bool
+    match = curry $ \case
+      ([], _ ) -> True
+      (_ , []) -> False
+      (Just q : ms, Just q' : ms') -> q == q' && match ms ms'
+      (_ : ms, _ : ms') -> match ms ms'
+
+    -- @match@ with debug printing.
+    matchSkel :: [Maybe QName] -> [Maybe QName] -> TCM Bool
+    matchSkel argsSkel conSkel = do
+      let res = match argsSkel conSkel
+      reportSDoc "tc.check.term.con" 40 $ vcat
+        [ "matchSkel returns" <+> pretty res <+> "on:"
+        , nest 2 $ pretty argsSkel
+        , nest 2 $ pretty conSkel
+        ]
+      return res
+
+    -- Only look at visible arguments that are variables or similar identifiers.
+    -- For variables/symbols @Just getTypeHead@ else @Nothing@.
+    visibleVarArgs :: TCM [Maybe QName]
+    visibleVarArgs = forM (filter visible args) $ \ (arg :: NamedArg A.Expr) -> do
+        let v = unScope $ namedArg arg
+        reportSDoc "tc.check.term.con" 40 $ "is this a variable? :" <+> prettyTCM v
+        reportSDoc "tc.check.term.con" 90 $ "is this a variable? :" <+> (text . show) v
+        case v of
+
+          -- We can readly grab the type of a variable from the context.
+          A.Var x -> do
+            t <- unDom . snd <$> getVarInfo x
+            reportSDoc "tc.check.term.con" 40 $ "type of variable:" <+> prettyTCM t
+            -- Just keep the name @D@ of type @D vs@
+            getTypeHead t
+
+          -- We can also grab the type of defined symbols if we find them in the signature.
+          A.Def x -> do
+            getConstInfo' x >>= \case
+              Right def -> getTypeHead $ defType def
+              Left{} -> return Nothing
+          _ -> return Nothing
+
+    -- List of visible arguments of the constructor candidate.
+    -- E.g. vcons : {A : Set} {n : Nat} (x : A) (xs : Vec A n) → Vec A (suc n)
+    -- becomes vcons : ? → Vec → .
+    visibleConDoms :: Type -> TCM [Maybe QName]
+    visibleConDoms t = do
+      TelV tel _ <- telViewPath t
+      mapM (getTypeHead . snd . unDom) $ filter visible $ telToList tel
+
+-- | If type is of the form @F vs@ and not blocked in any way, return @F@.
+getTypeHead :: Type -> TCM (Maybe QName)
+getTypeHead t = do
+  res <- ifBlocked t (\ _ _ -> return Nothing) $ \ nb t -> do
+    case nb of
+      ReallyNotBlocked -> do
+        -- Drop initial hidden domains (only needed for generalizable variables).
+        TelV _ core <- telViewUpTo' (0-1) (not . visible) t
+        case unEl core of
+          Def q _ -> return $ Just q
+          _ -> return Nothing
+      -- In the other cases, we do not get the data name.
+      _ -> return Nothing
+  reportSDoc "tc.check.term.con" 80 $ hcat $ "getTypeHead(" : prettyTCM t : ") = " : pretty res : []
+  return res
+
 
 ---------------------------------------------------------------------------
 -- * Projections
@@ -1255,7 +1297,7 @@ inferOrCheckProjApp e o ds args mt = do
       ifBlocked core (\ m _ -> postpone m) $ {-else-} \ _ core -> do
       ifNotPiType core (\ _ -> refuseProjNotApplied ds) $ {-else-} \ dom _b -> do
       ifBlocked (unDom dom) (\ m _ -> postpone m) $ {-else-} \ _ ta -> do
-      caseMaybeM (isRecordType ta) (refuseProjNotRecordType ds) $ \ (_q, _pars, defn) -> do
+      caseMaybeM (isRecordType ta) (refuseProjNotRecordType ds Nothing ta) $ \ (_q, _pars, defn) -> do
       case defn of
         Record { recFields = fs } -> do
           case forMaybe fs $ \ f -> Fold.find (unDom f ==) ds of
@@ -1316,7 +1358,7 @@ inferOrCheckProjAppToKnownPrincipalArg e o ds args mt k v0 ta mpatm = do
     Nothing -> uncurry PrincipalArgTypeMetas <$> implicitArgs (-1) (not . visible) ta
   let v = v0 `apply` vargs
   ifBlocked ta (\ m _ -> postpone m patm) {-else-} $ \ _ ta -> do
-  caseMaybeM (isRecordType ta) (refuseProjNotRecordType ds) $ \ (q, _pars0, _) -> do
+  caseMaybeM (isRecordType ta) (refuseProjNotRecordType ds (Just v0) ta) $ \ (q, _pars0, _) -> do
 
       -- try to project it with all of the possible projections
       let try d = do
@@ -1370,21 +1412,19 @@ inferOrCheckProjAppToKnownPrincipalArg e o ds args mt k v0 ta mpatm = do
               ]
             -- See issue 1960 for when the following assertion fails for
             -- the correct disambiguation.
-            -- guard (size tel == size pars)
+            -- guard (natSize tel == natSize pars)
 
             guard =<< do isNothing <$> do lift $ checkModality' d def
             return (orig, (d, (pars, (dom, u, tb))))
 
-      cands <- groupOn fst . List1.catMaybes <$> mapM (runMaybeT . try) ds
+      cands <- List1.groupOn fst . List1.catMaybes <$> mapM (runMaybeT . try) ds
       case cands of
         [] -> refuseProjNoMatching ds
-        [[]] -> refuseProjNoMatching ds
-        (_:_:_) -> refuseProj ds $ "several matching candidates found: "
-             ++ prettyShow (map (fst . snd) $ concat cands)
+        (_:_:_) -> refuseProj ds $ fwords "several matching candidates can be applied."
         -- case: just one matching projection d
         -- the term u = d v
         -- the type tb is the type of this application
-        [ (_orig, (d, (pars, (_dom,u,tb)))) : _ ] -> do
+        [ (_orig, (d, (pars, (_dom,u,tb)))) :| _ ] -> do
           storeDisambiguatedProjection d
 
           -- Check parameters
@@ -1410,105 +1450,78 @@ inferOrCheckProjAppToKnownPrincipalArg e o ds args mt k v0 ta mpatm = do
 
               return (v, tc, NotCheckedTarget)
 
-refuseProj :: List1 QName -> String -> TCM a
-refuseProj ds reason = typeError $ GenericError $
-        "Cannot resolve overloaded projection "
-        ++ prettyShow (A.nameConcrete $ A.qnameName $ List1.head ds)
-        ++ " because " ++ reason
+-- | Throw 'AmbiguousOverloadedProjection' with additional explanation.
+refuseProj :: List1 QName -> TCM Doc -> TCM a
+refuseProj ds reason = typeError . AmbiguousOverloadedProjection ds =<< reason
 
-refuseProjNotApplied, refuseProjNoMatching, refuseProjNotRecordType :: List1 QName -> TCM a
-refuseProjNotApplied    ds = refuseProj ds "it is not applied to a visible argument"
-refuseProjNoMatching    ds = refuseProj ds "no matching candidate found"
-refuseProjNotRecordType ds = refuseProj ds "principal argument is not of record type"
+refuseProjNotApplied, refuseProjNoMatching :: List1 QName -> TCM a
+refuseProjNotApplied    ds = refuseProj ds $ fwords "it is not applied to a visible argument"
+refuseProjNoMatching    ds = refuseProj ds $ fwords "no matching candidate found"
+refuseProjNotRecordType :: List1 QName -> Maybe Term -> Type -> TCM a
+refuseProjNotRecordType ds pValue pType = do
+  let dType = prettyTCM pType
+  let dValue = caseMaybe pValue (return empty) prettyTCM
+  refuseProj ds $ fsep $
+    ["principal argument", dValue, "has type", dType, "while it should be of record type"]
 
 -----------------------------------------------------------------------------
 -- * Sorts
 -----------------------------------------------------------------------------
 
-checkSet
-  :: Comparison -> A.Expr -> Type
+checkUniv
+  :: UnivSize -> Univ -> Comparison -> A.Expr -> Type
   -> QName -> Suffix -> [NamedArg A.Expr] -> TCM Term
-checkSet = checkSetOrProp Type
-
-checkProp
-  :: Comparison -> A.Expr -> Type
-  -> QName -> Suffix -> [NamedArg A.Expr] -> TCM Term
-checkProp cmp e t q s args = do
-  unlessM isPropEnabled $ typeError NeedOptionProp
-  checkSetOrProp Prop cmp e t q s args
-
-checkSSet
-  :: Comparison -> A.Expr -> Type
-  -> QName -> Suffix -> [NamedArg A.Expr] -> TCM Term
-checkSSet cmp e t q s args = do
-  unlessM isTwoLevelEnabled $ typeError NeedOptionTwoLevel
-  checkLeveledSort SSet SSet cmp e t q s args
-
-checkSetOrProp
-  :: (Level -> Sort) -> Comparison -> A.Expr -> Type
-  -> QName -> Suffix -> [NamedArg A.Expr] -> TCM Term
-checkSetOrProp mkSort cmp e t q suffix args = do
-  checkLeveledSort mkSort Type cmp e t q suffix args
-
-checkLeveledSort
-  :: (Level -> Sort) -> (Level -> Sort) -> Comparison -> A.Expr -> Type
-  -> QName -> Suffix -> [NamedArg A.Expr] -> TCM Term
-checkLeveledSort mkSort mkSortOfSort cmp e t q suffix args = do
-  (v, t0) <- inferLeveledSort mkSort mkSortOfSort e q suffix args
+checkUniv sz u cmp e t q suffix args = do
+  (v, t0) <- inferUniv sz u e q suffix args
   coerce cmp v t0 t
 
-inferSet :: A.Expr -> QName -> Suffix -> [NamedArg A.Expr] -> TCM (Term, Type)
-inferSet = inferSetOrProp Type
+inferUniv :: UnivSize -> Univ -> A.Expr -> QName -> Suffix -> [NamedArg A.Expr] -> TCM (Term, Type)
+inferUniv sz u e q s args = do
+  univChecks u
+  case sz of
+    USmall -> inferLeveledSort u q s args
+    ULarge -> inferUnivOmega u q s args
 
-inferProp :: A.Expr -> QName -> Suffix -> [NamedArg A.Expr] -> TCM (Term, Type)
-inferProp e q s args = do
-  unlessM isPropEnabled $ typeError NeedOptionProp
-  inferSetOrProp Prop e q s args
+univChecks :: Univ -> TCM ()
+univChecks = \case
+  UProp -> unlessM isPropEnabled $ typeError NeedOptionProp
+  UType -> pure ()
+  USSet -> unlessM isTwoLevelEnabled $ typeError NeedOptionTwoLevel
 
-inferSSet :: A.Expr -> QName -> Suffix -> [NamedArg A.Expr] -> TCM (Term, Type)
-inferSSet e q s args = do
-  unlessM isTwoLevelEnabled $ typeError NeedOptionTwoLevel
-  inferLeveledSort SSet SSet e q s args
+suffixToLevel :: Suffix -> Integer
+suffixToLevel = \case
+  NoSuffix -> 0
+  Suffix n -> n
 
-inferSetOrProp
-  :: (Level -> Sort) -> A.Expr
-  -> QName -> Suffix -> [NamedArg A.Expr] -> TCM (Term, Type)
-inferSetOrProp mkSort e q suffix args = inferLeveledSort mkSort Type e q suffix args
-
-inferLeveledSort
-  :: (Level -> Sort) -> (Level -> Sort) -> A.Expr
-  -> QName -> Suffix -> [NamedArg A.Expr] -> TCM (Term, Type)
-inferLeveledSort mkSort mkSortOfSort e q suffix args = case args of
+inferLeveledSort ::
+     Univ                -- ^ The universe type.
+  -> QName               -- ^ Name of the universe, for error reporting.
+  -> Suffix              -- ^ Level of the universe given via suffix (optional).
+  -> [NamedArg A.Expr]   -- ^ Level of the universe given via argument (absent if suffix).
+  -> TCM (Term, Type)    -- ^ Universe and its sort.
+inferLeveledSort u q suffix = \case
   [] -> do
-    let n = case suffix of
-              NoSuffix -> 0
-              Suffix n -> n
-    return (Sort (mkSort $ ClosedLevel n) , sort (mkSortOfSort $ ClosedLevel $ n + 1))
+    let n = suffixToLevel suffix
+    return (Sort (Univ u $ ClosedLevel n) , sort (Univ (univUniv u) $ ClosedLevel $ n + 1))
   [arg] -> do
-    unless (visible arg) $ typeError $ WrongHidingInApplication $ sort $ mkSort $ ClosedLevel 0
+    unless (visible arg) $ typeError $ WrongHidingInApplication $ sort $ Univ u $ ClosedLevel 0
     unlessM hasUniversePolymorphism $ genericError
       "Use --universe-polymorphism to enable level arguments to Set"
     l <- applyRelevanceToContext NonStrict $ checkLevel arg
-    return (Sort $ mkSort l , sort (mkSortOfSort $ levelSuc l))
-  arg : _ -> typeError . GenericDocError =<< fsep
-    [ prettyTCM q , "cannot be applied to more than one argument" ]
+    return (Sort $ Univ u l , sort (Univ (univUniv u) $ levelSuc l))
+  arg : _ -> typeError $ TooManyArgumentsToLeveledSort q
 
-checkSetOmega :: Comparison -> A.Expr -> Type -> QName -> IsFibrant -> Suffix -> [NamedArg A.Expr] -> TCM Term
-checkSetOmega cmp e t q f s args = do
-  (v, t0) <- inferSetOmega e q f s args
-  coerce cmp v t0 t
-
-inferSetOmega :: A.Expr -> QName -> IsFibrant -> Suffix -> [NamedArg A.Expr] -> TCM (Term, Type)
-inferSetOmega e q f suffix args = do
-  when (f == IsStrict) $
-    unlessM isTwoLevelEnabled $ typeError NeedOptionTwoLevel
-  let n = case suffix of
-            NoSuffix -> 0
-            Suffix n -> n
-  case args of
-    [] -> return (Sort (Inf f n) , sort (Inf f $ 1 + n))
-    arg : _ -> typeError . GenericDocError =<< fsep
-        [ prettyTCM q , "cannot be applied to an argument" ]
+inferUnivOmega ::
+     Univ                -- ^ The universe type.
+  -> QName               -- ^ Name of the universe, for error reporting.
+  -> Suffix              -- ^ Level of the universe given via suffix (optional).
+  -> [NamedArg A.Expr]   -- ^ Level of the universe given via argument (should be absent).
+  -> TCM (Term, Type)    -- ^ Universe and its sort.
+inferUnivOmega u q suffix = \case
+  [] -> do
+    let n = suffixToLevel suffix
+    return (Sort (Inf u n) , sort (Inf (univUniv u) $ 1 + n))
+  arg : _ -> typeError $ TooManyArgumentsToUnivOmega q
 
 -----------------------------------------------------------------------------
 -- * Coinduction
@@ -1540,15 +1553,17 @@ checkSharpApplication e t c args = do
     (_, a) <- newValueMeta RunMetaOccursCheck CmpEq (sort $ Type lv)
     return $ El (Type lv) $ Def inf [Apply $ setHiding Hidden $ defaultArg l, Apply $ defaultArg a]
 
-  wrapper <- inFreshModuleIfFreeParams $ localTC (set eQuantity topQuantity) $ do
+  wrapper <- inFreshModuleIfFreeParams $
+             setRunTimeModeUnlessInHardCompileTimeMode $ do
     -- Andreas, 2019-10-12: create helper functions in non-erased mode.
     -- Otherwise, they are not usable in meta-solutions in the term world.
+    -- #4743: Except if hard compile-time mode is enabled.
     c' <- setRange (getRange c) <$>
             liftM2 qualify (killRange <$> currentModule)
                            (freshName_ name)
 
     -- Define and type check the fresh function.
-    mod <- asksTC getModality
+    mod <- currentModality
     abs <- asksTC (^. lensIsAbstract)
     let info   = A.mkDefInfo (A.nameConcrete $ A.qnameName c') noFixity'
                              PublicAccess abs noRange
@@ -1567,11 +1582,12 @@ checkSharpApplication e t c args = do
     addConstant c' =<< do
       let ai = setModality mod defaultArgInfo
       lang <- getLanguage
+      fun  <- emptyFunction
       useTerPragma $
-        (defaultDefn ai c' forcedType lang emptyFunction)
+        (defaultDefn ai c' forcedType lang fun)
         { defMutual = i }
 
-    checkFunDef NotDelayed info c' [clause]
+    checkFunDef info c' [clause]
 
     reportSDoc "tc.term.expr.coind" 15 $ do
       def <- theDef <$> getConstInfo c'
@@ -1580,8 +1596,6 @@ checkSharpApplication e t c args = do
         , nest 2 $ prettyTCM mod <> (prettyTCM c' <+> ":")
         , nest 4 $ prettyTCM t
         , nest 2 $ prettyA clause
-        , ("The definition is" <+> text (show $ funDelayed def)) <>
-          "."
         ]
     return c'
 
@@ -1628,7 +1642,7 @@ checkPrimComp c rs vs _ = do
           (Lam defaultArgInfo $ NoAbs "_" $ unArg a0)
           (apply (unArg u) [iz])
       return $ l : a : phi : u : a0 : rest
-    _ -> typeError . GenericDocError =<< prettyTCM c <+> "must be fully applied"
+    _ -> typeError $ CubicalPrimitiveNotFullyApplied c
 
 -- | @primHComp : ∀ {ℓ} {A : Set ℓ} {φ : I} (u : ∀ i → Partial φ A) (a : A) → A@
 --
@@ -1650,7 +1664,7 @@ checkPrimHComp c rs vs _ = do
             (Lam defaultArgInfo $ NoAbs "_" $ unArg a0)
             (apply (unArg u) [iz])
       return $ l : a : phi : u : a0 : rest
-    _ -> typeError . GenericDocError =<< prettyTCM c <+> "must be fully applied"
+    _ -> typeError $ CubicalPrimitiveNotFullyApplied c
 
 
 -- | @primMHComp : ∀ {ℓ} {A : Set ℓ} {ζ : I} (u : ∀ i → Partial φ A) (u0 : A) → A@
@@ -1698,7 +1712,7 @@ checkPrimTrans c rs vs _ = do
           (unArg a)
           (Lam defaultArgInfo $ NoAbs "_" $ apply (unArg a) [iz])
       return $ l : a : phi : rest
-    _ -> typeError . GenericDocError =<< prettyTCM c <+> "must be fully applied"
+    _ -> typeError $ CubicalPrimitiveNotFullyApplied c
 
 blockArg :: HasRange r => Type -> r -> Arg Term -> TCM () -> TCM (Arg Term)
 blockArg t r a m =
@@ -1725,7 +1739,7 @@ checkConId c rs vs t1 = do
       --   equalTerm (El s (unArg a)) (unArg x) (unArg y) -- precondition for cx being well-typed at ty
       --   cx <- pathAbs iv (NoAbs (stringToArgName "_") (applySubst alpha (unArg x)))
       --   equalTerm ty (applySubst alpha (unArg p)) cx   -- G, phi |- p = \ i . x
-   _ -> typeError . GenericDocError =<< prettyTCM c <+> "must be fully applied"
+   _ -> typeError $ CubicalPrimitiveNotFullyApplied c
 
 
 -- The following comment contains silly ' escapes to calm CPP about ∨ (\vee).
@@ -1743,9 +1757,6 @@ checkPOr c rs vs _ = do
    l : phi1 : phi2 : a : u : v : rest -> do
       phi <- intervalUnview (IMin phi1 phi2)
       reportSDoc "tc.term.por" 10 $ text (show phi)
-      -- phi <- reduce phi
-      -- alphas <- toFaceMaps phi
-      -- reportSDoc "tc.term.por" 10 $ text (show alphas)
       t1 <- runNamesT [] $ do
              [l,a] <- mapM (open . unArg) [l,a]
              psi <- open =<< intervalUnview (IMax phi1 phi2)
@@ -1757,7 +1768,7 @@ checkPOr c rs vs _ = do
         -- ' φ₁ ∧ φ₂  ⊢ u , v : PartialP (φ₁ ∨ φ₂) \ o → a o
         equalTermOnFace phi t1 (unArg u) (unArg v)
       return $ l : phi1 : phi2 : a : u : v : rest
-   _ -> typeError . GenericDocError =<< prettyTCM c <+> "must be fully applied"
+   _ -> typeError $ CubicalPrimitiveNotFullyApplied c
 
 -- The following comment contains silly ' escapes to calm CPP about ∨ (\vee).
 -- May not be haddock-parseable.
@@ -1953,7 +1964,7 @@ check_glue c rs vs _ = do
       ta <- el' (pure $ unArg la) (pure $ unArg bA)
       a <- blockArg ta (rs !!! 7) a $ equalTerm ty a' v
       return $ la : lb : bA : phi : bT : e : t : a : rest
-   _ -> typeError . GenericDocError =<< prettyTCM c <+> "must be fully applied"
+   _ -> typeError $ CubicalPrimitiveNotFullyApplied c
 
 
 -- | @prim^glueU : ∀ {ℓ} {φ : I}
@@ -1981,4 +1992,4 @@ check_glueU c rs vs _ = do
             el' la (cl primSubOut <#> (cl primLevelSuc <@> la) <#> (Sort . tmSort <$> la) <#> phi <#> (bT <@> cl primIZero) <@> bA)
       a <- blockArg ta (rs !!! 5) a $ equalTerm ty a' v
       return $ la : phi : bT : bA : t : a : rest
-   _ -> typeError . GenericDocError =<< prettyTCM c <+> "must be fully applied"
+   _ -> typeError $ CubicalPrimitiveNotFullyApplied c

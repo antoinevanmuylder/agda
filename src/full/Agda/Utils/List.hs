@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
+
 -- | Utility functions for lists.
 
 module Agda.Utils.List where
@@ -7,7 +9,7 @@ import Control.Monad (filterM)
 import Data.Array (Array, array, listArray)
 import qualified Data.Array as Array
 import Data.Bifunctor
-import Data.Function
+import Data.Function (on)
 import Data.Hashable
 import qualified Data.List as List
 import qualified Data.List.NonEmpty as List1
@@ -96,12 +98,18 @@ last1 a = \case
 
 -- | Last two elements (safe).
 --   O(n).
+--
 last2 :: [a] -> Maybe (a, a)
-last2 (x : y : xs) = Just $ loop x y xs
-  where
-  loop x y []     = (x, y)
-  loop x y (z:xs) = loop y z xs
+last2 (x : y : xs) = Just $ last2' x y xs
 last2 _ = Nothing
+
+-- | @last2' x y zs@ computes the last two elements of @x:y:zs@.
+--   O(n).
+--
+last2' :: a -> a -> [a] -> (a, a)
+last2' x y = \case
+  []  -> (x, y)
+  z:zs -> last2' y z zs
 
 -- | Opposite of cons @(:)@, safe.
 --   O(1).
@@ -280,7 +288,7 @@ spanEnd p = snd . foldr f (True, ([], []))
 --   found.
 --
 --   >>> breakAfter1 even 1 [3,5,2,4,7,8]
---   ([1,3,5,2],[4,7,8])
+--   (1 :| [3,5,2],[4,7,8])
 
 breakAfter1 :: (a -> Bool) -> a -> [a] -> (List1 a, [a])
 breakAfter1 p = loop
@@ -484,27 +492,8 @@ findOverlap xs ys =
     | otherwise                = Nothing
 
 ---------------------------------------------------------------------------
--- * Groups and chunks
+-- * Chunks
 ---------------------------------------------------------------------------
-
--- | @'groupOn' f = 'groupBy' (('==') \`on\` f) '.' 'List.sortBy' ('compare' \`on\` f)@.
--- O(n log n).
-groupOn :: Ord b => (a -> b) -> [a] -> [[a]]
-groupOn f = List.groupBy ((==) `on` f) . List.sortBy (compare `on` f)
-
--- | A variant of 'List.groupBy' which applies the predicate to consecutive
--- pairs.
--- O(n).
--- DEPRECATED in favor of 'Agda.Utils.List1.groupBy''.
-groupBy' :: (a -> a -> Bool) -> [a] -> [[a]]
-groupBy' _ []           = []
-groupBy' p xxs@(x : xs) = grp x $ zipWith (\x y -> (p x y, y)) xxs xs
-  where
-  grp x ys = (x : map snd xs) : tail
-    where (xs, rest) = span fst ys
-          tail = case rest of
-                   []            -> []
-                   ((_, z) : zs) -> grp z zs
 
 -- | Chop up a list in chunks of a given length.
 -- O(n).
@@ -551,8 +540,13 @@ hasElem xs = (`Set.member` Set.fromList xs)
 -- Assumes that the 'Ord' instance implements a partial order.
 
 sorted :: Ord a => [a] -> Bool
-sorted [] = True
-sorted xs = and $ zipWith (<=) xs (tail xs)
+sorted = allConsecutive (<=)
+
+-- | Check whether all consecutive elements of a list satisfy the given relation.
+-- O(n).
+--
+allConsecutive :: (a -> a -> Bool) -> [a] -> Bool
+allConsecutive cmp xs = and $ zipWith cmp xs $ drop 1 xs
 
 -- | Check whether all elements in a list are distinct from each other.
 --   Assumes that the 'Eq' instance stands for an equivalence relation.
@@ -789,12 +783,12 @@ editDistance xs ys = editD 0 0
       -- Corner (EQ, EQ): both lists are empty
       _             -> 0
       -- GT cases are impossible.
-    where (i',j') = (i+1, j+1)
+    where (i', j') = (i + 1, j + 1)
   n   = length xs
   m   = length ys
   xsA, ysA :: Array Int a
-  xsA = listArray (0,n-1) xs
-  ysA = listArray (0,m-1) ys
+  xsA = listArray (0, n - 1) xs
+  ysA = listArray (0, m - 1) ys
 
 
 mergeStrictlyOrderedBy :: (a -> a -> Bool) -> [a] -> [a] -> Maybe [a]

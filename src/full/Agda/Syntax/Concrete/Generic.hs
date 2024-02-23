@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
 
 -- | Generic traversal and reduce for concrete syntax,
 --   in the style of "Agda.Syntax.Internal.Generic".
@@ -7,6 +8,7 @@
 module Agda.Syntax.Concrete.Generic where
 
 import Data.Bifunctor
+import Data.Functor
 
 import Agda.Syntax.Common
 import Agda.Syntax.Concrete
@@ -16,6 +18,9 @@ import Agda.Utils.List1 (List1)
 import Agda.Utils.List2 (List2)
 
 import Agda.Utils.Impossible
+
+-- Generic traversals for concrete expressions.
+-- ========================================================================
 
 -- | Generic traversals for concrete expressions.
 --
@@ -44,7 +49,8 @@ class ExprLike a where
   traverseExpr = traverse . traverseExpr
 
 
--- * Instances for things that do not contain expressions.
+-- Instances for things that do not contain expressions.
+---------------------------------------------------------------------------
 
 instance ExprLike () where
   mapExpr _      = id
@@ -66,7 +72,8 @@ instance ExprLike Bool where
   foldExpr _ _   = mempty
   traverseExpr _ = return
 
--- * Instances for collections and decorations.
+-- Instances for collections and decorations.
+---------------------------------------------------------------------------
 
 instance ExprLike a => ExprLike [a]
 instance ExprLike a => ExprLike (List1 a)
@@ -75,6 +82,7 @@ instance ExprLike a => ExprLike (Maybe a)
 
 instance ExprLike a => ExprLike (Arg a)
 instance ExprLike a => ExprLike (Named name a)
+instance ExprLike a => ExprLike (Ranged a)
 instance ExprLike a => ExprLike (WithHiding a)
 
 instance ExprLike a => ExprLike (MaybePlaceholder a)
@@ -102,43 +110,46 @@ instance (ExprLike a, ExprLike b, ExprLike c, ExprLike d) => ExprLike (a, b, c, 
   traverseExpr f (x, y, z, w) = (,,,) <$> traverseExpr f x <*> traverseExpr f y <*> traverseExpr f z <*> traverseExpr f w
   foldExpr     f (x, y, z, w) = foldExpr f x `mappend` foldExpr f y `mappend` foldExpr f z `mappend` foldExpr f w
 
--- * Interesting instances
+-- Interesting instances
+---------------------------------------------------------------------------
 
 instance ExprLike Expr where
   mapExpr f e0 = case e0 of
-     Ident{}            -> f $ e0
-     Lit{}              -> f $ e0
-     QuestionMark{}     -> f $ e0
-     Underscore{}       -> f $ e0
-     RawApp r es        -> f $ RawApp r               $ mapE es
-     App r e es         -> f $ App r       (mapE e)   $ mapE es
-     OpApp r q ns es    -> f $ OpApp r q ns           $ mapE es
-     WithApp r e es     -> f $ WithApp r   (mapE e)   $ mapE es
-     HiddenArg r e      -> f $ HiddenArg r            $ mapE e
-     InstanceArg r e    -> f $ InstanceArg r          $ mapE e
-     Lam r bs e         -> f $ Lam r       (mapE bs)  $ mapE e
-     AbsurdLam{}        -> f $ e0
-     ExtendedLam r e cs -> f $ ExtendedLam r e        $ mapE cs
-     Fun r a b          -> f $ Fun r     (mapE <$> a) $ mapE b
-     Pi tel e           -> f $ Pi          (mapE tel) $ mapE e
-     Rec r es           -> f $ Rec r                  $ mapE es
-     RecUpdate r e es   -> f $ RecUpdate r (mapE e)   $ mapE es
-     Let r ds e         -> f $ Let r       (mapE ds)  $ mapE e
-     Paren r e          -> f $ Paren r                $ mapE e
-     IdiomBrackets r es -> f $ IdiomBrackets r        $ mapE es
-     DoBlock r ss       -> f $ DoBlock r              $ mapE ss
-     Absurd{}           -> f $ e0
-     As r x e           -> f $ As r x                 $ mapE e
-     Dot r e            -> f $ Dot r                  $ mapE e
-     DoubleDot r e      -> f $ DoubleDot r            $ mapE e
-     Tactic r e         -> f $ Tactic r     (mapE e)
-     Quote{}            -> f $ e0
-     QuoteTerm{}        -> f $ e0
-     Unquote{}          -> f $ e0
-     DontCare e         -> f $ DontCare               $ mapE e
-     Equal{}            -> f $ e0
-     Ellipsis{}         -> f $ e0
-     Generalized e      -> f $ Generalized            $ mapE e
+     Ident{}                 -> f $ e0
+     Lit{}                   -> f $ e0
+     QuestionMark{}          -> f $ e0
+     Underscore{}            -> f $ e0
+     RawApp r es             -> f $ RawApp r               $ mapE es
+     App r e es              -> f $ App r       (mapE e)   $ mapE es
+     OpApp r q ns es         -> f $ OpApp r q ns           $ mapE es
+     WithApp r e es          -> f $ WithApp r   (mapE e)   $ mapE es
+     HiddenArg r e           -> f $ HiddenArg r            $ mapE e
+     InstanceArg r e         -> f $ InstanceArg r          $ mapE e
+     Lam r bs e              -> f $ Lam r       (mapE bs)  $ mapE e
+     AbsurdLam{}             -> f $ e0
+     ExtendedLam r e cs      -> f $ ExtendedLam r e        $ mapE cs
+     Fun r a b               -> f $ Fun r     (mapE <$> a) $ mapE b
+     Pi tel e                -> f $ Pi          (mapE tel) $ mapE e
+     Rec r es                -> f $ Rec r                  $ mapE es
+     RecUpdate r e es        -> f $ RecUpdate r (mapE e)   $ mapE es
+     Let r ds e              -> f $ Let r       (mapE ds)  $ mapE e
+     Paren r e               -> f $ Paren r                $ mapE e
+     IdiomBrackets r es      -> f $ IdiomBrackets r        $ mapE es
+     DoBlock r ss            -> f $ DoBlock r              $ mapE ss
+     Absurd{}                -> f $ e0
+     As r x e                -> f $ As r x                 $ mapE e
+     Dot r e                 -> f $ Dot r                  $ mapE e
+     DoubleDot r e           -> f $ DoubleDot r            $ mapE e
+     Tactic r e              -> f $ Tactic r     (mapE e)
+     Quote{}                 -> f $ e0
+     QuoteTerm{}             -> f $ e0
+     Unquote{}               -> f $ e0
+     DontCare e              -> f $ DontCare               $ mapE e
+     Equal{}                 -> f $ e0
+     Ellipsis{}              -> f $ e0
+     Generalized e           -> f $ Generalized            $ mapE e
+     KnownIdent{}            -> f $ e0
+     KnownOpApp nk r q ns es -> f $ KnownOpApp nk r q ns   $ mapE es
    where
      mapE :: ExprLike e => e -> e
      mapE = mapExpr f
@@ -219,12 +230,14 @@ instance ExprLike Declaration where
      FieldSig i t n e          -> FieldSig i (mapE t) n (mapE e)
      Field r fs                -> Field r                              $ map (mapExpr f) fs
      FunClause lhs rhs wh ca   -> FunClause (mapE lhs) (mapE rhs) (mapE wh) (mapE ca)
-     DataSig r x bs e          -> DataSig r x (mapE bs)                $ mapE e
+     DataSig r er x bs e       -> DataSig r er x (mapE bs)             $ mapE e
      DataDef r n bs cs         -> DataDef r n (mapE bs)                $ mapE cs
-     Data r n bs e cs          -> Data r n (mapE bs) (mapE e)          $ mapE cs
-     RecordSig r ind bs e      -> RecordSig r ind (mapE bs)            $ mapE e
+     Data r er n bs e cs       -> Data r er n (mapE bs) (mapE e)       $ mapE cs
+     RecordSig r er ind bs e   -> RecordSig r er ind (mapE bs)         $ mapE e
      RecordDef r n dir tel ds  -> RecordDef r n dir (mapE tel)         $ mapE ds
-     Record r n dir tel e ds   -> Record r n dir (mapE tel) (mapE e)   $ mapE ds
+     Record r er n dir tel e ds
+                               -> Record r er n dir (mapE tel) (mapE e)
+                                                                       $ mapE ds
      e@RecordDirective{}       -> e
      e@Infix{}                 -> e
      e@Syntax{}                -> e
@@ -239,14 +252,17 @@ instance ExprLike Declaration where
      Postulate r ds            -> Postulate r                          $ mapE ds
      Primitive r ds            -> Primitive r                          $ mapE ds
      Generalize r ds           -> Generalize r                         $ mapE ds
+     Opaque  r ds              -> Opaque r                             $ mapE ds
      e@Open{}                  -> e
      e@Import{}                -> e
-     ModuleMacro r n es op dir -> ModuleMacro r n (mapE es) op dir
-     Module r n tel ds         -> Module r n (mapE tel)                $ mapE ds
+     ModuleMacro r e n es op dir
+                               -> ModuleMacro r e n (mapE es) op dir
+     Module r e n tel ds       -> Module r e n (mapE tel)              $ mapE ds
      UnquoteDecl r x e         -> UnquoteDecl r x (mapE e)
      UnquoteDef r x e          -> UnquoteDef r x (mapE e)
      UnquoteData r x xs e      -> UnquoteData r x xs (mapE e)
      e@Pragma{}                -> e
+     e@Unfolding{}             -> e
    where
      mapE :: ExprLike e => e -> e
      mapE = mapExpr f
@@ -264,3 +280,113 @@ instance ExprLike a where
   traverseExpr = __IMPOSSIBLE__
 
 -}
+
+-- Generic traversals for concrete declarations.
+-- ========================================================================
+
+class FoldDecl a where
+
+  -- | Collect declarations and subdeclarations, transitively.
+  -- Prefix-order tree traversal.
+  foldDecl :: Monoid m => (Declaration -> m) -> a -> m
+
+  default foldDecl :: (Monoid m, Foldable t, FoldDecl b, t b ~ a)
+    => (Declaration -> m) -> a -> m
+  foldDecl = foldMap . foldDecl
+
+instance FoldDecl a => FoldDecl [a]
+instance FoldDecl a => FoldDecl (List1 a)
+instance FoldDecl a => FoldDecl (List2 a)
+instance FoldDecl a => FoldDecl (WhereClause' a)
+
+instance FoldDecl Declaration where
+  foldDecl f d = f d <> case d of
+    Private  _ _        ds  -> foldDecl f ds
+    Abstract _          ds  -> foldDecl f ds
+    InstanceB _         ds  -> foldDecl f ds
+    InterleavedMutual _ ds  -> foldDecl f ds
+    LoneConstructor _   ds  -> foldDecl f ds
+    Mutual _            ds  -> foldDecl f ds
+    Module _ _ _ _      ds  -> foldDecl f ds
+    Macro _             ds  -> foldDecl f ds
+    Record _ _ _ _ _ _  ds  -> foldDecl f ds
+    RecordDef _ _ _ _   ds  -> foldDecl f ds
+    TypeSig _ _ _ _         -> mempty
+    FieldSig _ _ _ _        -> mempty
+    Generalize _ _          -> mempty
+    Field _ _               -> mempty
+    FunClause _ _ wh _      -> foldDecl f wh
+    DataSig _ _ _ _ _       -> mempty
+    Data _ _ _ _ _ _        -> mempty
+    DataDef _ _ _ _         -> mempty
+    RecordSig _ _ _ _ _     -> mempty
+    RecordDirective _       -> mempty
+    Infix _ _               -> mempty
+    Syntax _ _              -> mempty
+    PatternSyn _ _ _ _      -> mempty
+    Postulate _ _           -> mempty
+    Primitive _ _           -> mempty
+    Open _ _ _              -> mempty
+    Import _ _ _ _ _        -> mempty
+    ModuleMacro _ _ _ _ _ _ -> mempty
+    UnquoteDecl _ _ _       -> mempty
+    UnquoteDef _ _ _        -> mempty
+    UnquoteData _ _ _ _     -> mempty
+    Pragma _                -> mempty
+    Opaque _ ds             -> foldDecl f ds
+    Unfolding _ _           -> mempty
+
+class TraverseDecl a where
+
+  -- | Update declarations and their subdeclarations.
+  -- Prefix-order traversal: traverses subdeclarations of updated declaration.
+  --
+  preTraverseDecl :: Monad m => (Declaration -> m Declaration) -> a -> m a
+
+  default preTraverseDecl :: (Monad m, Traversable t, TraverseDecl b, t b ~ a)
+    => (Declaration -> m Declaration) -> a -> m a
+  preTraverseDecl = traverse . preTraverseDecl
+
+instance TraverseDecl a => TraverseDecl [a]
+instance TraverseDecl a => TraverseDecl (List1 a)
+instance TraverseDecl a => TraverseDecl (List2 a)
+instance TraverseDecl a => TraverseDecl (WhereClause' a)
+
+instance TraverseDecl Declaration where
+  preTraverseDecl f d0 = do
+    d <- f d0
+    case d of
+      Private  r o        ds     -> Private r o             <$> preTraverseDecl f ds
+      Abstract r          ds     -> Abstract r              <$> preTraverseDecl f ds
+      InstanceB r         ds     -> InstanceB r             <$> preTraverseDecl f ds
+      InterleavedMutual r ds     -> InterleavedMutual r     <$> preTraverseDecl f ds
+      LoneConstructor r   ds     -> LoneConstructor r       <$> preTraverseDecl f ds
+      Mutual r            ds     -> Mutual r                <$> preTraverseDecl f ds
+      Module r er n tel   ds     -> Module r er n tel       <$> preTraverseDecl f ds
+      Macro r             ds     -> Macro r                 <$> preTraverseDecl f ds
+      Opaque r ds                -> Opaque r                <$> preTraverseDecl f ds
+      Record r er n dir tel t ds -> Record r er n dir tel t <$> preTraverseDecl f ds
+      RecordDef r n dir tel   ds -> RecordDef r n dir tel   <$> preTraverseDecl f ds
+      TypeSig _ _ _ _            -> return d
+      FieldSig _ _ _ _           -> return d
+      Generalize _ _             -> return d
+      Field _ _                  -> return d
+      FunClause lhs rhs wh ca    -> preTraverseDecl f wh <&> \ wh' -> FunClause lhs rhs wh' ca
+      DataSig _ _ _ _ _          -> return d
+      Data _ _ _ _ _ _           -> return d
+      DataDef _ _ _ _            -> return d
+      RecordSig _ _ _ _ _        -> return d
+      RecordDirective _          -> return d
+      Infix _ _                  -> return d
+      Syntax _ _                 -> return d
+      PatternSyn _ _ _ _         -> return d
+      Postulate _ _              -> return d
+      Primitive _ _              -> return d
+      Open _ _ _                 -> return d
+      Import _ _ _ _ _           -> return d
+      ModuleMacro _ _ _ _ _ _    -> return d
+      UnquoteDecl _ _ _          -> return d
+      UnquoteDef _ _ _           -> return d
+      UnquoteData _ _ _ _        -> return d
+      Pragma _                   -> return d
+      Unfolding _ _              -> return d

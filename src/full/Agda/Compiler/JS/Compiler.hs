@@ -36,7 +36,7 @@ import Agda.Syntax.Internal
   ( Name, Type
   , nameFixity, unDom, telToList )
 import Agda.Syntax.Literal       ( Literal(..) )
-import Agda.Syntax.TopLevelModuleName (TopLevelModuleName(..))
+import Agda.Syntax.TopLevelModuleName (TopLevelModuleName, TopLevelModuleName'(..))
 import Agda.Syntax.Treeless      ( ArgUsage(..), filterUsed )
 import qualified Agda.Syntax.Treeless as T
 
@@ -54,8 +54,8 @@ import qualified Agda.Utils.List1 as List1
 import Agda.Utils.Maybe ( boolToMaybe, catMaybes, caseMaybeM, fromMaybe, whenNothing )
 import Agda.Utils.Monad ( ifM, when )
 import Agda.Utils.Null  ( null )
-import Agda.Utils.Pretty (prettyShow, render)
-import qualified Agda.Utils.Pretty as P
+import Agda.Syntax.Common.Pretty (prettyShow, render)
+import qualified Agda.Syntax.Common.Pretty as P
 import Agda.Utils.IO.Directory
 import Agda.Utils.IO.UTF8 ( writeFile )
 import Agda.Utils.Singleton ( singleton )
@@ -79,6 +79,7 @@ import Agda.Compiler.JS.Syntax
 import Agda.Compiler.JS.Substitution
   ( curriedLambda, curriedApply, emp, apply )
 import qualified Agda.Compiler.JS.Pretty as JSPretty
+import Agda.Compiler.JS.Pretty (JSModuleStyle(..))
 
 import Agda.Utils.Impossible (__IMPOSSIBLE__)
 
@@ -119,8 +120,11 @@ data JSOptions = JSOptions
       -- ^ Remove spaces etc. See https://en.wikipedia.org/wiki/Minification_(programming).
   , optJSVerify   :: Bool
       -- ^ Run generated code through interpreter.
+  , optJSModuleStyle :: JSModuleStyle
   }
   deriving Generic
+
+instance NFData JSModuleStyle
 
 instance NFData JSOptions
 
@@ -130,6 +134,7 @@ defaultJSOptions = JSOptions
   , optJSOptimize = False
   , optJSMinify   = False
   , optJSVerify   = False
+  , optJSModuleStyle = JSCJS
   }
 
 jsCommandLineFlags :: [OptDescr (Flag JSOptions)]
@@ -139,12 +144,16 @@ jsCommandLineFlags =
     -- Minification is described at https://en.wikipedia.org/wiki/Minification_(programming)
     , Option [] ["js-minify"] (NoArg enableMin) "minify generated JS code"
     , Option [] ["js-verify"] (NoArg enableVerify) "except for main module, run generated JS modules through `node` (needs to be in PATH)"
+    , Option [] ["js-cjs"] (NoArg setCJS) "use CommonJS module style (default)"
+    , Option [] ["js-amd"] (NoArg setAMD) "use AMD module style for JS"
     ]
   where
     enable       o = pure o{ optJSCompile  = True }
     enableOpt    o = pure o{ optJSOptimize = True }
     enableMin    o = pure o{ optJSMinify   = True }
     enableVerify o = pure o{ optJSVerify   = True }
+    setCJS       o = pure o{ optJSModuleStyle = JSCJS }
+    setAMD       o = pure o{ optJSModuleStyle = JSAMD }
 
 --- Top-level compilation ---
 
@@ -172,8 +181,12 @@ jsPostCompile opts _ ms = do
   compDir  <- compileDir
   liftIO $ do
     dataDir <- getDataDir
-    let srcDir = dataDir </> "JS"
-    copyDirContent srcDir compDir
+    let fname = case optJSModuleStyle opts of
+          JSCJS -> "agda-rts.js"
+          JSAMD -> "agda-rts.amd.js"
+        srcPath = dataDir </> "JS" </> fname
+        compPath = compDir </> fname
+    copyIfChanged srcPath compPath
 
   -- Verify generated JS modules (except for main).
 
@@ -231,7 +244,7 @@ jsPreModule _opts _ m mifile = do
     yesComp compile = do
       m   <- prettyShow <$> curMName
       out <- outFile_
-      reportSLn "compile.js" 1 $ repl [m, ifileDesc, out] "Compiling <<0>> in <<1>> to <<2>>"
+      alwaysReportSLn "compile.js" 1 $ repl [m, ifileDesc, out] "Compiling <<0>> in <<1>> to <<2>>"
       kit <- coinductionKit
       return $ Recompile $ JSModuleEnv
         { jsCoinductionKit = kit
@@ -245,7 +258,7 @@ jsPostModule opts _ isMain _ defs = do
   m  <- jsMod <$> curMName
   is <- map (jsMod . fst) . iImportedModules <$> curIF
   let mod = Module m is (reorder es) callMain
-  writeModule (optJSMinify opts) mod
+  writeModule (optJSMinify opts) (optJSModuleStyle opts) mod
   return mod
   where
   es       = catMaybes defs
@@ -430,7 +443,7 @@ definition' kit q d t ls =
         let (body, given) = lamView funBody
               where
                 lamView :: T.TTerm -> (T.TTerm, Int)
-                lamView (T.TLam t) = (+1) <$> lamView t
+                lamView (T.TLam t) = (+ 1) <$> lamView t
                 lamView t = (t, 0)
 
             -- number of eta expanded args
@@ -456,7 +469,7 @@ definition' kit q d t ls =
         -- The string prim^unglueU is not a valid JS name.
         plainJS "agdaRTS.prim_unglueU"
       | p `Set.member` primitives ->
-        plainJS $ "agdaRTS." ++ p
+        plainJS $ "agdaRTS." ++ getBuiltinId p
       | Just e <- defJSDef d ->
         plainJS e
       | otherwise ->
@@ -559,7 +572,7 @@ compileTerm kit t = go t
       T.TCon q -> do
         d <- getConstInfo q
         qname q
-      T.TCase sc ct def alts | T.CTData _ dt <- T.caseType ct -> do
+      T.TCase sc ct def alts | T.CTData dt <- T.caseType ct -> do
         dt <- getConstInfo dt
         alts' <- traverse (compileAlt kit) alts
         let cs  = defConstructors $ theDef dt
@@ -596,7 +609,7 @@ compileTerm kit t = go t
     unit = return Null
 
     mkArray xs
-        | 2 * length (filter ((==Null) . snd) xs) <= length xs = Array xs
+        | 2 * length (filter ((== Null) . snd) xs) <= length xs = Array xs
         | otherwise = Object $ Map.fromListWith __IMPOSSIBLE__
             [ (MemberIndex i c, x) | (i, (c, x)) <- zip [0..] xs, x /= Null ]
 
@@ -668,7 +681,7 @@ literal = \case
   (LitString x) -> String  x
   (LitChar   x) -> Char    x
   (LitQName  x) -> litqname x
-  LitMeta{}     -> __IMPOSSIBLE__
+  (LitMeta _ m) -> litmeta m
 
 litqname :: QName -> Exp
 litqname q =
@@ -695,14 +708,21 @@ litqname q =
     litPrec Unrelated   = String "unrelated"
     litPrec (Related l) = Double l
 
+litmeta :: MetaId -> Exp
+litmeta (MetaId m h) =
+  Object $ Map.fromListWith __IMPOSSIBLE__
+    [ (MemberId "id", Integer $ fromIntegral m)
+    , (MemberId "module", Integer $ fromIntegral $ moduleNameHash h) ]
+
+
 --------------------------------------------------
 -- Writing out an ECMAScript module
 --------------------------------------------------
 
-writeModule :: Bool -> Module -> TCM ()
-writeModule minify m = do
+writeModule :: Bool -> JSModuleStyle -> Module -> TCM ()
+writeModule minify ms m = do
   out <- outFile (modName m)
-  liftIO (writeFile out (JSPretty.prettyShow minify m))
+  liftIO (writeFile out (JSPretty.prettyShow minify ms m))
 
 outFile :: GlobalId -> TCM FilePath
 outFile m = do
@@ -724,124 +744,120 @@ outFile_ = do
 -- 'defJSDef' does not return anything, are silently compiled to
 -- 'Undefined'. A better approach might be to list exactly those
 -- primitives which should be compiled to 'Undefined'.
-primitives :: Set String
+primitives :: Set PrimitiveId
 primitives = Set.fromList
-  [  "primShowInteger"
+  [ PrimShowInteger
 
   -- Natural number functions
-  -- , "primNatPlus"                 -- missing
-  , "primNatMinus"
-  -- , "primNatTimes"                -- missing
-  -- , "primNatDivSucAux"            -- missing
-  -- , "primNatModSucAux"            -- missing
-  -- , "primNatEquality"             -- missing
-  -- , "primNatLess"                 -- missing
-  -- , "primShowNat"                 -- missing
+  -- , PrimNatPlus                 -- missing
+  , PrimNatMinus
+  -- , PrimNatTimes                -- missing
+  -- , PrimNatDivSucAux            -- missing
+  -- , PrimNatModSucAux            -- missing
+  -- , PrimNatEquality             -- missing
+  -- , PrimNatLess                 -- missing
+  -- , PrimShowNat                 -- missing
 
   -- Machine words
-  , "primWord64ToNat"
-  , "primWord64FromNat"
-  -- , "primWord64ToNatInjective"    -- missing
+  , PrimWord64ToNat
+  , PrimWord64FromNat
+  -- , PrimWord64ToNatInjective    -- missing
 
   -- Level functions
-  -- , "primLevelZero"               -- missing
-  -- , "primLevelSuc"                -- missing
-  -- , "primLevelMax"                -- missing
-
-  -- Sorts
-  -- , "primSetOmega"                -- missing
-  -- , "primStrictSetOmega"          -- missing
+  -- , PrimLevelZero               -- missing
+  -- , PrimLevelSuc                -- missing
+  -- , PrimLevelMax                -- missing
 
   -- Floating point functions
-  , "primFloatEquality"
-  , "primFloatInequality"
-  , "primFloatLess"
-  , "primFloatIsInfinite"
-  , "primFloatIsNaN"
-  , "primFloatIsNegativeZero"
-  , "primFloatIsSafeInteger"
-  , "primFloatToWord64"
-  -- , "primFloatToWord64Injective"  -- missing
-  , "primNatToFloat"
-  , "primIntToFloat"
-  -- , "primFloatRound"              -- in Agda.Builtin.Float
-  -- , "primFloatFloor"              -- in Agda.Builtin.Float
-  -- , "primFloatCeiling"            -- in Agda.Builtin.Float
-  -- , "primFloatToRatio"            -- in Agda.Builtin.Float
-  , "primRatioToFloat"
-  -- , "primFloatDecode"             -- in Agda.Builtin.Float
-  -- , "primFloatEncode"             -- in Agda.Builtin.Float
-  , "primShowFloat"
-  , "primFloatPlus"
-  , "primFloatMinus"
-  , "primFloatTimes"
-  , "primFloatNegate"
-  , "primFloatDiv"
-  , "primFloatSqrt"
-  , "primFloatExp"
-  , "primFloatLog"
-  , "primFloatSin"
-  , "primFloatCos"
-  , "primFloatTan"
-  , "primFloatASin"
-  , "primFloatACos"
-  , "primFloatATan"
-  , "primFloatATan2"
-  , "primFloatSinh"
-  , "primFloatCosh"
-  , "primFloatTanh"
-  , "primFloatASinh"
-  , "primFloatACosh"
-  , "primFloatATanh"
-  , "primFloatPow"
+  , PrimFloatEquality
+  , PrimFloatInequality
+  , PrimFloatLess
+  , PrimFloatIsInfinite
+  , PrimFloatIsNaN
+  , PrimFloatIsNegativeZero
+  , PrimFloatIsSafeInteger
+  , PrimFloatToWord64
+  -- , PrimFloatToWord64Injective  -- missing
+  , PrimNatToFloat
+  , PrimIntToFloat
+  -- , PrimFloatRound              -- in Agda.Builtin.Float
+  -- , PrimFloatFloor              -- in Agda.Builtin.Float
+  -- , PrimFloatCeiling            -- in Agda.Builtin.Float
+  -- , PrimFloatToRatio            -- in Agda.Builtin.Float
+  , PrimRatioToFloat
+  -- , PrimFloatDecode             -- in Agda.Builtin.Float
+  -- , PrimFloatEncode             -- in Agda.Builtin.Float
+  , PrimShowFloat
+  , PrimFloatPlus
+  , PrimFloatMinus
+  , PrimFloatTimes
+  , PrimFloatNegate
+  , PrimFloatDiv
+  , PrimFloatSqrt
+  , PrimFloatExp
+  , PrimFloatLog
+  , PrimFloatSin
+  , PrimFloatCos
+  , PrimFloatTan
+  , PrimFloatASin
+  , PrimFloatACos
+  , PrimFloatATan
+  , PrimFloatATan2
+  , PrimFloatSinh
+  , PrimFloatCosh
+  , PrimFloatTanh
+  , PrimFloatASinh
+  , PrimFloatACosh
+  , PrimFloatATanh
+  , PrimFloatPow
 
   -- Character functions
-  -- , "primCharEquality"            -- missing
-  -- , "primIsLower"                 -- missing
-  -- , "primIsDigit"                 -- missing
-  -- , "primIsAlpha"                 -- missing
-  -- , "primIsSpace"                 -- missing
-  -- , "primIsAscii"                 -- missing
-  -- , "primIsLatin1"                -- missing
-  -- , "primIsPrint"                 -- missing
-  -- , "primIsHexDigit"              -- missing
-  -- , "primToUpper"                 -- missing
-  -- , "primToLower"                 -- missing
-  -- , "primCharToNat"               -- missing
-  -- , "primCharToNatInjective"      -- missing
-  -- , "primNatToChar"               -- missing
-  -- , "primShowChar"                -- in Agda.Builtin.String
+  -- , PrimCharEquality            -- missing
+  -- , PrimIsLower                 -- missing
+  -- , PrimIsDigit                 -- missing
+  -- , PrimIsAlpha                 -- missing
+  -- , PrimIsSpace                 -- missing
+  -- , PrimIsAscii                 -- missing
+  -- , PrimIsLatin1                -- missing
+  -- , PrimIsPrint                 -- missing
+  -- , PrimIsHexDigit              -- missing
+  -- , PrimToUpper                 -- missing
+  -- , PrimToLower                 -- missing
+  -- , PrimCharToNat               -- missing
+  -- , PrimCharToNatInjective      -- missing
+  -- , PrimNatToChar               -- missing
+  -- , PrimShowChar                -- in Agda.Builtin.String
 
   -- String functions
-  -- , "primStringToList"            -- in Agda.Builtin.String
-  -- , "primStringToListInjective"   -- missing
-  -- , "primStringFromList"          -- in Agda.Builtin.String
-  -- , "primStringFromListInjective" -- missing
-  -- , "primStringAppend"            -- in Agda.Builtin.String
-  -- , "primStringEquality"          -- in Agda.Builtin.String
-  -- , "primShowString"              -- in Agda.Builtin.String
-  -- , "primStringUncons"            -- in Agda.Builtin.String
+  -- , PrimStringToList            -- in Agda.Builtin.String
+  -- , PrimStringToListInjective   -- missing
+  -- , PrimStringFromList          -- in Agda.Builtin.String
+  -- , PrimStringFromListInjective -- missing
+  -- , PrimStringAppend            -- in Agda.Builtin.String
+  -- , PrimStringEquality          -- in Agda.Builtin.String
+  -- , PrimShowString              -- in Agda.Builtin.String
+  -- , PrimStringUncons            -- in Agda.Builtin.String
 
   -- Other stuff
-  -- , "primEraseEquality"           -- missing
-  -- , "primForce"                   -- missing
-  -- , "primForceLemma"              -- missing
-  , "primQNameEquality"
-  , "primQNameLess"
-  , "primShowQName"
-  , "primQNameFixity"
-  -- , "primQNameToWord64s"          -- missing
-  -- , "primQNameToWord64sInjective" -- missing
-  -- , "primMetaEquality"            -- missing
-  -- , "primMetaLess"                -- missing
-  -- , "primShowMeta"                -- missing
-  -- , "primMetaToNat"               -- missing
-  -- , "primMetaToNatInjective"      -- missing
+  -- , PrimEraseEquality           -- missing
+  -- , PrimForce                   -- missing
+  -- , PrimForceLemma              -- missing
+  , PrimQNameEquality
+  , PrimQNameLess
+  , PrimShowQName
+  , PrimQNameFixity
+  -- , PrimQNameToWord64s          -- missing
+  -- , PrimQNameToWord64sInjective -- missing
+  , PrimMetaEquality
+  , PrimMetaLess
+  , PrimShowMeta
+  , PrimMetaToNat
+  -- , PrimMetaToNatInjective      -- missing
   , builtinIMin
   , builtinIMax
   , builtinINeg
-  , "primPartial"
-  , "primPartialP"
+  , PrimPartial
+  , PrimPartialP
   , builtinPOr
   , builtinComp
   , builtinTrans
@@ -850,9 +866,9 @@ primitives = Set.fromList
   , builtin_glueU
   , builtin_unglueU
   , builtinFaceForall
-  , "primDepIMin"
-  , "primIdFace"
-  , "primIdPath"
+  , PrimDepIMin
+  , PrimIdFace
+  , PrimIdPath
   , builtinIdElim
   , builtinConId
   -- , builtinGlue                   -- missing

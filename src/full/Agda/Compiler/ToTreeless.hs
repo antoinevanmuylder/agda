@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
 
 module Agda.Compiler.ToTreeless
   ( toTreeless
@@ -6,7 +7,6 @@ module Agda.Compiler.ToTreeless
 
 import Prelude hiding ((!!))
 
-import Control.Arrow        ( first )
 import Control.Monad        ( filterM, foldM, forM, zipWithM )
 import Control.Monad.Reader ( MonadReader(..), asks, ReaderT, runReaderT )
 import Control.Monad.Trans  ( lift )
@@ -46,8 +46,8 @@ import Agda.Utils.Lens
 import Agda.Utils.List
 import Agda.Utils.Maybe
 import Agda.Utils.Monad
-import Agda.Utils.Pretty (prettyShow)
-import qualified Agda.Utils.Pretty as P
+import Agda.Syntax.Common.Pretty (prettyShow)
+import qualified Agda.Syntax.Common.Pretty as P
 import qualified Agda.Utils.SmallSet as SmallSet
 
 import Agda.Utils.Impossible
@@ -210,7 +210,7 @@ type CCContext = [Int]
 type CC = ReaderT CCEnv TCM
 
 shift :: Int -> CCContext -> CCContext
-shift n = map (+n)
+shift n = map (+ n)
 
 -- | Term variables are de Bruijn indices.
 lookupIndex :: Int -- ^ Case tree de bruijn index.
@@ -271,7 +271,7 @@ casetree cc = do
               where
               go (c:cs) = canonicalName c >>= getConstInfo <&> theDef >>= \case
                 Constructor{conData} ->
-                  return $ C.CTData (getQuantity i) conData
+                  return $ C.CTData conData
                 _ -> go cs
               go [] = __IMPOSSIBLE__
             ([], LitChar   _ : _) -> return C.CTChar
@@ -283,7 +283,12 @@ casetree cc = do
         updateCatchAll catchAll $ do
           x <- asks (lookupLevel n . ccCxt)
           def <- fromCatchAll
-          let caseInfo = C.CaseInfo { caseType = caseTy, caseLazy = lazy }
+          let caseInfo = C.CaseInfo
+                { caseType   = caseTy
+                , caseLazy   = lazy
+                , caseErased = fromMaybe __IMPOSSIBLE__ $
+                               erasedFromQuantity (getQuantity i)
+                }
           C.TCase x caseInfo def <$> do
             br1 <- conAlts n conBrs'
             br2 <- litAlts n litBrs
@@ -463,7 +468,7 @@ replaceVar x n cont = do
          (ys, _:zs) = splitAt i cxt
          -- compute the de-bruijn indexes of the newly inserted variables
          ixs = [0..(n - 1)]
-  local (\e -> e { ccCxt = upd (ccCxt e) , ccCatchAll = (+n) <$> ccCatchAll e }) $
+  local (\e -> e { ccCxt = upd (ccCxt e) , ccCatchAll = (+ n) <$> ccCatchAll e }) $
     cont
 
 

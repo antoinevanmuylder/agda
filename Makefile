@@ -37,8 +37,8 @@ STACK_OPT_NO_DOCS = --no-haddock
 CABAL_OPT_TESTS   = --enable-tests
 STACK_OPT_TESTS   = --test --no-run-tests
 
-CABAL_OPT_FAST    = --ghc-options=-O0
-STACK_OPT_FAST    = --fast
+CABAL_OPT_FAST    = --ghc-options=-O0 -fdebug
+STACK_OPT_FAST    = --fast --flag Agda:debug
 
 CABAL_FLAG_ICU    = -fenable-cluster-counting
 STACK_FLAG_ICU    = --flag Agda:enable-cluster-counting
@@ -53,7 +53,7 @@ STACK_INSTALL_HELPER = $(STACK) build Agda $(STACK_OPT_NO_DOCS)
 # Developers running `make` will usually want to use the GHC version they've
 # specified in their stack.yaml. Otherwise they can put that option in
 # themselves.
-# Note that GitHub workflows currently do not use the Makefile, but instead
+# Note that some GitHub workflows currently do not use the Makefile, but instead
 # invoke `stack` directly. (See: .github/workflows/stack.yml)
 ifneq ($(TRAVIS),)
 STACK_INSTALL_HELPER += --system-ghc
@@ -87,6 +87,8 @@ ifeq ($(GHC_RTS_OPTS),)
 #
 ifeq ("$(shell $(GHC) --info | grep 'target word size' | cut -d\" -f4)","4")
 GHC_RTS_OPTS := -M2.3G
+else ifeq ($(GHC_VERSION),9.6)
+GHC_RTS_OPTS := -M6G
 else ifeq ($(GHC_VERSION),9.0)
 GHC_RTS_OPTS := -M6G
 else ifeq ($(GHC_VERSION),8.10)
@@ -122,8 +124,13 @@ STACK_INSTALL_DEP_OPTS = --only-dependencies $(STACK_INSTALL_OPTS)
 # -j1 so that cabal will print built progress to stdout.
 CABAL_INSTALL_BIN_OPTS = -j1 --disable-library-profiling \
                          $(CABAL_INSTALL_OPTS)
+CABAL_INSTALL_BIN_OPTS_DEBUG = -j1 --disable-library-profiling -fdebug \
+                               $(CABAL_INSTALL_OPTS)
 STACK_INSTALL_BIN_OPTS = --no-library-profiling \
                          $(STACK_INSTALL_OPTS)
+STACK_INSTALL_BIN_OPTS_DEBUG = --no-library-profiling \
+                               --flag Agda:debug \
+                               $(STACK_INSTALL_OPTS)
 
 CABAL_CONFIGURE_OPTS = $(SLOW_CABAL_INSTALL_OPTS) \
                        --disable-library-profiling \
@@ -175,18 +182,33 @@ else
 	time $(CABAL_INSTALL) $(CABAL_INSTALL_BIN_OPTS) --program-suffix=$(AGDA_BIN_SUFFIX)
 endif
 
+.PHONY: install-bin-debug ## Install Agda and test suites with debug printing enabled
+install-bin-debug: install-deps ensure-hash-is-correct
+ifdef HAS_STACK
+	@echo "===================== Installing using Stack with test suites ============"
+	time $(STACK_INSTALL) $(STACK_INSTALL_BIN_OPTS_DEBUG)
+	mkdir -p $(BUILD_DIR)/build/
+	cp -r $(shell $(STACK) path --dist-dir)/build $(BUILD_DIR)
+	$(MAKE) copy-bins-with-suffix$(AGDA_BIN_SUFFIX)
+else
+# `cabal new-install --enable-tests` emits the error message (bug?):
+# cabal: --enable-tests was specified, but tests can't be enabled in a remote package
+	@echo "===================== Installing using Cabal with test suites ============"
+	time $(CABAL_INSTALL) $(CABAL_INSTALL_BIN_OPTS_DEBUG) --program-suffix=$(AGDA_BIN_SUFFIX)
+endif
+
 .PHONY: v1-install ## Developer install goal without -foptimize-aggressively nor dependencies.
 	# Alternative to 'install-bin'
 v1-install:  ensure-hash-is-correct
 ifdef HAS_STACK
 	@echo "===================== Installing using Stack with test suites ============"
-	time $(STACK_INSTALL_HELPER) $(STACK_INSTALL_BIN_OPTS) $(STACK_OPT_TESTS)
+	time $(STACK_INSTALL_HELPER) $(STACK_INSTALL_BIN_OPTS_DEBUG) $(STACK_OPT_TESTS)
 	mkdir -p $(BUILD_DIR)/build/
 	cp -r $(shell $(STACK) path --dist-dir)/build $(BUILD_DIR)
 	$(MAKE) copy-bins-with-suffix$(AGDA_BIN_SUFFIX)
 else
 	@echo "===================== Installing using Cabal with test suites ============"
-	time $(CABAL_INSTALL_HELPER) $(CABAL_INSTALL_BIN_OPTS) $(CABAL_OPT_TESTS) --builddir=$(BUILD_DIR) --program-suffix=$(AGDA_BIN_SUFFIX)
+	time $(CABAL_INSTALL_HELPER) $(CABAL_INSTALL_BIN_OPTS_DEBUG) $(CABAL_OPT_TESTS) --builddir=$(BUILD_DIR) --program-suffix=$(AGDA_BIN_SUFFIX)
 endif
 
 .PHONY: fast-install-bin ## Install Agda compiled with -O0 with tests
@@ -435,6 +457,7 @@ test : check-whitespace \
        std-lib-succeed \
        std-lib-interaction \
        user-manual-test \
+       doc-test \
        size-solver-test
 
 .PHONY : test-using-std-lib ## Run all tests which use the standard library.
@@ -489,6 +512,11 @@ fail :
 	@$(call decorate, "Suite of failing tests", \
 		AGDA_BIN=$(AGDA_BIN) $(AGDA_TESTS_BIN) $(AGDA_TESTS_OPTIONS) --regex-include all/Fail)
 
+.PHONY : fast-fail ##
+fast-fail :
+	@$(call decorate, "Suite of failing tests (using agda-fast)", \
+		AGDA_BIN=$(AGDA_FAST_BIN) $(AGDA_FAST_TESTS_BIN) $(AGDA_TESTS_OPTIONS) --regex-include all/Fail)
+
 .PHONY : interaction ##
 interaction :
 	@$(call decorate, "Suite of interaction tests", \
@@ -529,7 +557,7 @@ std-lib-test :
 	@$(call decorate, "Standard library test", \
 		(cd std-lib && cabal run GenerateEverything && \
 						time $(AGDA_BIN) $(AGDA_OPTS) --ignore-interfaces --no-default-libraries $(PROFILEOPTS) \
-														 -i. -isrc README.agda \
+														 -i. -isrc Everything.agda \
 														 +RTS -s))
 
 .PHONY : cubical-test ##
@@ -548,7 +576,7 @@ continue-cubical-test :
 .PHONY : continue-std-lib-test ##
 continue-std-lib-test :
 	@(cd std-lib && \
-          time $(AGDA_BIN) $(PROFILEOPTS) --no-default-libraries -i. -isrc README.agda +RTS -s)
+          time $(AGDA_BIN) $(PROFILEOPTS) --no-default-libraries -i. -isrc Everything.agda +RTS -s)
 
 .PHONY : cubical-succeed ##
 cubical-succeed :
@@ -613,10 +641,33 @@ user-manual-test :
 		find doc/user-manual -type f -name '*.agdai' -delete; \
 		AGDA_BIN=$(AGDA_BIN) $(AGDA_TESTS_BIN) $(AGDA_TESTS_OPTIONS) --regex-include all/UserManual)
 
+.PHONY : user-manual-covers-options
+user-manual-covers-options :
+	@$(call decorate, "User manual should mention all options", \
+          AGDA_BIN=$(AGDA_BIN) test/doc/user-manual-covers-options.sh)
+
+.PHONY : user-manual-covers-warnings
+user-manual-covers-warnings :
+	@$(call decorate, "User manual should mention all warnings", \
+          AGDA_BIN=$(AGDA_BIN) test/doc/user-manual-covers-warnings.sh)
+
 .PHONY : testing-emacs-mode ##
 testing-emacs-mode:
 	@$(call decorate, "Testing the Emacs mode", \
 	  $(AGDA_MODE) compile)
+
+.PHONY : doc-test ## Install and run doctest for the Agda library.
+doc-test: install-doctest run-doctest
+
+.PHONY : install-doctest ## Install doctest for the current ghc.
+install-doctest:
+	@$(call decorate, "Installing doctest", \
+	  $(CABAL) install doctest --ignore-project)
+
+.PHONY : run-doctest ## Run the doctests for the Agda library.
+run-doctest:
+	@$(call decorate, "Running doctest", \
+	  $(CABAL) repl Agda -w doctest --repl-options=-w)
 
 ##############################################################################
 ## Size solver
@@ -644,11 +695,9 @@ size-solver-test : install-size-solver
 
 set-default-stack-file : remove-default-stack-file ##
 	ln -s stack-$(GHC_COMPILER).yaml stack.yaml
-	cd $(FIXW_PATH) && ln -s stack-$(GHC_COMPILER).yaml stack.yaml
 
 remove-default-stack-file : ##
 	rm -f stack.yaml
-	cd $(FIXW_PATH) && rm -f stack.yaml
 
 # Installing binaries for developer services
 
@@ -737,25 +786,55 @@ help: ## Display this information.
 	  	NF == 2 { printf "  \033[36m%-26s\033[0m %s\n", $$1, $$2};'
 
 debug : ## Print debug information.
-	@echo "AGDA_BIN              = $(AGDA_BIN)"
-	@echo "AGDA_BIN_SUFFIX       = $(AGDA_BIN_SUFFIX)"
-	@echo "AGDA_TESTS_BIN        = $(AGDA_TESTS_BIN)"
-	@echo "AGDA_TESTS_OPTIONS    = $(AGDA_TESTS_OPTIONS)"
-	@echo "BUILD_DIR             = $(BUILD_DIR)"
-	@echo "CABAL_BUILD_CMD       = $(CABAL_BUILD_CMD)"
-	@echo "CABAL_CLEAN_CMD       = $(CABAL_CLEAN_CMD)"
-	@echo "CABAL                 = $(CABAL)"
-	@echo "CABAL_CONFIGURE_CMD   = $(CABAL_CONFIGURE_CMD)"
-	@echo "CABAL_CONFIGURE_OPTS  = $(CABAL_CONFIGURE_OPTS)"
-	@echo "CABAL_HADDOCK_CMD     = $(CABAL_HADDOCK_CMD)"
-	@echo "CABAL_INSTALL_CMD     = $(CABAL_INSTALL_CMD)"
-	@echo "CABAL_INSTALL_OPTS    = $(CABAL_INSTALL_OPTS)"
-	@echo "CABAL_OPTS            = $(CABAL_OPTS)"
-	@echo "GHC_VER               = $(GHC_VER)"
-	@echo "GHC_VERSION           = $(GHC_VERSION)"
-	@echo "PARALLEL_TESTS        = $(PARALLEL_TESTS)"
-	@echo "STACK                 = $(STACK)"
-	@echo "STACK_INSTALL_OPTS    = $(STACK_INSTALL_OPTS)"
+	@echo "AGDA_BIN                     = $(AGDA_BIN)"
+	@echo "AGDA_BIN_SUFFIX              = $(AGDA_BIN_SUFFIX)"
+	@echo "AGDA_TESTS_BIN               = $(AGDA_TESTS_BIN)"
+	@echo "AGDA_TESTS_OPTIONS           = $(AGDA_TESTS_OPTIONS)"
+	@echo "AGDA_OPTS                    = $(AGDA_OPTS)"
+	@echo "BUILD_DIR                    = $(BUILD_DIR)"
+	@echo "CABAL                        = $(CABAL)"
+	@echo "CABAL_BUILD_CMD              = $(CABAL_BUILD_CMD)"
+	@echo "CABAL_CLEAN_CMD              = $(CABAL_CLEAN_CMD)"
+	@echo "CABAL_CONFIGURE_CMD          = $(CABAL_CONFIGURE_CMD)"
+	@echo "CABAL_CONFIGURE_OPTS         = $(CABAL_CONFIGURE_OPTS)"
+	@echo "CABAL_CONFIGURE_OPTS         = $(CABAL_CONFIGURE_OPTS)"
+	@echo "CABAL_FLAG_ICU               = $(CABAL_FLAG_ICU)"
+	@echo "CABAL_FLAG_OPTIM_HEAVY       = $(CABAL_FLAG_OPTIM_HEAVY)"
+	@echo "CABAL_HADDOCK_CMD            = $(CABAL_HADDOCK_CMD)"
+	@echo "CABAL_INSTALL                = $(CABAL_INSTALL)"
+	@echo "CABAL_INSTALL_BIN_OPTS       = $(CABAL_INSTALL_BIN_OPTS)"
+	@echo "CABAL_INSTALL_BIN_OPTS_DEBUG = $(CABAL_INSTALL_BIN_OPTS_DEBUG)"
+	@echo "CABAL_INSTALL_CMD            = $(CABAL_INSTALL_CMD)"
+	@echo "CABAL_INSTALL_DEP_OPTS       = $(CABAL_INSTALL_DEP_OPTS)"
+	@echo "CABAL_INSTALL_HELPER         = $(CABAL_INSTALL_HELPER)"
+	@echo "CABAL_INSTALL_OPTS           = $(CABAL_INSTALL_OPTS)"
+	@echo "CABAL_OPTS                   = $(CABAL_OPTS)"
+	@echo "CABAL_OPT_FAST               = $(CABAL_OPT_FAST)"
+	@echo "CABAL_OPT_NO_DOCS            = $(CABAL_OPT_NO_DOCS)"
+	@echo "FAST_CABAL_INSTALL           = $(FAST_CABAL_INSTALL)"
+	@echo "FAST_STACK_INSTALL           = $(FAST_STACK_INSTALL)"
+	@echo "GHC_OPTS                     = $(GHC_OPTS)"
+	@echo "GHC_RTS_OPTS                 = $(GHC_RTS_OPTS)"
+	@echo "GHC_VER                      = $(GHC_VER)"
+	@echo "GHC_VERSION                  = $(GHC_VERSION)"
+	@echo "PARALLEL_TESTS               = $(PARALLEL_TESTS)"
+	@echo "QUICK_CABAL_INSTALL          = $(QUICK_CABAL_INSTALL)"
+	@echo "QUICK_STACK_INSTALL          = $(QUICK_STACK_INSTALL)"
+	@echo "SLOW_CABAL_INSTALL_OPTS      = $(SLOW_CABAL_INSTALL_OPTS)"
+	@echo "SLOW_STACK_INSTALL_OPTS      = $(SLOW_STACK_INSTALL_OPTS)"
+	@echo "STACK                        = $(STACK)"
+	@echo "STACK_FLAG_ICU               = $(STACK_FLAG_ICU)"
+	@echo "STACK_FLAG_OPTIM_HEAVY       = $(STACK_FLAG_OPTIM_HEAVY)"
+	@echo "STACK_INSTALL                = $(STACK_INSTALL)"
+	@echo "STACK_INSTALL_BIN_OPTS       = $(STACK_INSTALL_BIN_OPTS)"
+	@echo "STACK_INSTALL_BIN_OPTS_DEBUG = $(STACK_INSTALL_BIN_OPTS_DEBUG)"
+	@echo "STACK_INSTALL_DEP_OPTS       = $(STACK_INSTALL_DEP_OPTS)"
+	@echo "STACK_INSTALL_HELPER         = $(STACK_INSTALL_HELPER)"
+	@echo "STACK_INSTALL_OPTS           = $(STACK_INSTALL_OPTS)"
+	@echo "STACK_OPTS                   = $(STACK_OPTS)"
+	@echo "STACK_OPT_FAST               = $(STACK_OPT_FAST)"
+	@echo "STACK_OPT_NO_DOCS            = $(STACK_OPT_NO_DOCS)"
+	@echo "PROFILEOPTS                  = $(PROFILEOPTS)"
 	@echo
 	@echo "Run \`make -pq\` to get a detailed report."
 	@echo

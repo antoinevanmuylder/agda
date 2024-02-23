@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
+
 {-# LANGUAGE NondecreasingIndentation #-}
 
 {- |  Non-linear matching of the lhs of a rewrite rule against a
@@ -34,17 +36,14 @@ import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
-import qualified Data.Set as Set
 
 import Agda.Syntax.Common
 import Agda.Syntax.Internal
-import Agda.Syntax.Internal.MetaVars
 
 import Agda.TypeChecking.Conversion.Pure
 import Agda.TypeChecking.Datatypes
-import Agda.TypeChecking.Free
 import Agda.TypeChecking.Free.Reduce
-import Agda.TypeChecking.Irrelevance (workOnTypes, isPropM)
+import Agda.TypeChecking.Irrelevance (isPropM)
 import Agda.TypeChecking.Level
 import Agda.TypeChecking.Monad hiding (constructorForm)
 import Agda.TypeChecking.Pretty
@@ -91,12 +90,12 @@ data NLMState = NLMState
 
 instance Null NLMState where
   empty  = NLMState { _nlmSub = empty , _nlmEqs = empty }
-  null s = null (s^.nlmSub) && null (s^.nlmEqs)
+  null s = null (s ^. nlmSub) && null (s ^. nlmEqs)
 
-nlmSub :: Lens' Sub NLMState
+nlmSub :: Lens' NLMState Sub
 nlmSub f s = f (_nlmSub s) <&> \x -> s {_nlmSub = x}
 
-nlmEqs :: Lens' PostponedEquations NLMState
+nlmEqs :: Lens' NLMState PostponedEquations
 nlmEqs f s = f (_nlmEqs s) <&> \x -> s {_nlmEqs = x}
 
 runNLM :: (MonadReduce m) => NLM () -> m (Either Blocked_ NLMState)
@@ -143,20 +142,20 @@ type PostponedEquations = [PostponedEquation]
 -- | Match a non-linear pattern against a neutral term,
 --   returning a substitution.
 
-class Match t a b where
+class Match a b where
   match :: Relevance  -- ^ Are we currently matching in an irrelevant context?
         -> Telescope  -- ^ The telescope of pattern variables
         -> Telescope  -- ^ The telescope of lambda-bound variables
-        -> t          -- ^ The type of the pattern
+        -> TypeOf b   -- ^ The type of the pattern
         -> a          -- ^ The pattern to match
         -> b          -- ^ The term to be matched against the pattern
         -> NLM ()
 
-instance Match t a b => Match (Dom t) (Arg a) (Arg b) where
+instance Match a b => Match (Arg a) (Arg b) where
   match r gamma k t p v = let r' = r `composeRelevance` getRelevance p
                           in  match r' gamma k (unDom t) (unArg p) (unArg v)
 
-instance Match (Type, Elims -> Term) [Elim' NLPat] Elims where
+instance Match [Elim' NLPat] Elims where
   match r gamma k (t, hd) [] [] = return ()
   match r gamma k (t, hd) [] _  = matchingBlocked $ NotBlocked ReallyNotBlocked ()
   match r gamma k (t, hd) _  [] = matchingBlocked $ NotBlocked ReallyNotBlocked ()
@@ -207,15 +206,15 @@ instance Match (Type, Elims -> Term) [Elim' NLPat] Elims where
     (IApply{} , _    ) -> __IMPOSSIBLE__ -- TODO
     (_ , IApply{}    ) -> __IMPOSSIBLE__ -- TODO
 
-instance Match t a b => Match t (Dom a) (Dom b) where
+instance Match a b => Match (Dom a) (Dom b) where
   match r gamma k t p v = match r gamma k t (unDom p) (unDom v)
 
-instance Match () NLPType Type where
+instance Match NLPType Type where
   match r gamma k _ (NLPType sp p) (El s a) = workOnTypes $ do
     match r gamma k () sp s
     match r gamma k (sort s) p a
 
-instance Match () NLPSort Sort where
+instance Match NLPSort Sort where
   match r gamma k _ p s = do
     bs <- addContext k $ reduceB s
     let b = void bs
@@ -226,14 +225,12 @@ instance Match () NLPSort Sort where
       [ "matching pattern " <+> addContext (gamma `abstract` k) (prettyTCM p)
       , "  with sort      " <+> addContext k (prettyTCM s) ]) $ do
     case (p , s) of
-      (PType lp  , Type l  ) -> match r gamma k () lp l
-      (PProp lp  , Prop l  ) -> match r gamma k () lp l
-      (PSSet lp  , SSet l  ) -> match r gamma k () lp l
-      (PInf fp np , Inf f n)
-        | fp == f, np == n   -> yes
-      (PSizeUniv , SizeUniv) -> yes
-      (PLockUniv , LockUniv) -> yes
-      (PIntervalUniv , IntervalUniv) -> yes
+      (PUniv u lp    , Univ u' l) | u == u'          -> match r gamma k () lp l
+      (PInf up np    , Inf u n)   | up == u, np == n -> yes
+      (PSizeUniv     , SizeUniv)                     -> yes
+      (PLockUniv     , LockUniv)                     -> yes
+      (PLevelUniv    , LevelUniv)                    -> yes
+      (PIntervalUniv , IntervalUniv)                 -> yes
 
       -- blocked cases
       (_ , UnivSort{}) -> matchingBlocked b
@@ -244,13 +241,13 @@ instance Match () NLPSort Sort where
       -- all other cases do not match
       (_ , _) -> no
 
-instance Match () NLPat Level where
+instance Match NLPat Level where
   match r gamma k _ p l = do
     t <- El (mkType 0) . fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinLevel
     v <- reallyUnLevelView l
     match r gamma k t p v
 
-instance Match Type NLPat Term where
+instance Match NLPat Term where
   match r0 gamma k t p v = do
     vbt <- addContext k $ reduceB (v,t)
     let n = size k
@@ -374,7 +371,7 @@ instance Match Type NLPat Term where
           match r gamma k (ti , Var i) ps es
         _ | Pi a b <- unEl t -> do
           let ai    = domInfo a
-              pbody = PBoundVar (1+i) $ raise 1 ps ++ [ Apply $ Arg ai $ PTerm $ var 0 ]
+              pbody = PBoundVar (1 + i) $ raise 1 ps ++ [ Apply $ Arg ai $ PTerm $ var 0 ]
               body  = raise 1 v `apply` [ Arg ai $ var 0 ]
               k'    = ExtendTel a (Abs (absName b) k)
           match r gamma k' (absBody b) pbody body
@@ -400,6 +397,7 @@ makeSubstitution gamma sub =
                 Just (_         , v) -> Just v
                 Nothing              -> Nothing
 
+{-# SPECIALIZE checkPostponedEquations :: Substitution -> PostponedEquations -> TCM (Maybe Blocked_) #-}
 checkPostponedEquations :: PureTCM m
                         => Substitution -> PostponedEquations -> m (Maybe Blocked_)
 checkPostponedEquations sub eqs = forM' eqs $
@@ -411,15 +409,15 @@ checkPostponedEquations sub eqs = forM' eqs $
       addContext k $ equal a lhs' rhs
 
 -- main function
-nonLinMatch :: (PureTCM m, Match t a b)
-            => Telescope -> t -> a -> b -> m (Either Blocked_ Substitution)
+nonLinMatch :: (PureTCM m, Match a b)
+            => Telescope -> TypeOf b -> a -> b -> m (Either Blocked_ Substitution)
 nonLinMatch gamma t p v = do
   let no msg b = traceSDoc "rewriting.match" 10 (sep
                    [ "matching failed during" <+> text msg
                    , "blocking: " <+> text (show b) ]) $ return (Left b)
   caseEitherM (runNLM $ match Relevant gamma EmptyTel t p v) (no "matching") $ \ s -> do
-    let msub = makeSubstitution gamma $ s^.nlmSub
-        eqs = s^.nlmEqs
+    let msub = makeSubstitution gamma $ s ^. nlmSub
+        eqs = s ^. nlmEqs
     traceSDoc "rewriting.match" 90 (text $ "msub = " ++ show msub) $ case msub of
       Nothing -> no "checking that all variables are bound" notBlocked_
       Just sub -> do

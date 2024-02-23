@@ -1,6 +1,8 @@
-{-# LANGUAGE CPP                        #-}
+{-# OPTIONS_GHC -Wunused-imports #-}
+
 -- | Collecting fixity declarations (and polarity pragmas) for concrete
 --   declarations.
+
 module Agda.Syntax.Concrete.Fixity
   ( Fixities, Polarities, MonadFixityError(..)
   , DoWarn(..)
@@ -14,11 +16,8 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
-#if __GLASGOW_HASKELL__ < 804
-import Data.Semigroup
-#endif
 
-import Agda.Syntax.Builtin (isBuiltinNoDef)
+import Agda.Syntax.Builtin (builtinById, isBuiltinNoDef)
 import Agda.Syntax.Common
 import Agda.Syntax.Concrete
 import Agda.Syntax.Position
@@ -157,6 +156,7 @@ fixitiesAndPolarities' = foldMap $ \case
   Private _ _ ds' -> fixitiesAndPolarities' ds'
   InstanceB _ ds' -> fixitiesAndPolarities' ds'
   Macro     _ ds' -> fixitiesAndPolarities' ds'
+  Opaque    _ ds' -> fixitiesAndPolarities' ds'
   -- All other declarations are ignored.
   -- We expand these boring cases to trigger a revisit
   -- in case the @Declaration@ type is extended in the future.
@@ -184,6 +184,7 @@ fixitiesAndPolarities' = foldMap $ \case
   UnquoteDef      {}  -> mempty
   UnquoteData     {}  -> mempty
   Pragma          {}  -> mempty
+  Unfolding       {}  -> mempty
 
 data DeclaredNames = DeclaredNames { _allNames, _postulates, _privateNames :: Set Name }
 
@@ -215,15 +216,15 @@ declaredNames = \case
   FieldSig _ _ x _      -> declaresName x
   Field _ fs            -> foldMap declaredNames fs
   FunClause (LHS p [] []) _ _ _
-    | IdentP (QName x) <- removeParenP p
+    | IdentP _ (QName x) <- removeParenP p
                         -> declaresName x
   FunClause{}           -> mempty
-  DataSig _ x _ _       -> declaresName x
+  DataSig _ _ x _ _     -> declaresName x
   DataDef _ _ _ cs      -> foldMap declaredNames cs
-  Data _ x _ _ cs       -> declaresName x <> foldMap declaredNames cs
-  RecordSig _ x _ _     -> declaresName x
+  Data _ _ x _ _ cs     -> declaresName x <> foldMap declaredNames cs
+  RecordSig _ _ x _ _   -> declaresName x
   RecordDef _ x d _ _   -> declaresNames $     foldMap (:[]) (fst <$> recConstructor d)
-  Record _ x d _ _ _    -> declaresNames $ x : foldMap (:[]) (fst <$> recConstructor d)
+  Record _ _ x d _ _ _  -> declaresNames $ x : foldMap (:[]) (fst <$> recConstructor d)
   RecordDirective _     -> mempty
   Infix _ _             -> mempty
   Syntax _ _            -> mempty
@@ -238,7 +239,9 @@ declaredNames = \case
   Postulate _ ds        -> allPostulates $ foldMap declaredNames ds
   Primitive _ ds        -> foldMap declaredNames ds
   Generalize _ ds       -> foldMap declaredNames ds
+  Opaque _ ds           -> foldMap declaredNames ds
   Open{}                -> mempty
+  Unfolding{}           -> mempty
   Import{}              -> mempty
   ModuleMacro{}         -> mempty
   Module{}              -> mempty
@@ -248,5 +251,5 @@ declaredNames = \case
   -- BUILTIN pragmas which do not require an accompanying definition declare
   -- the (unqualified) name they mention.
   Pragma (BuiltinPragma _ b (QName x))
-    | isBuiltinNoDef $ rangedThing b -> declaresName x
+    | any isBuiltinNoDef . builtinById $ rangedThing b -> declaresName x
   Pragma{}             -> mempty

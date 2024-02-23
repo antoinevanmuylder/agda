@@ -30,7 +30,7 @@ import           Agda.Interaction.Options     (CommandLineOptions,
                                                defaultOptions)
 
 import           Agda.Utils.FileName          (AbsolutePath, mkAbsolute)
-import           Agda.Utils.Pretty            (Pretty(..), prettyShow, text)
+import           Agda.Syntax.Common.Pretty            (Pretty(..), prettyShow, text)
 import           Agda.Utils.Time              (ClockTime)
 
 ------------------------------------------------------------------------
@@ -374,7 +374,7 @@ parseToReadsPrec p i s = case runIdentity . flip runStateT s . runExceptT $ pare
 -- | Demand an exact string.
 
 exact :: String -> Parse ()
-exact s = readsToParse (show s) $ fmap ((),) . List.stripPrefix s . dropWhile (==' ')
+exact s = readsToParse (show s) $ fmap ((),) . List.stripPrefix s . dropWhile (== ' ')
 
 readParse :: Read a => Parse a
 readParse = readsToParse "read failed" $ listToMaybe . reads

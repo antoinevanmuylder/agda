@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
+
 {-# LANGUAGE NondecreasingIndentation #-}
 
 module Agda.TypeChecking.SizedTypes where
@@ -9,24 +11,24 @@ import Control.Monad.Writer ( MonadWriter(..), WriterT(..), runWriterT )
 
 import qualified Data.Foldable as Fold
 import qualified Data.List as List
-import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Set (Set)
 
 import Agda.Syntax.Common
 import Agda.Syntax.Internal
 import Agda.Syntax.Internal.MetaVars
+import Agda.Syntax.Common.Pretty (Pretty)
+import qualified Agda.Syntax.Common.Pretty as P
 
 import Agda.TypeChecking.Monad
 import Agda.TypeChecking.Pretty
-import Agda.TypeChecking.Pretty.Constraint
+import Agda.TypeChecking.Pretty.Constraint () -- instance PrettyTCM Constraint
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Substitute
 import Agda.TypeChecking.Telescope
-import {-# SOURCE #-} Agda.TypeChecking.MetaVars
 import {-# SOURCE #-} Agda.TypeChecking.CheckInternal (MonadCheckInternal, infer)
+import {-# SOURCE #-} Agda.TypeChecking.Constraints () -- instance MonadConstraint TCM
 import {-# SOURCE #-} Agda.TypeChecking.Conversion
-import {-# SOURCE #-} Agda.TypeChecking.Constraints
 
 import Agda.Utils.Functor
 import Agda.Utils.List as List
@@ -34,14 +36,10 @@ import Agda.Utils.List1 (pattern (:|))
 import Agda.Utils.Maybe
 import Agda.Utils.Monad
 import Agda.Utils.Null
-import Agda.Utils.Pretty (Pretty, prettyShow)
 import qualified Agda.Utils.ProfileOptions as Profile
 import Agda.Utils.Singleton
 import Agda.Utils.Size
 import Agda.Utils.Tuple
-
-import qualified Agda.Utils.Pretty as P
-import qualified Agda.Utils.Warshall as W
 
 import Agda.Utils.Impossible
 
@@ -176,7 +174,7 @@ checkSizeVarNeverZero i = do
               -- Thus, we update the min value for @j@ with function @(max (n+1-m))@.
               DSizeVar (ProjectedVar j []) m -> do
                 reportSLn "tc.size" 60 $ "minSizeVal upper bound v = " ++ show v
-                let ns' = List.updateAt j (max $ n+1-m) ns
+                let ns' = List.updateAt j (max $ n + 1 - m) ns
                 reportSLn "tc.size" 60 $ "minSizeVal ns' = " ++ show (take (length ts + 1) ns')
                 minSizeValAux ts ns'
               DSizeMeta x _ _ -> perhaps (unblockOnMeta x)
@@ -300,6 +298,7 @@ sizeMaxView v = do
 -- * Size comparison that might add constraints.
 ------------------------------------------------------------------------
 
+{-# SPECIALIZE compareSizes :: Comparison -> Term -> Term -> TCM () #-}
 -- | Compare two sizes.
 compareSizes :: (MonadConversion m) => Comparison -> Term -> Term -> m ()
 compareSizes cmp u v = verboseBracket "tc.conv.size" 10 "compareSizes" $ do
@@ -325,10 +324,10 @@ compareSizes cmp u v = verboseBracket "tc.conv.size" 10 "compareSizes" $ do
 compareMaxViews :: (MonadConversion m) => Comparison -> SizeMaxView -> SizeMaxView -> m ()
 compareMaxViews cmp us vs = case (cmp, us, vs) of
   (CmpLeq, _, (DSizeInf :| _)) -> return ()
-  (cmp, u:|[], v:|[]) -> compareSizeViews cmp u v
-  (CmpLeq, us, v:|[]) -> Fold.forM_ us $ \ u -> compareSizeViews cmp u v
-  (CmpLeq, us, vs)    -> Fold.forM_ us $ \ u -> compareBelowMax u vs
-  (CmpEq,  us, vs)    -> do
+  (cmp,    u :| [], v :| []) -> compareSizeViews cmp u v
+  (CmpLeq, us,      v :| []) -> Fold.forM_ us $ \ u -> compareSizeViews cmp u v
+  (CmpLeq, us,      vs)      -> Fold.forM_ us $ \ u -> compareBelowMax u vs
+  (CmpEq,  us,      vs)      -> do
     compareMaxViews CmpLeq us vs
     compareMaxViews CmpLeq vs us
 
@@ -583,7 +582,7 @@ oldSizeExpr u = do
   s <- sizeView u
   case s of
     SizeInf     -> patternViolation neverUnblock
-    SizeSuc u   -> mapSnd (+1) <$> oldSizeExpr u
+    SizeSuc u   -> mapSnd (+ 1) <$> oldSizeExpr u
     OtherSize u -> case u of
       Var i []  -> return (Rigid i, 0)
       MetaV m es | Just xs <- mapM isVar es, fastDistinct xs

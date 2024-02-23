@@ -21,6 +21,7 @@ import Agda.Interaction.Monad
 
 import qualified Agda.Syntax.Abstract as A
 import Agda.Syntax.Common
+import Agda.Syntax.Common.Pretty
 import Agda.Syntax.Internal (telToList, alwaysUnblock)
 import qualified Agda.Syntax.Internal as I
 import Agda.Syntax.Parser
@@ -39,7 +40,6 @@ import Agda.TypeChecking.Warnings (runPM)
 
 import Agda.Utils.FileName (absolute, AbsolutePath)
 import Agda.Utils.Maybe (caseMaybeM)
-import Agda.Utils.Pretty
 
 import Agda.Utils.Impossible
 
@@ -107,7 +107,7 @@ interaction prompt cmds eval = loop
                     Just _ ->
                         do  go =<< liftTCM (eval $ fromJust ms)
             `catchError` \e ->
-                do  s <- prettyError e
+                do  s <- renderError e
                     liftIO $ putStrLn s
                     loop
 
@@ -135,14 +135,14 @@ interactionLoop = do
     where
         reload :: ReplM () = do
             checked <- checkCurrentFile
-            liftTCM $ setScope $ maybe emptyScopeInfo iInsideScope (crInterface <$> checked)
+            liftTCM $ setScope $ maybe emptyScopeInfo (iInsideScope . crInterface) checked
             -- Andreas, 2021-01-27, issue #5132, make Set and Prop available from Agda.Primitive
             -- if no module is loaded.
             when (isNothing checked) $ do
               -- @open import Agda.Primitive using (Set; Prop)@
               void $ liftTCM importPrimitives
           `catchError` \e -> do
-            s <- prettyError e
+            s <- renderError e
             liftIO $ putStrLn s
             liftIO $ putStrLn "Failed."
 
@@ -237,8 +237,8 @@ metaParseExpr ii s =
         r <- getRange <$> lookupLocalMeta m
         -- liftIO $ putStrLn $ prettyShow scope
         let pos = fromMaybe __IMPOSSIBLE__ (rStart r)
-        (e, coh) <- runPM $ parsePosString exprParser pos s
-        checkCohesionAttributes coh
+        (e, attrs) <- runPM $ parsePosString exprParser pos s
+        checkAttributes attrs
         concreteToAbstract scope e
 
 actOnMeta :: [String] -> (InteractionId -> A.Expr -> TCM a) -> TCM a
@@ -278,8 +278,8 @@ evalIn _ = liftIO $ putStrLn ":eval metaid expr"
 
 parseExpr :: String -> TCM A.Expr
 parseExpr s = do
-    (e, coh) <- runPM $ parse exprParser s
-    checkCohesionAttributes coh
+    (e, attrs) <- runPM $ parse exprParser s
+    checkAttributes attrs
     localToAbstract e return
 
 evalTerm :: String -> TCM (ExitCode a)

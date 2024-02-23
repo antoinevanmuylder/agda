@@ -1,15 +1,20 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
+
 ------------------------------------------------------------------------
 -- Top-level module names
 ------------------------------------------------------------------------
 
-module Agda.Syntax.TopLevelModuleName where
+module Agda.Syntax.TopLevelModuleName
+  ( module Agda.Syntax.TopLevelModuleName
+  , module Agda.Syntax.TopLevelModuleName.Boot
+  ) where
+
+import Agda.Syntax.TopLevelModuleName.Boot
 
 import Control.DeepSeq
 
-import Data.Function
-import Data.Hashable
+import Data.Function (on)
 import qualified Data.List as List
-import Data.Text (Text)
 import qualified Data.Text as T
 
 import GHC.Generics (Generic)
@@ -17,27 +22,20 @@ import GHC.Generics (Generic)
 import System.FilePath
 
 import qualified Agda.Syntax.Abstract.Name as A
-import Agda.Syntax.Common
 import qualified Agda.Syntax.Concrete as C
 import Agda.Syntax.Position
 
-import Agda.Utils.BiMap (HasTag(..))
 import Agda.Utils.FileName
 import Agda.Utils.Hash
 import Agda.Utils.Impossible
 import Agda.Utils.Lens
-import Agda.Utils.List1 (List1)
 import qualified Agda.Utils.List1 as List1
-import Agda.Utils.Pretty
+import Agda.Syntax.Common.Pretty
 import Agda.Utils.Singleton
 import Agda.Utils.Size
 
 ------------------------------------------------------------------------
 -- Raw top-level module names
-
--- | A top-level module name has one or more name parts.
-
-type TopLevelModuleNameParts = List1 Text
 
 -- | Raw top-level module names (with linear-time comparisons).
 
@@ -55,6 +53,7 @@ instance Ord RawTopLevelModuleName where
 
 instance Sized RawTopLevelModuleName where
   size = size . rawModuleNameParts
+  natSize = natSize . rawModuleNameParts
 
 instance Pretty RawTopLevelModuleName where
   pretty = text . rawTopLevelModuleNameToString
@@ -127,58 +126,27 @@ rawTopLevelModuleNameForModule :: C.Module -> RawTopLevelModuleName
 rawTopLevelModuleNameForModule (C.Mod _ []) = __IMPOSSIBLE__
 rawTopLevelModuleNameForModule (C.Mod _ ds) =
   case C.spanAllowedBeforeModule ds of
-    (_, C.Module _ n _ _ : _) -> rawTopLevelModuleNameForQName n
-    _                         -> __IMPOSSIBLE__
+    (_, C.Module _ _ n _ _ : _) -> rawTopLevelModuleNameForQName n
+    _                           -> __IMPOSSIBLE__
 
 ------------------------------------------------------------------------
 -- Top-level module names
 
 -- | Top-level module names (with constant-time comparisons).
 
-data TopLevelModuleName = TopLevelModuleName
-  { moduleNameRange :: Range
-  , moduleNameId    :: {-# UNPACK #-} !ModuleNameHash
-  , moduleNameParts :: TopLevelModuleNameParts
-  }
-  deriving (Show, Generic)
-
-instance HasTag TopLevelModuleName where
-  type Tag TopLevelModuleName = ModuleNameHash
-  tag = Just . moduleNameId
-
-instance Eq TopLevelModuleName where
-  (==) = (==) `on` moduleNameId
-
-instance Ord TopLevelModuleName where
-  compare = compare `on` moduleNameId
-
-instance Hashable TopLevelModuleName where
-  hashWithSalt salt = hashWithSalt salt . moduleNameId
+type TopLevelModuleName = TopLevelModuleName' Range
 
 instance Sized TopLevelModuleName where
   size = size . rawTopLevelModuleName
+  natSize = natSize . rawTopLevelModuleName
 
 instance Pretty TopLevelModuleName where
   pretty = pretty . rawTopLevelModuleName
 
-instance HasRange TopLevelModuleName where
-  getRange = moduleNameRange
-
-instance SetRange TopLevelModuleName where
-  setRange r (TopLevelModuleName _ h x) = TopLevelModuleName r h x
-
-instance KillRange TopLevelModuleName where
-  killRange (TopLevelModuleName _ h x) = TopLevelModuleName noRange h x
-
--- | The 'Range' is not forced.
-
-instance NFData TopLevelModuleName where
-  rnf (TopLevelModuleName _ x y) = rnf (x, y)
-
 -- | A lens focusing on the 'moduleNameParts'.
 
 lensTopLevelModuleNameParts ::
-  Lens' TopLevelModuleNameParts TopLevelModuleName
+  Lens' TopLevelModuleName TopLevelModuleNameParts
 lensTopLevelModuleNameParts f m =
   f (moduleNameParts m) <&> \ xs -> m{ moduleNameParts = xs }
 

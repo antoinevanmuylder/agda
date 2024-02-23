@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
+
 {-# OPTIONS_GHC -fno-warn-orphans     #-}
 {-# OPTIONS_GHC -fwarn-unused-imports #-}
 
@@ -20,3 +22,6 @@ instance EmbPrj ForeignCode where
 
   value = valueN (ForeignCode . underlyingRange)
 
+instance EmbPrj ForeignCodeStack where
+  icod_ = icod_ . getForeignCodeStack
+  value = fmap ForeignCodeStack . value

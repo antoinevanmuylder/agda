@@ -24,7 +24,6 @@ import Agda.Syntax.Position
 import Agda.Syntax.Literal
 import Agda.Syntax.Builtin
 import Agda.Syntax.Internal as I
-import Agda.Interaction.Options.Base (PragmaOptions(..))
 import Agda.TypeChecking.Monad.Base
 
 import Agda.TypeChecking.Monad.Debug
@@ -38,11 +37,13 @@ import Agda.Utils.Pretty as P
 import Agda.TypeChecking.Substitute
 
 import Agda.Utils.Functor
+import Agda.Utils.Lens
 import Agda.Utils.ListT
 import Agda.Utils.Monad
 import Agda.Utils.Maybe
 import Agda.Utils.Singleton
 import Agda.Utils.Tuple
+import Agda.Utils.Update
 
 import Agda.Utils.Impossible
 
@@ -50,11 +51,12 @@ class ( Functor m
       , Applicative m
       , Fail.MonadFail m
       ) => HasBuiltins m where
-  getBuiltinThing :: String -> m (Maybe (Builtin PrimFun))
+  getBuiltinThing :: SomeBuiltin -> m (Maybe (Builtin PrimFun))
 
-  default getBuiltinThing :: (MonadTrans t, HasBuiltins n, t n ~ m) => String -> m (Maybe (Builtin PrimFun))
+  default getBuiltinThing :: (MonadTrans t, HasBuiltins n, t n ~ m) => SomeBuiltin -> m (Maybe (Builtin PrimFun))
   getBuiltinThing = lift . getBuiltinThing
 
+instance HasBuiltins m => HasBuiltins (ChangeT m)
 instance HasBuiltins m => HasBuiltins (ExceptT e m)
 instance HasBuiltins m => HasBuiltins (IdentityT m)
 instance HasBuiltins m => HasBuiltins (ListT m)
@@ -70,6 +72,29 @@ instance MonadIO m => HasBuiltins (TCMT m) where
     liftM2 (unionMaybeWith unionBuiltin)
       (Map.lookup b <$> useTC stLocalBuiltins)
       (Map.lookup b <$> useTC stImportedBuiltins)
+{-# SPECIALIZE getBuiltinThing :: SomeBuiltin -> TCM (Maybe (Builtin PrimFun)) #-}
+
+
+-- | The trivial implementation of 'HasBuiltins', using a constant 'TCState'.
+--
+-- This may be used instead of 'TCMT'/'ReduceM' where builtins must be accessed
+-- in a pure context.
+newtype BuiltinAccess a = BuiltinAccess { unBuiltinAccess :: TCState -> a }
+  deriving (Functor, Applicative, Monad)
+
+instance Fail.MonadFail BuiltinAccess where
+  fail msg = BuiltinAccess $ \_ -> error msg
+
+instance HasBuiltins BuiltinAccess where
+  getBuiltinThing b = BuiltinAccess $ \state ->
+    unionMaybeWith unionBuiltin
+      (Map.lookup b $ state ^. stLocalBuiltins)
+      (Map.lookup b $ state ^. stImportedBuiltins)
+
+-- | Run a 'BuiltinAccess' monad.
+runBuiltinAccess :: TCState -> BuiltinAccess a -> a
+runBuiltinAccess s m = unBuiltinAccess m s
+
 
 -- If Agda is changed so that the type of a literal can belong to an
 -- inductive family (with at least one index), then the implementation
@@ -95,62 +120,75 @@ litType = \case
 setBuiltinThings :: BuiltinThings PrimFun -> TCM ()
 setBuiltinThings b = stLocalBuiltins `setTCLens` b
 
-bindBuiltinName :: String -> Term -> TCM ()
+bindBuiltinName :: BuiltinId -> Term -> TCM ()
 bindBuiltinName b x = do
+<<<<<<< HEAD
   reportSDoc "tc.prim" 20 $ return $ "binding (?)builtin" <+> (P.text b)  
   builtin <- getBuiltinThing b
+=======
+  builtin <- getBuiltinThing b'
+>>>>>>> prep-2.6.4.2
   case builtin of
     Just (Builtin y) -> typeError $ DuplicateBuiltinBinding b y x
-    Just (Prim _)    -> typeError $ NoSuchBuiltinName b
+    Just Prim{}      -> typeError $ __IMPOSSIBLE__
     Just BuiltinRewriteRelations{} -> __IMPOSSIBLE__
-    Nothing          -> stLocalBuiltins `modifyTCLens` Map.insert b (Builtin x)
+    Nothing          -> stLocalBuiltins `modifyTCLens` Map.insert b' (Builtin x)
+  where b' = BuiltinName b
 
-bindPrimitive :: String -> PrimFun -> TCM ()
+bindPrimitive :: PrimitiveId -> PrimFun -> TCM ()
 bindPrimitive b pf = do
+<<<<<<< HEAD
   reportSDoc "tc.prim" 20 $ return $ "binding (?)primitive" <+> (P.text b)
   builtin <- getBuiltinThing b
+=======
+  builtin <- getBuiltinThing b'
+>>>>>>> prep-2.6.4.2
   case builtin of
-    Just (Builtin _) -> typeError $ NoSuchPrimitiveFunction b
+    Just (Builtin _) -> typeError $ NoSuchPrimitiveFunction (getBuiltinId b)
     Just (Prim x)    -> typeError $ (DuplicatePrimitiveBinding b `on` primFunName) x pf
     Just BuiltinRewriteRelations{} -> __IMPOSSIBLE__
-    Nothing          -> stLocalBuiltins `modifyTCLens` Map.insert b (Prim pf)
+    Nothing          -> stLocalBuiltins `modifyTCLens` Map.insert b' (Prim pf)
+  where b' = PrimitiveName b
 
 -- | Add one (more) relation symbol to the rewrite relations.
 bindBuiltinRewriteRelation :: QName -> TCM ()
 bindBuiltinRewriteRelation x =
   stLocalBuiltins `modifyTCLens`
-    Map.insertWith unionBuiltin builtinRewrite (BuiltinRewriteRelations $ singleton x)
+    Map.insertWith unionBuiltin (BuiltinName builtinRewrite) (BuiltinRewriteRelations $ singleton x)
 
 -- | Get the currently registered rewrite relation symbols.
 getBuiltinRewriteRelations :: HasBuiltins m => m (Maybe (Set QName))
-getBuiltinRewriteRelations = fmap rels <$> getBuiltinThing builtinRewrite
+getBuiltinRewriteRelations = fmap rels <$> getBuiltinThing (BuiltinName builtinRewrite)
   where
   rels = \case
     BuiltinRewriteRelations xs -> xs
     Prim{}    -> __IMPOSSIBLE__
     Builtin{} -> __IMPOSSIBLE__
 
+{-# INLINABLE getBuiltin #-}
 getBuiltin :: (HasBuiltins m, MonadTCError m)
-           => String -> m Term
+           => BuiltinId -> m Term
 getBuiltin x =
   fromMaybeM (typeError $ NoBindingForBuiltin x) $ getBuiltin' x
 
-getBuiltin' :: HasBuiltins m => String -> m (Maybe Term)
-getBuiltin' x = do
-    builtin <- getBuiltinThing x
-    case builtin of
-        Just BuiltinRewriteRelations{} -> __IMPOSSIBLE__
-        Just (Builtin t) -> return $ Just $ killRange t
-        _                -> return Nothing
+{-# INLINABLE getBuiltin' #-}
+getBuiltin' :: HasBuiltins m => BuiltinId -> m (Maybe Term)
+getBuiltin' x = (getBuiltin =<<) <$> getBuiltinThing (BuiltinName x) where
+  getBuiltin BuiltinRewriteRelations{} = __IMPOSSIBLE__
+  getBuiltin (Builtin t)               = Just $ killRange t
+  getBuiltin _                         = Nothing
 
-getPrimitive' :: HasBuiltins m => String -> m (Maybe PrimFun)
-getPrimitive' x = (getPrim =<<) <$> getBuiltinThing x
+{-# INLINABLE getPrimitive' #-}
+getPrimitive' :: HasBuiltins m => PrimitiveId -> m (Maybe PrimFun)
+getPrimitive' x = (getPrim =<<) <$> getBuiltinThing (PrimitiveName x)
   where
     getPrim (Prim pf) = return pf
     getPrim BuiltinRewriteRelations{} = __IMPOSSIBLE__
     getPrim _         = Nothing
 
+{-# INLINABLE getPrimitive #-}
 getPrimitive :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m)
+<<<<<<< HEAD
              => String -> m PrimFun
 getPrimitive x = do
   -- tcs <- getTCState
@@ -159,27 +197,37 @@ getPrimitive x = do
   fromMaybeM (typeError $ GenericError $
               "there is no primitive function called " ++ x ++ " (< getPrimitive)\n") $
              getPrimitive' x
+=======
+             => PrimitiveId -> m PrimFun
+getPrimitive x =
+  fromMaybeM (typeError . NoSuchPrimitiveFunction $ getBuiltinId x) $ getPrimitive' x
+>>>>>>> prep-2.6.4.2
 
 getPrimitiveTerm :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m)
-                 => String -> m Term
+                 => PrimitiveId -> m Term
 getPrimitiveTerm x = (`Def` []) . primFunName <$> getPrimitive x
 
-getPrimitiveTerm' :: HasBuiltins m => String -> m (Maybe Term)
+
+getPrimitiveTerm' :: HasBuiltins m => PrimitiveId -> m (Maybe Term)
 getPrimitiveTerm' x = fmap (`Def` []) <$> getPrimitiveName' x
 
-getTerm' :: HasBuiltins m => String -> m (Maybe Term)
-getTerm' x = mplus <$> getBuiltin' x <*> getPrimitiveTerm' x
+getTerm' :: (HasBuiltins m, IsBuiltin a) => a -> m (Maybe Term)
+getTerm' = go . someBuiltin where
+  go (BuiltinName x)   = getBuiltin' x
+  go (PrimitiveName x) = getPrimitiveTerm' x
 
-getName' :: HasBuiltins m => String -> m (Maybe QName)
-getName' x = mplus <$> getBuiltinName' x <*> getPrimitiveName' x
+getName' :: (HasBuiltins m, IsBuiltin a) => a -> m (Maybe QName)
+getName' = go . someBuiltin where
+  go (BuiltinName x)   = getBuiltinName' x
+  go (PrimitiveName x) = getPrimitiveName' x
 
 -- | @getTerm use name@ looks up @name@ as a primitive or builtin, and
 -- throws an error otherwise.
 -- The @use@ argument describes how the name is used for the sake of
 -- the error message.
-getTerm :: (HasBuiltins m) => String -> String -> m Term
+getTerm :: (HasBuiltins m, IsBuiltin a) => String -> a -> m Term
 getTerm use name = flip fromMaybeM (getTerm' name) $
-  return $! throwImpossible (ImpMissingDefinitions [name] use)
+  return $! throwImpossible (ImpMissingDefinitions [getBuiltinId name] use)
 
 
 -- | Rewrite a literal to constructor form if possible.
@@ -189,6 +237,8 @@ constructorForm v = do
       pSuc  = fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinSuc
   constructorForm' pZero pSuc v
 
+{-# INLINABLE constructorForm' #-}
+{-# SPECIALIZE constructorForm' :: TCM Term -> TCM Term -> Term -> TCM Term #-}
 constructorForm' :: Applicative m => m Term -> m Term -> Term -> m Term
 constructorForm' pZero pSuc v =
   case v of
@@ -235,7 +285,8 @@ primInteger, primIntegerPos, primIntegerNegSuc,
     primEquality, primRefl,
     primLevel, primLevelZero, primLevelSuc, primLevelMax,
     primLockUniv,
-    primSet, primProp, primSetOmega, primStrictSet, primSSetOmega,
+    primLevelUniv,
+    primProp, primSet, primStrictSet, primPropOmega, primSetOmega, primSSetOmega,
     primFromNat, primFromNeg, primFromString,
     -- builtins for reflection:
     primQName, primArgInfo, primArgArgInfo, primArg, primArgArg, primAbs, primAbsAbs, primAgdaTerm, primAgdaTermVar,
@@ -258,6 +309,7 @@ primInteger, primIntegerPos, primIntegerNegSuc,
     primAgdaPatLit, primAgdaPatProj,
     primAgdaPatAbsurd,
     primAgdaMeta,
+    primAgdaBlocker, primAgdaBlockerAny, primAgdaBlockerAll, primAgdaBlockerMeta,
     primAgdaTCM, primAgdaTCMReturn, primAgdaTCMBind, primAgdaTCMUnify,
     primAgdaTCMTypeError, primAgdaTCMInferType, primAgdaTCMCheckType,
     primAgdaTCMNormalise, primAgdaTCMReduce,
@@ -265,14 +317,18 @@ primInteger, primIntegerPos, primIntegerNegSuc,
     primAgdaTCMFreshName, primAgdaTCMDeclareDef, primAgdaTCMDeclarePostulate, primAgdaTCMDeclareData, primAgdaTCMDefineData, primAgdaTCMDefineFun,
     primAgdaTCMGetType, primAgdaTCMGetDefinition,
     primAgdaTCMQuoteTerm, primAgdaTCMUnquoteTerm, primAgdaTCMQuoteOmegaTerm,
-    primAgdaTCMBlockOnMeta, primAgdaTCMCommit, primAgdaTCMIsMacro,
+    primAgdaTCMCommit, primAgdaTCMIsMacro, primAgdaTCMBlock,
     primAgdaTCMFormatErrorParts, primAgdaTCMDebugPrint,
-    primAgdaTCMWithNormalisation, primAgdaTCMWithReconsParams,
-    primAgdaTCMOnlyReduceDefs, primAgdaTCMDontReduceDefs,
+    primAgdaTCMWithNormalisation, primAgdaTCMWithReconstructed,
+    primAgdaTCMWithExpandLast, primAgdaTCMWithReduceDefs,
+    primAgdaTCMAskNormalisation, primAgdaTCMAskReconstructed,
+    primAgdaTCMAskExpandLast, primAgdaTCMAskReduceDefs,
     primAgdaTCMNoConstraints,
     primAgdaTCMRunSpeculative,
     primAgdaTCMExec,
-    primAgdaTCMGetInstances
+    primAgdaTCMGetInstances,
+    primAgdaTCMPragmaForeign,
+    primAgdaTCMPragmaCompile
     :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m) => m Term
 
 primInteger                           = getBuiltin builtinInteger
@@ -306,8 +362,8 @@ primIOne                              = getBuiltin builtinIOne
 primIMin                              = getPrimitiveTerm builtinIMin
 primIMax                              = getPrimitiveTerm builtinIMax
 primINeg                              = getPrimitiveTerm builtinINeg
-primPartial                           = getPrimitiveTerm "primPartial"
-primPartialP                          = getPrimitiveTerm "primPartialP"
+primPartial                           = getPrimitiveTerm PrimPartial
+primPartialP                          = getPrimitiveTerm PrimPartialP
 primIsOne                             = getBuiltin builtinIsOne
 primItIsOne                           = getBuiltin builtinItIsOne
 primTrans                             = getPrimitiveTerm builtinTrans
@@ -394,12 +450,14 @@ primLevel                             = getBuiltin builtinLevel
 primLevelZero                         = getBuiltin builtinLevelZero
 primLevelSuc                          = getBuiltin builtinLevelSuc
 primLevelMax                          = getBuiltin builtinLevelMax
-primSet                               = getBuiltin builtinSet
 primProp                              = getBuiltin builtinProp
-primSetOmega                          = getBuiltin builtinSetOmega
-primLockUniv                          = getPrimitiveTerm builtinLockUniv
-primSSetOmega                         = getBuiltin builtinSSetOmega
+primSet                               = getBuiltin builtinSet
 primStrictSet                         = getBuiltin builtinStrictSet
+primPropOmega                         = getBuiltin builtinPropOmega
+primSetOmega                          = getBuiltin builtinSetOmega
+primSSetOmega                         = getBuiltin builtinSSetOmega
+primLockUniv                          = getPrimitiveTerm builtinLockUniv
+primLevelUniv                         = getBuiltin builtinLevelUniv
 primFromNat                           = getBuiltin builtinFromNat
 primFromNeg                           = getBuiltin builtinFromNeg
 primFromString                        = getBuiltin builtinFromString
@@ -430,6 +488,10 @@ primPrecRelated                       = getBuiltin builtinPrecRelated
 primPrecUnrelated                     = getBuiltin builtinPrecUnrelated
 primFixity                            = getBuiltin builtinFixity
 primFixityFixity                      = getBuiltin builtinFixityFixity
+primAgdaBlocker                       = getBuiltin builtinAgdaBlocker
+primAgdaBlockerAny                    = getBuiltin builtinAgdaBlockerAny
+primAgdaBlockerAll                    = getBuiltin builtinAgdaBlockerAll
+primAgdaBlockerMeta                   = getBuiltin builtinAgdaBlockerMeta
 primArgInfo                           = getBuiltin builtinArgInfo
 primArgArgInfo                        = getBuiltin builtinArgArgInfo
 primAgdaSortSet                       = getBuiltin builtinAgdaSortSet
@@ -504,19 +566,25 @@ primAgdaTCMGetDefinition              = getBuiltin builtinAgdaTCMGetDefinition
 primAgdaTCMQuoteTerm                  = getBuiltin builtinAgdaTCMQuoteTerm
 primAgdaTCMQuoteOmegaTerm             = getBuiltin builtinAgdaTCMQuoteOmegaTerm
 primAgdaTCMUnquoteTerm                = getBuiltin builtinAgdaTCMUnquoteTerm
-primAgdaTCMBlockOnMeta                = getBuiltin builtinAgdaTCMBlockOnMeta
+primAgdaTCMBlock                      = getBuiltin builtinAgdaTCMBlock
 primAgdaTCMCommit                     = getBuiltin builtinAgdaTCMCommit
 primAgdaTCMIsMacro                    = getBuiltin builtinAgdaTCMIsMacro
 primAgdaTCMWithNormalisation          = getBuiltin builtinAgdaTCMWithNormalisation
-primAgdaTCMWithReconsParams           = getBuiltin builtinAgdaTCMWithReconsParams
+primAgdaTCMWithReconstructed          = getBuiltin builtinAgdaTCMWithReconstructed
+primAgdaTCMWithExpandLast             = getBuiltin builtinAgdaTCMWithExpandLast
+primAgdaTCMWithReduceDefs             = getBuiltin builtinAgdaTCMWithReduceDefs
+primAgdaTCMAskNormalisation           = getBuiltin builtinAgdaTCMAskNormalisation
+primAgdaTCMAskReconstructed           = getBuiltin builtinAgdaTCMAskReconstructed
+primAgdaTCMAskExpandLast              = getBuiltin builtinAgdaTCMAskExpandLast
+primAgdaTCMAskReduceDefs              = getBuiltin builtinAgdaTCMAskReduceDefs
 primAgdaTCMFormatErrorParts           = getBuiltin builtinAgdaTCMFormatErrorParts
 primAgdaTCMDebugPrint                 = getBuiltin builtinAgdaTCMDebugPrint
-primAgdaTCMOnlyReduceDefs             = getBuiltin builtinAgdaTCMOnlyReduceDefs
-primAgdaTCMDontReduceDefs             = getBuiltin builtinAgdaTCMDontReduceDefs
 primAgdaTCMNoConstraints              = getBuiltin builtinAgdaTCMNoConstraints
 primAgdaTCMRunSpeculative             = getBuiltin builtinAgdaTCMRunSpeculative
 primAgdaTCMExec                       = getBuiltin builtinAgdaTCMExec
 primAgdaTCMGetInstances               = getBuiltin builtinAgdaTCMGetInstances
+primAgdaTCMPragmaForeign              = getBuiltin builtinAgdaTCMPragmaForeign
+primAgdaTCMPragmaCompile              = getBuiltin builtinAgdaTCMPragmaCompile
 
 -- | The coinductive primitives.
 
@@ -545,10 +613,27 @@ coinductionKit = tryMaybe coinductionKit'
 -- | Sort primitives.
 
 data SortKit = SortKit
-  { nameOfSet      :: QName
-  , nameOfProp     :: QName
-  , nameOfSSet     :: QName
-  , nameOfSetOmega :: IsFibrant -> QName
+  { nameOfUniv   :: UnivSize -> Univ -> QName
+  , isNameOfUniv :: QName -> Maybe (UnivSize, Univ)
+  }
+
+mkSortKit :: QName -> QName -> QName -> QName -> QName -> QName -> SortKit
+mkSortKit prop set sset propomega setomega ssetomega = SortKit
+  { nameOfUniv = curry $ \case
+      (USmall , UProp) -> prop
+      (USmall , UType) -> set
+      (USmall , USSet) -> sset
+      (ULarge , UProp) -> propomega
+      (ULarge , UType) -> setomega
+      (ULarge , USSet) -> ssetomega
+  , isNameOfUniv = \ x -> if
+      | x == prop      -> Just (USmall , UProp)
+      | x == set       -> Just (USmall , UType)
+      | x == sset      -> Just (USmall , USSet)
+      | x == propomega -> Just (ULarge , UProp)
+      | x == setomega  -> Just (ULarge , UType)
+      | x == ssetomega -> Just (ULarge , USSet)
+      | otherwise -> Nothing
   }
 
 -- | Compute a 'SortKit' in an environment that supports failures.
@@ -558,19 +643,13 @@ data SortKit = SortKit
 -- we report a type error rather than exploding.
 sortKit :: (HasBuiltins m, MonadTCError m, HasOptions m) => m SortKit
 sortKit = do
-  Def set      _  <- getBuiltin builtinSet
   Def prop     _  <- getBuiltin builtinProp
-  Def setomega _  <- getBuiltin builtinSetOmega
+  Def set      _  <- getBuiltin builtinSet
   Def sset     _  <- getBuiltin builtinStrictSet
+  Def propomega _ <- getBuiltin builtinPropOmega
+  Def setomega _  <- getBuiltin builtinSetOmega
   Def ssetomega _ <- getBuiltin builtinSSetOmega
-  return $ SortKit
-    { nameOfSet      = set
-    , nameOfProp     = prop
-    , nameOfSSet     = sset
-    , nameOfSetOmega = \case
-        IsFibrant -> setomega
-        IsStrict  -> ssetomega
-    }
+  return $ mkSortKit prop set sset propomega setomega ssetomega
 
 -- | Compute a 'SortKit' in contexts that do not support failure (e.g.
 -- 'Reify'). This should only be used when we are sure that the
@@ -578,19 +657,13 @@ sortKit = do
 -- checking.
 infallibleSortKit :: HasBuiltins m => m SortKit
 infallibleSortKit = do
-  Def set      _  <- fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinSet
   Def prop     _  <- fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinProp
-  Def setomega _  <- fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinSetOmega
+  Def set      _  <- fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinSet
   Def sset     _  <- fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinStrictSet
+  Def propomega _ <- fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinPropOmega
+  Def setomega _  <- fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinSetOmega
   Def ssetomega _ <- fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinSSetOmega
-  return $ SortKit
-    { nameOfSet      = set
-    , nameOfProp     = prop
-    , nameOfSSet     = sset
-    , nameOfSetOmega = \case
-        IsFibrant -> setomega
-        IsStrict  -> ssetomega
-    }
+  return $ mkSortKit prop set sset propomega setomega ssetomega
 
 ------------------------------------------------------------------------
 -- * Path equality
@@ -607,23 +680,27 @@ getPrimName ty = do
             (_, Var 0 [Proj _ l]) -> l
             (_, t)          -> __IMPOSSIBLE__
 
-getBuiltinName', getPrimitiveName' :: HasBuiltins m => String -> m (Maybe QName)
+getBuiltinName' :: HasBuiltins m => BuiltinId -> m (Maybe QName)
 getBuiltinName' n = fmap getPrimName <$> getBuiltin' n
+
+getPrimitiveName' :: HasBuiltins m => PrimitiveId -> m (Maybe QName)
 getPrimitiveName' n = fmap primFunName <$> getPrimitive' n
 
-isPrimitive :: HasBuiltins m => String -> QName -> m Bool
+isPrimitive :: HasBuiltins m => PrimitiveId -> QName -> m Bool
 isPrimitive n q = (Just q ==) <$> getPrimitiveName' n
 
 intervalSort :: Sort
 intervalSort = IntervalUniv
 
+{-# SPECIALIZE intervalView' :: TCM (Term -> IntervalView) #-}
+{-# INLINABLE intervalView' #-}
 intervalView' :: HasBuiltins m => m (Term -> IntervalView)
 intervalView' = do
   iz <- getBuiltinName' builtinIZero
   io <- getBuiltinName' builtinIOne
-  imax <- getPrimitiveName' "primIMax"
-  imin <- getPrimitiveName' "primIMin"
-  ineg <- getPrimitiveName' "primINeg"
+  imax <- getPrimitiveName' builtinIMax
+  imin <- getPrimitiveName' builtinIMin
+  ineg <- getPrimitiveName' builtinINeg
   return $ \ t ->
     case t of
       Def q es ->
@@ -636,6 +713,7 @@ intervalView' = do
                  | Just (conName q) == io -> IOne
       _ -> OTerm t
 
+{-# INLINE intervalView #-}
 intervalView :: HasBuiltins m => Term -> m IntervalView
 intervalView t = do
   f <- intervalView'
@@ -646,13 +724,14 @@ intervalUnview t = do
   f <- intervalUnview'
   return (f t)
 
+{-# SPECIALIZE intervalUnview' :: TCM (IntervalView -> Term) #-}
 intervalUnview' :: HasBuiltins m => m (IntervalView -> Term)
 intervalUnview' = do
   iz <- fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinIZero -- should it be a type error instead?
   io <- fromMaybe __IMPOSSIBLE__ <$> getBuiltin' builtinIOne
-  imin <- (`Def` []) . fromMaybe __IMPOSSIBLE__ <$> getPrimitiveName' "primIMin"
-  imax <- (`Def` []) . fromMaybe __IMPOSSIBLE__ <$> getPrimitiveName' "primIMax"
-  ineg <- (`Def` []) . fromMaybe __IMPOSSIBLE__ <$> getPrimitiveName' "primINeg"
+  imin <- (`Def` []) . fromMaybe __IMPOSSIBLE__ <$> getPrimitiveName' builtinIMin
+  imax <- (`Def` []) . fromMaybe __IMPOSSIBLE__ <$> getPrimitiveName' builtinIMax
+  ineg <- (`Def` []) . fromMaybe __IMPOSSIBLE__ <$> getPrimitiveName' builtinINeg
   return $ \ v -> case v of
              IZero -> iz
              IOne  -> io
@@ -670,11 +749,13 @@ intervalUnview' = do
 --
 --   Precondition: type is reduced.
 
+{-# INLINE pathView #-}
 pathView :: HasBuiltins m => Type -> m PathView
 pathView t0 = do
   view <- pathView'
   return $ view t0
 
+{-# SPECIALIZE pathView' :: TCM (Type -> PathView)  #-}
 pathView' :: HasBuiltins m => m (Type -> PathView)
 pathView' = do
  mpath  <- getBuiltinName' builtinPath
@@ -688,6 +769,7 @@ pathView' = do
       | Just path' == mpathp, Just path <- mpathp -> PathType s path level typ lhs rhs
     _ -> OType t0
 
+{-# SPECIALIZE idViewAsPath :: Type -> TCM PathView  #-}
 -- | Non dependent Path
 idViewAsPath :: HasBuiltins m => Type -> m PathView
 idViewAsPath t0@(El s t) = do
@@ -819,10 +901,11 @@ pathBridgeIntView t = do
 -- * Swan's Id Equality
 ------------------------------------------------------------------------
 
+{-# INLINABLE conidView' #-}
 -- f x (< phi , p > : Id A x _) = Just (phi,p)
 conidView' :: HasBuiltins m => m (Term -> Term -> Maybe (Arg Term,Arg Term))
 conidView' = do
-  mn <- sequence <$> mapM getName' [builtinReflId, builtinConId]
+  mn <- sequence <$> mapM getName' [someBuiltin builtinReflId, someBuiltin builtinConId]
   mio <- getTerm' builtinIOne
   let fallback = return $ \ _ _ -> Nothing
   caseMaybe mn fallback $ \ [refl,conid] ->
@@ -889,8 +972,13 @@ instance EqualityUnview EqualityTypeData where
   equalityUnview (EqualityTypeData s equality l t lhs rhs) =
     El s $ Def equality $ map Apply (l ++ [t, lhs, rhs])
 
+<<<<<<< HEAD
 -- | Primitives with typechecking constrants generated when tc-ing an application
 constrainedPrims :: [String]
+=======
+-- | Primitives with typechecking constrants.
+constrainedPrims :: [PrimitiveId]
+>>>>>>> prep-2.6.4.2
 constrainedPrims =
   [ builtinConId
   , builtinPOr
@@ -903,7 +991,7 @@ constrainedPrims =
   , builtin_mpor --refoldMhocom as well?
   ]
 
-getNameOfConstrained :: HasBuiltins m => String -> m (Maybe QName)
+getNameOfConstrained :: HasBuiltins m => PrimitiveId -> m (Maybe QName)
 getNameOfConstrained s = do
   unless (s `elem` constrainedPrims) __IMPOSSIBLE__
   getName' s

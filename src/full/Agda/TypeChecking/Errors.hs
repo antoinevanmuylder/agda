@@ -3,7 +3,8 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Agda.TypeChecking.Errors
-  ( prettyError
+  ( renderError
+  , prettyError
   , tcErrString
   , prettyTCWarnings'
   , prettyTCWarnings
@@ -24,13 +25,18 @@ module Agda.TypeChecking.Errors
 import Prelude hiding ( null, foldl )
 
 import qualified Control.Exception as E
+import Control.Monad ((>=>), (<=<))
 import Control.Monad.Except
 
 import qualified Data.CaseInsensitive as CaseInsens
 import Data.Foldable (foldl)
-import Data.Function
+import Data.Function (on)
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as IntSet
 import Data.List (sortBy, dropWhileEnd, intercalate)
+import qualified Data.List as List
 import Data.Maybe
+import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Text.PrettyPrint.Boxes as Boxes
 
@@ -46,11 +52,11 @@ import Agda.Syntax.Translation.InternalToAbstract
 import Agda.Syntax.Scope.Monad (isDatatypeModule)
 import Agda.Syntax.Scope.Base
 
+import Agda.TypeChecking.Monad (typeOfConst)
 import Agda.TypeChecking.Monad.Base
 import Agda.TypeChecking.Monad.Closure
 import Agda.TypeChecking.Monad.Context
 import Agda.TypeChecking.Monad.Debug
-import Agda.TypeChecking.Monad.Env
 import Agda.TypeChecking.Monad.Builtin
 import Agda.TypeChecking.Monad.SizedTypes ( sizeType )
 import Agda.TypeChecking.Monad.State
@@ -58,19 +64,19 @@ import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Pretty.Call
 import Agda.TypeChecking.Pretty.Warning
 import Agda.TypeChecking.Substitute
-import Agda.TypeChecking.Telescope ( ifPiType )
 import Agda.TypeChecking.Reduce (instantiate)
 
 import Agda.Utils.FileName
 import Agda.Utils.Float  ( toStringWithoutDotZero )
 import Agda.Utils.Function
-import Agda.Utils.List   ( initLast )
+import Agda.Utils.Functor( for )
+import Agda.Utils.List   ( initLast, lastMaybe )
 import Agda.Utils.List1 (List1, pattern (:|))
 import qualified Agda.Utils.List1 as List1
 import Agda.Utils.Maybe
 import Agda.Utils.Null
-import Agda.Utils.Pretty ( prettyShow, render )
-import qualified Agda.Utils.Pretty as P
+import Agda.Syntax.Common.Pretty ( prettyShow, render )
+import qualified Agda.Syntax.Common.Pretty as P
 import Agda.Utils.Size
 
 import Agda.Utils.Impossible
@@ -79,19 +85,22 @@ import Agda.Utils.Impossible
 -- * Top level function
 ---------------------------------------------------------------------------
 
-{-# SPECIALIZE prettyError :: TCErr -> TCM String #-}
-prettyError :: MonadTCM tcm => TCErr -> tcm String
-prettyError err = liftTCM $ show <$> prettyError' err []
-  where
-  prettyError' :: TCErr -> [TCErr] -> TCM Doc
-  prettyError' err errs
+{-# SPECIALIZE renderError :: TCErr -> TCM String #-}
+renderError :: MonadTCM tcm => TCErr -> tcm String
+renderError = fmap show . prettyError
+
+{-# SPECIALIZE prettyError :: TCErr -> TCM Doc #-}
+prettyError :: MonadTCM tcm => TCErr -> tcm Doc
+prettyError = liftTCM . flip renderError' [] where
+  renderError' :: TCErr -> [TCErr] -> TCM Doc
+  renderError' err errs
     | length errs > 3 = fsep (
         pwords "total panic: error when printing error from printing error from printing error." ++
         pwords "I give up! Approximations of errors (original error last):" )
         $$ vcat (map (text . tcErrString) errs)
     | otherwise = applyUnless (null errs) ("panic: error when printing error!" $$) $ do
         (prettyTCM err $$ vcat (map (text . ("when printing error " ++) . tcErrString) errs))
-        `catchError` \ err' -> prettyError' err' (err:errs)
+        `catchError` \ err' -> renderError' err' (err:errs)
 
 ---------------------------------------------------------------------------
 -- * Helpers
@@ -120,13 +129,18 @@ errorString :: TypeError -> String
 errorString err = case err of
   AmbiguousModule{}                        -> "AmbiguousModule"
   AmbiguousName{}                          -> "AmbiguousName"
+  AmbiguousField{}                         -> "AmbiguousField"
   AmbiguousParseForApplication{}           -> "AmbiguousParseForApplication"
   AmbiguousParseForLHS{}                   -> "AmbiguousParseForLHS"
+  AmbiguousProjection{}                    -> "AmbiguousProjection"
+  AmbiguousOverloadedProjection{}          -> "AmbiguousOverloadedProjection"
+  AmbiguousConstructor{}                   -> "AmbiguousConstructor"
 --  AmbiguousParseForPatternSynonym{}        -> "AmbiguousParseForPatternSynonym"
   AmbiguousTopLevelModuleName {}           -> "AmbiguousTopLevelModuleName"
   BadArgumentsToPatternSynonym{}           -> "BadArgumentsToPatternSynonym"
   TooFewArgumentsToPatternSynonym{}        -> "TooFewArgumentsToPatternSynonym"
   CannotResolveAmbiguousPatternSynonym{}   -> "CannotResolveAmbiguousPatternSynonym"
+  UnboundVariablesInPatternSynonym{}       -> "UnboundVariablesInPatternSynonym"
   BothWithAndRHS                           -> "BothWithAndRHS"
   BuiltinInParameterisedModule{}           -> "BuiltinInParameterisedModule"
   BuiltinMustBeConstructor{}               -> "BuiltinMustBeConstructor"
@@ -151,8 +165,11 @@ errorString err = case err of
   GenericError{}                           -> "GenericError"
   GenericDocError{}                        -> "GenericDocError"
   InstanceNoCandidate{}                    -> "InstanceNoCandidate"
-  IllformedProjectionPattern{}             -> "IllformedProjectionPattern"
+  IllformedProjectionPatternAbstract{}     -> "IllformedProjectionPatternAbstract"
+  IllformedProjectionPatternConcrete{}     -> "IllformedProjectionPatternConcrete"
   CannotEliminateWithPattern{}             -> "CannotEliminateWithPattern"
+  CannotEliminateWithProjection{}          -> "CannotEliminateWithProjection"
+  IllegalDeclarationInDataDefinition{}     -> "IllegalDeclarationInDataDefinition"
   IllegalLetInTelescope{}                  -> "IllegalLetInTelescope"
   IllegalPatternInTelescope{}              -> "IllegalPatternInTelescope"
 -- UNUSED:  IncompletePatternMatching{}              -> "IncompletePatternMatching"
@@ -174,9 +191,11 @@ errorString err = case err of
   GeneralizeNotSupportedHere{}             -> "GeneralizeNotSupportedHere"
   GeneralizeCyclicDependency{}             -> "GeneralizeCyclicDependency"
   GeneralizeUnsolvedMeta{}                 -> "GeneralizeUnsolvedMeta"
+  GeneralizedVarInLetOpenedModule{}        -> "GeneralizedVarInLetOpenedModule"
   MultipleFixityDecls{}                    -> "MultipleFixityDecls"
   MultiplePolarityPragmas{}                -> "MultiplePolarityPragmas"
   NoBindingForBuiltin{}                    -> "NoBindingForBuiltin"
+  NoBindingForPrimitive{}                  -> "NoBindingForPrimitive"
   NoParseForApplication{}                  -> "NoParseForApplication"
   NoParseForLHS{}                          -> "NoParseForLHS"
 --  NoParseForPatternSynonym{}               -> "NoParseForPatternSynonym"
@@ -185,7 +204,7 @@ errorString err = case err of
   NoSuchModule{}                           -> "NoSuchModule"
   DuplicatePrimitiveBinding{}              -> "DuplicatePrimitiveBinding"
   NoSuchPrimitiveFunction{}                -> "NoSuchPrimitiveFunction"
-  WrongModalityForPrimitive{}              -> "WrongModalityForPrimitive"
+  WrongArgInfoForPrimitive{}               -> "WrongArgInfoForPrimitive"
   NotAModuleExpr{}                         -> "NotAModuleExpr"
   NotAProperTerm                           -> "NotAProperTerm"
   InvalidType{}                            -> "InvalidType"
@@ -203,7 +222,6 @@ errorString err = case err of
   NothingAppliedToInstanceArg{}            -> "NothingAppliedToInstanceArg"
   OverlappingProjects {}                   -> "OverlappingProjects"
   OperatorInformation {}                   -> "OperatorInformation"
-  PatternShadowsConstructor {}             -> "PatternShadowsConstructor"
   PropMustBeSingleton                      -> "PropMustBeSingleton"
   RepeatedVariablesInPattern{}             -> "RepeatedVariablesInPattern"
   ShadowedModule{}                         -> "ShadowedModule"
@@ -226,6 +244,10 @@ errorString err = case err of
   -- UNUSED: -- SplitOnErased{}                          -> "SplitOnErased"
   SplitOnNonVariable{}                     -> "SplitOnNonVariable"
   SplitOnNonEtaRecord{}                    -> "SplitOnNonEtaRecord"
+  SplitOnAbstract{}                        -> "SplitOnAbstract"
+  SplitOnUnchecked{}                       -> "SplitOnUnchecked"
+  SplitOnPartial{}                         -> "SplitOnPartial"
+  SplitInProp{}                            -> "SplitInProp"
   DefinitionIsIrrelevant{}                 -> "DefinitionIsIrrelevant"
   DefinitionIsErased{}                     -> "DefinitionIsErased"
   VariableIsIrrelevant{}                   -> "VariableIsIrrelevant"
@@ -254,6 +276,8 @@ errorString err = case err of
   WrongHidingInApplication{}               -> "WrongHidingInApplication"
   WrongHidingInLHS{}                       -> "WrongHidingInLHS"
   WrongHidingInLambda{}                    -> "WrongHidingInLambda"
+  WrongHidingInProjection{}                -> "WrongHidingInProjection"
+  IllegalHidingInPostfixProjection{}       -> "IllegalHidingInPostfixProjection"
   WrongIrrelevanceInLambda{}               -> "WrongIrrelevanceInLambda"
   WrongQuantityInLambda{}                  -> "WrongQuantityInLambda"
   WrongCohesionInLambda{}                  -> "WrongCohesionInLambda"
@@ -266,6 +290,30 @@ errorString err = case err of
   InstanceSearchDepthExhausted{}           -> "InstanceSearchDepthExhausted"
   TriedToCopyConstrainedPrim{}             -> "TriedToCopyConstrainedPrim"
   SortOfSplitVarError{}                    -> "SortOfSplitVarError"
+  ReferencesFutureVariables{}              -> "ReferencesFutureVariables"
+  DoesNotMentionTicks{}                    -> "DoesNotMentionTicks"
+  MismatchedProjectionsError{}             -> "MismatchedProjectionsError"
+  AttributeKindNotEnabled{}                -> "AttributeKindNotEnabled"
+  InvalidProjectionParameter{}             -> "InvalidProjectionParameter"
+  TacticAttributeNotAllowed{}              -> "TacticAttributeNotAllowed"
+  CannotRewriteByNonEquation{}             -> "CannotRewriteByNonEquation"
+  MacroResultTypeMismatch{}                -> "MacroResultTypeMismatch"
+  NamedWhereModuleInRefinedContext{}       -> "NamedWhereModuleInRefinedContext"
+  CubicalPrimitiveNotFullyApplied{}        -> "CubicalPrimitiveNotFullyApplied"
+  TooManyArgumentsToLeveledSort{}          -> "TooManyArgumentsToLeveledSort"
+  TooManyArgumentsToUnivOmega{}            -> "TooManyArgumentsToUnivOmega"
+  IllTypedPatternAfterWithAbstraction{}    -> "IllTypedPatternAfterWithAbstraction"
+  ComatchingDisabledForRecord{}            -> "ComatchingDisabledForRecord"
+  BuiltinMustBeIsOne{}                     -> "BuiltinMustBeIsOne"
+  IllegalRewriteRule{}                     -> "IllegalRewriteRule"
+  IncorrectTypeForRewriteRelation{}        -> "IncorrectTypeForRewriteRelation"
+  UnexpectedParameter{}                    -> "UnexpectedParameter"
+  NoParameterOfName{}                      -> "NoParameterOfName"
+  UnexpectedModalityAnnotationInParameter{} -> "UnexpectedModalityAnnotationInParameter"
+  SortDoesNotAdmitDataDefinitions{}        -> "SortDoesNotAdmitDataDefinitions"
+  SortCannotDependOnItsIndex{}             -> "SortCannotDependOnItsIndex"
+  ExpectedBindingForParameter{}            -> "ExpectedBindingForParameter"
+  UnexpectedTypeSignatureForParameter{}    -> "UnexpectedTypeSignatureForParameter"
 
 instance PrettyTCM TCErr where
   prettyTCM err = case err of
@@ -290,7 +338,7 @@ dropTopLevelModule' :: Int -> QName -> QName
 dropTopLevelModule' k (QName (MName ns) n) = QName (MName (drop k ns)) n
 
 -- | Drops the filename component of the qualified name.
-dropTopLevelModule :: QName -> TCM QName
+dropTopLevelModule :: MonadPretty m => QName -> m QName
 dropTopLevelModule q = ($ q) <$> topLevelModuleDropper
 
 -- | Produces a function which drops the filename component of the qualified name.
@@ -299,6 +347,19 @@ topLevelModuleDropper =
   caseMaybeM currentTopLevelModule
     (return id)
     (return . dropTopLevelModule' . size)
+
+prettyDisamb :: MonadPretty m => (QName -> Maybe (Range' SrcFile)) -> QName -> m Doc
+prettyDisamb f x = do
+  let d  = pretty =<< dropTopLevelModule x
+  caseMaybe (f x) d $ \ r -> d <+> ("(introduced at " <> prettyTCM r <> ")")
+
+-- | Print the last range in 'qnameModule'.
+prettyDisambProj :: MonadPretty m => QName -> m Doc
+prettyDisambProj = prettyDisamb $ lastMaybe . filter (noRange /=) . map nameBindingSite . mnameToList . qnameModule
+
+--   Print the range in 'qnameName'. This fixes the bad error message in #4130.
+prettyDisambCons :: MonadPretty m => QName -> m Doc
+prettyDisambCons = prettyDisamb $ Just . nameBindingSite . qnameName
 
 instance PrettyTCM TypeError where
   prettyTCM err = case err of
@@ -351,6 +412,14 @@ instance PrettyTCM TypeError where
     WrongHidingInLambda t ->
       fwords "Found an implicit lambda where an explicit lambda was expected"
 
+    WrongHidingInProjection d ->
+      sep [ "Wrong hiding used for projection " , prettyTCM d ]
+
+
+    IllegalHidingInPostfixProjection arg -> fsep $
+      pwords "Illegal hiding in postfix projection " ++
+      [pretty arg]
+
     WrongIrrelevanceInLambda ->
       fwords "Found a non-strict lambda where a irrelevant lambda was expected"
 
@@ -389,8 +458,11 @@ instance PrettyTCM TypeError where
       pwords "Failed to infer that constructor pattern "
       ++ [prettyA p] ++ pwords " is forced"
 
-    IllformedProjectionPattern p -> fsep $
+    IllformedProjectionPatternAbstract p -> fsep $
       pwords "Ill-formed projection pattern " ++ [prettyA p]
+
+    IllformedProjectionPatternConcrete p -> fsep $
+      pwords "Ill-formed projection pattern" ++ [pretty p]
 
     CannotEliminateWithPattern b p a -> do
       let isProj = isJust (isProjP p)
@@ -419,6 +491,16 @@ instance PrettyTCM TypeError where
         A.AsP _ _ p -> kindOfPattern p
         A.PatternSynP{} -> __IMPOSSIBLE__
         A.AnnP _ _ p -> kindOfPattern p
+
+    CannotEliminateWithProjection ty isAmbiguous projection -> sep
+        [ "Cannot eliminate type "
+        , prettyTCM (unArg ty)
+        , " with projection "
+        , if isAmbiguous then
+            text $ prettyShow projection
+          else
+            prettyTCM projection
+        ]
 
     WrongNumberOfConstructorArguments c expect given -> fsep $
       pwords "The constructor" ++ [prettyTCM c] ++
@@ -505,7 +587,7 @@ instance PrettyTCM TypeError where
 
     NotAProperTerm -> fwords "Found a malformed term"
 
-    InvalidTypeSort s -> fsep $ prettyTCM s : pwords "is not a valid type"
+    InvalidTypeSort s -> fsep $ prettyTCM s : pwords "is not a valid sort"
     InvalidType v -> fsep $ prettyTCM v : pwords "is not a valid type"
 
     FunctionTypeInSizeUniv v -> fsep $
@@ -536,6 +618,28 @@ instance PrettyTCM TypeError where
       , [ parens "to activate, add declaration `pattern` to record definition" ]
       ]
       where r = nameBindingSite $ qnameName q
+
+    SplitOnAbstract d ->
+      "Cannot split on abstract data type" <+> prettyTCM d
+
+    SplitOnUnchecked d ->
+      "Cannot split on data type" <+> prettyTCM d <+> "whose definition has not yet been checked"
+
+    SplitOnPartial dom -> vcat
+      [ "Splitting on partial elements is only allowed at the type Partial, but the domain here is", nest 2 $ prettyTCM $ unDom dom ]
+
+    SplitInProp dr -> fsep
+      [ text "Cannot split on"
+      , text $ kindOfData dr
+      , text "in Prop unless target is in Prop"
+      ]
+      where
+        kindOfData :: DataOrRecordE -> String
+        kindOfData IsData                                                          = "datatype"
+        kindOfData (IsRecord InductionAndEta {recordInduction=Nothing})            = "record type"
+        kindOfData (IsRecord InductionAndEta {recordInduction=(Just Inductive)})   =  "inductive record type"
+        kindOfData (IsRecord InductionAndEta {recordInduction=(Just CoInductive)}) = "coinductive record type"
+
 
     DefinitionIsIrrelevant x -> fsep $
       "Identifier" : prettyTCM x : pwords "is declared irrelevant, so it cannot be used here"
@@ -667,45 +771,53 @@ instance PrettyTCM TypeError where
       pwords "solution was created in an erased context."
 
     BuiltinMustBeConstructor s e -> fsep $
-      [prettyA e] ++ pwords "must be a constructor in the binding to builtin" ++ [text s]
+      [prettyA e] ++ pwords "must be a constructor in the binding to builtin" ++ [pretty s]
 
     NoSuchBuiltinName s -> fsep $
-      pwords "There is no built-in thing called" ++ [text s]
+      pwords "There is no built-in thing called" ++ [pretty s]
 
     DuplicateBuiltinBinding b x y -> fsep $
-      pwords "Duplicate binding for built-in thing" ++ [text b <> comma] ++
+      pwords "Duplicate binding for built-in thing" ++ [pretty b <> comma] ++
       pwords "previous binding to" ++ [prettyTCM x]
 
     NoBindingForBuiltin x
       | x `elem` [builtinZero, builtinSuc] -> fsep $
-        pwords "No binding for builtin " ++ [text x <> comma] ++
-        pwords ("use {-# BUILTIN " ++ builtinNat ++ " name #-} to bind builtin natural " ++
+        pwords "No binding for builtin " ++ [pretty x <> comma] ++
+        pwords ("use {-# BUILTIN " ++ getBuiltinId builtinNat ++ " name #-} to bind builtin natural " ++
                 "numbers to the type 'name'")
       | otherwise -> fsep $
-        pwords "No binding for builtin thing" ++ [text x <> comma] ++
-        pwords ("use {-# BUILTIN " ++ x ++ " name #-} to bind it to 'name'")
+        pwords "No binding for builtin thing" ++ [pretty x <> comma] ++
+        pwords ("use {-# BUILTIN " ++ getBuiltinId x ++ " name #-} to bind it to 'name'")
+
+    NoBindingForPrimitive x -> fsep $
+      pwords "Missing binding for" ++
+      [pretty x] ++
+      pwords "primitive."
 
     DuplicatePrimitiveBinding b x y -> fsep $
-      pwords "Duplicate binding for primitive thing" ++ [text b <> comma] ++
+      pwords "Duplicate binding for primitive thing" ++ [pretty b <> comma] ++
       pwords "previous binding to" ++ [prettyTCM x]
 
     NoSuchPrimitiveFunction x -> fsep $
       pwords "There is no primitive function called" ++ [text x]
 
-    WrongModalityForPrimitive x got expect ->
-      vcat [ fsep $ pwords "Wrong modality for primitive" ++ [text x]
+    WrongArgInfoForPrimitive x got expect ->
+      vcat [ fsep $ pwords "Wrong definition properties for primitive" ++ [pretty x]
            , nest 2 $ text $ "Got:      " ++ intercalate ", " gs
            , nest 2 $ text $ "Expected: " ++ intercalate ", " es ]
       where
         (gs, es) = unzip [ p | p@(g, e) <- zip (things got) (things expect), g /= e ]
         things i = [verbalize $ getHiding i,
-                    verbalize $ getRelevance i,
-                    verbalize $ getQuantity i,
-                    verbalize $ getCohesion i]
+                    "at modality " ++ verbalize (getModality i)]
 
     BuiltinInParameterisedModule x -> fwords $
       "The BUILTIN pragma cannot appear inside a bound context " ++
       "(for instance, in a parameterised module or as a local declaration)"
+
+    IllegalDeclarationInDataDefinition ds -> vcat
+      [ "Illegal declaration in data type definition"
+      , nest 2 $ vcat $ map pretty ds
+      ]
 
     IllegalLetInTelescope tb -> fsep $
       -- pwords "The binding" ++
@@ -760,6 +872,33 @@ instance PrettyTCM TypeError where
              [pretty x] ++
              pwords "could refer to any of the following files:"
            ) $$ nest 2 (vcat $ map (text . filePath) files)
+
+    AmbiguousProjection d disambs -> vcat
+      [ "Ambiguous projection " <> prettyTCM d <> "."
+      , "It could refer to any of"
+      , nest 2 $ vcat $ (map prettyDisambProj disambs)
+      ]
+
+    AmbiguousOverloadedProjection ds reason -> do
+      let nameRaw = pretty $ A.nameConcrete $ A.qnameName $ List1.head ds
+      vcat
+        [ fsep
+          [ text "Cannot resolve overloaded projection"
+          , nameRaw
+          , text "because"
+          , pure reason
+          ]
+        , nest 2 $ text "candidates in scope:"
+        , vcat $ for ds $ \ d -> do
+            t <- typeOfConst d
+            text "-" <+> nest 2 (nameRaw <+> text ":" <+> prettyTCM t)
+        ]
+
+    AmbiguousConstructor c disambs -> vcat
+      [ "Ambiguous constructor " <> pretty (qnameName c) <> "."
+      , "It could refer to any of"
+      , nest 2 $ vcat $ map prettyDisambCons disambs
+      ]
 
     ClashingFileNamesFor x files ->
       fsep ( pwords "Multiple possible sources for module"
@@ -830,6 +969,10 @@ instance PrettyTCM TypeError where
             IsRecordModule -> return $ "(record module)"
           sep [prettyTCM m, anno ]
 
+    AmbiguousField field modules -> vcat $
+      "Ambiguity: the field" <+> prettyTCM field
+        <+> "appears in the following modules: " : map prettyTCM modules
+
     ClashingDefinition x y suggestion -> fsep $
       pwords "Multiple definitions of" ++ [pretty x <> "."] ++
       pwords "Previous definition at"
@@ -850,10 +993,6 @@ instance PrettyTCM TypeError where
 
     ClashingModuleImport x y -> fsep $
       pwords "Module import clash between" ++ [pretty x, "and", prettyTCM y]
-
-    PatternShadowsConstructor x c -> fsep $
-      pwords "The pattern variable" ++ [prettyTCM x] ++
-      pwords "has the same name as the constructor" ++ [prettyTCM c]
 
     DuplicateImports m xs -> fsep $
       pwords "Ambiguous imports from module" ++ [pretty m] ++ pwords "for" ++
@@ -949,6 +1088,10 @@ instance PrettyTCM TypeError where
     UnusedVariableInPatternSynonym -> fsep $
       pwords "Unused variable in pattern synonym."
 
+    UnboundVariablesInPatternSynonym xs -> fsep $
+      pwords "Unbound variables in pattern synonym: " ++
+      [sep (map prettyA xs)]
+
     NoParseForLHS lhsOrPatSyn errs p -> vcat
       [ fsep $ pwords "Could not parse the" ++ prettyLhsOrPatSyn ++ [pretty p]
       , prettyErrs
@@ -989,7 +1132,7 @@ instance PrettyTCM TypeError where
         unambiguousP (C.InstanceP r x)    = C.InstanceP r $ fmap unambiguousP x
         unambiguousP (C.ParenP r x)       = C.ParenP r $ unambiguousP x
         unambiguousP (C.AsP r n x)        = C.AsP r n $ unambiguousP x
-        unambiguousP (C.OpAppP r op _ xs) = foldl C.AppP (C.IdentP op) xs
+        unambiguousP (C.OpAppP r op _ xs) = foldl C.AppP (C.IdentP True op) xs
         unambiguousP e                    = e
 
     OperatorInformation sects err ->
@@ -1178,6 +1321,10 @@ instance PrettyTCM TypeError where
     GeneralizeUnsolvedMeta -> fsep $
       pwords "Unsolved meta not generalized"
 
+    GeneralizedVarInLetOpenedModule x -> fsep $
+      pwords "Cannot use generalized variable from let-opened module: " ++
+      [prettyTCM x]
+
     MultipleFixityDecls xs ->
       sep [ fsep $ pwords "Multiple fixity or syntax declarations for"
           , vcat $ map f xs
@@ -1196,7 +1343,226 @@ instance PrettyTCM TypeError where
 
     TriedToCopyConstrainedPrim q -> fsep $
       pwords "Cannot create a module containing a copy of" ++ [prettyTCM q]
+
     SortOfSplitVarError _ doc -> return doc
+
+    ReferencesFutureVariables term (disallowed :| _) lock leftmost
+      | disallowed == leftmost
+      -> fsep $ pwords "The lock variable"
+             ++ pure (prettyTCM =<< nameOfBV disallowed)
+             ++ pwords "can not appear simultaneously in the \"later\" term"
+             ++ pure (prettyTCM term)
+             ++ pwords "and in the lock term"
+             ++ pure (prettyTCM lock <> ".")
+
+    ReferencesFutureVariables term (disallowed :| rest) lock leftmost -> do
+      explain <- (/=) <$> prettyTCM lock <*> (prettyTCM =<< nameOfBV leftmost)
+      let
+        name = prettyTCM =<< nameOfBV leftmost
+        mod = case getLock lock of
+          IsLock LockOLock -> "@lock"
+          IsLock LockOTick -> "@tick"
+          _ -> __IMPOSSIBLE__
+      vcat $ concat
+        [ pure . fsep $ concat
+          [ pwords "The variable", pure (prettyTCM =<< nameOfBV disallowed), pwords "can not be mentioned here,"
+          , pwords "since it was not introduced before the variable", pure (name <> ".")
+          ]
+        , [ fsep ( pwords "Variables introduced after"
+                ++ pure name
+                ++ pwords "can not be used, since that is the leftmost" ++ pure mod ++ pwords "variable in the locking term"
+                ++ pure (prettyTCM lock <> "."))
+          | explain
+          ]
+        , [ fsep ( pwords "The following"
+                  ++ P.singPlural rest (pwords "variable is") (pwords "variables are")
+                  ++ pwords "not allowed here, either:"
+                  ++ punctuate comma (map (prettyTCM <=< nameOfBV) rest))
+          | not (null rest)
+          ]
+        ]
+
+    DoesNotMentionTicks term ty lock ->
+      let
+        mod = case getLock lock of
+          IsLock LockOLock -> "@lock"
+          IsLock LockOTick -> "@tick"
+          _ -> __IMPOSSIBLE__
+      in
+        vcat
+        [ fsep $
+            pwords "The term"
+            ++ [prettyTCM lock <> ","]
+            ++ pwords "given as an argument to the guarded value"
+        , nest 2 (prettyTCM term <+> ":" <+> prettyTCM ty)
+        , fsep (pwords ("can not be used as a " ++ mod ++ " argument, since it does not mention any " ++ mod ++ " variables."))
+        ]
+
+    MismatchedProjectionsError left right -> fsep $
+      pwords "The projections" ++ [prettyTCM left] ++
+      pwords "and" ++ [prettyTCM right] ++
+      pwords "do not match"
+
+    AttributeKindNotEnabled kind opt s -> fsep $
+      [text kind] ++
+      pwords "attributes have not been enabled (use" ++
+      [text opt] ++
+      pwords "to enable them):" ++
+      [text s]
+
+    InvalidProjectionParameter arg -> fsep $
+      pwords "Invalid projection parameter " ++
+      [prettyA arg]
+
+    TacticAttributeNotAllowed -> fsep $
+      pwords "The @tactic attribute is not allowed here"
+
+    CannotRewriteByNonEquation t ->
+      "Cannot rewrite by equation of type" <+> prettyTCM t
+
+    MacroResultTypeMismatch expectedType ->
+      sep [ "Result type of a macro must be", nest 2 $ prettyTCM expectedType ]
+
+    NamedWhereModuleInRefinedContext args names -> do
+      let pr x v = text (x ++ " =") <+> prettyTCM v
+      vcat
+        [ fsep (pwords $ "Named where-modules are not allowed when module parameters have been refined by pattern matching. " ++
+                          "See https://github.com/agda/agda/issues/2897.")
+        , text $ "In this case the module parameter" ++
+                  (if not (null args) then "s have" else " has") ++
+                  " been refined to"
+        , nest 2 $ vcat (zipWith pr names args) ]
+
+    CubicalPrimitiveNotFullyApplied c ->
+      prettyTCM c <+> "must be fully applied"
+
+    TooManyArgumentsToLeveledSort q -> fsep $
+      [ prettyTCM q , "cannot be applied to more than one argument" ]
+
+    TooManyArgumentsToUnivOmega q -> fsep $
+      [ prettyTCM q , "cannot be applied to an argument" ]
+
+    IllTypedPatternAfterWithAbstraction p -> vcat
+      [ "Ill-typed pattern after with abstraction: " <+> prettyA p
+      , "(perhaps you can replace it by `_`?)"
+      ]
+
+    ComatchingDisabledForRecord recName ->
+      "Copattern matching is disabled for record" <+> prettyTCM recName
+
+    BuiltinMustBeIsOne builtin ->
+      prettyTCM builtin <+> " is not IsOne."
+
+    IllegalRewriteRule q reason -> case reason of
+      LHSNotDefOrConstr -> hsep
+        [ prettyTCM q , " is not a legal rewrite rule, since the left-hand side is neither a defined symbol nor a constructor" ]
+      VariablesNotBoundByLHS xs -> hsep
+        [ prettyTCM q
+        , " is not a legal rewrite rule, since the following variables are not bound by the left hand side: "
+        , prettyList_ (map (prettyTCM . var) $ IntSet.toList xs)
+        ]
+      VariablesBoundMoreThanOnce xs -> do
+        (prettyTCM q
+          <+> " is not a legal rewrite rule, since the following parameters are bound more than once on the left hand side: "
+          <+> hsep (List.intersperse "," $ map (prettyTCM . var) $ IntSet.toList xs))
+          <> ". Perhaps you can use a postulate instead of a constructor as the head symbol?"
+      LHSReducesTo v v' -> fsep
+        [ prettyTCM q <+> " is not a legal rewrite rule, since the left-hand side "
+        , prettyTCM v <+> " reduces to " <+> prettyTCM v' ]
+      HeadSymbolIsProjection f -> hsep
+        [ prettyTCM q , " is not a legal rewrite rule, since the head symbol"
+        , prettyTCM f , "is a projection"
+        ]
+      HeadSymbolIsProjectionLikeFunction f -> hsep
+        [ prettyTCM q , " is not a legal rewrite rule, since the head symbol"
+        , hd , "is a projection-like function."
+        , "You can turn off the projection-like optimization for", hd
+        , "with the pragma {-# NOT_PROJECTION_LIKE", hd, "#-}"
+        , "or globally with the flag --no-projection-like"
+        ]
+        where hd = prettyTCM f
+      HeadSymbolNotPostulateFunctionConstructor f -> hsep
+        [ prettyTCM q , " is not a legal rewrite rule, since the head symbol"
+        , prettyTCM f , "is not a postulate, a function, or a constructor"
+        ]
+      HeadSymbolDefContainsMetas f -> hsep
+        [ prettyTCM q , "is not a legal rewrite rule, since the definition of the head symbol"
+        , prettyTCM f , "contains unsolved metavariables and confluence checking is enabled."
+        ]
+      ConstructorParamsNotGeneral c vs -> vcat
+        [ prettyTCM q <+> text " is not a legal rewrite rule, since the constructor parameters are not fully general:"
+        , nest 2 $ text "Constructor: " <+> prettyTCM c
+        , nest 2 $ text "Parameters: " <+> prettyList (map prettyTCM vs)
+        ]
+      ContainsUnsolvedMetaVariables ms -> hsep
+        [ prettyTCM q , " is not a legal rewrite rule, since"
+        , "it contains the unsolved meta variable(s)", prettyList_ (map prettyTCM $ Set.toList ms)
+        ]
+      BlockedOnProblems ps -> hsep
+        [ prettyTCM q , " is not a legal rewrite rule, since"
+        , "it is blocked on problem(s)", prettyList_ (map prettyTCM $ Set.toList ps)
+        ]
+      RequiresDefinitions qs -> hsep
+        [ prettyTCM q , " is not a legal rewrite rule, since"
+        , "it requires the definition(s) of", prettyList_ (map prettyTCM $ Set.toList qs)
+        ]
+      DoesNotTargetRewriteRelation -> hsep
+        [ prettyTCM q , " does not target rewrite relation" ]
+      BeforeFunctionDefinition -> hsep
+        [ "Rewrite rule from function "
+        , prettyTCM q
+        , " cannot be added before the function definition"
+        ]
+      EmptyReason -> hsep
+        [ prettyTCM q , " is not a legal rewrite rule" ]
+
+    IncorrectTypeForRewriteRelation v reason -> case reason of
+      ShouldAcceptAtLeastTwoArguments -> sep
+        [ prettyTCM v <+> " does not have the right type for a rewriting relation"
+        , "because it should accept at least two arguments"
+        ]
+      FinalTwoArgumentsNotVisible -> sep
+        [ prettyTCM v <+> " does not have the right type for a rewriting relation"
+        , "because its two final arguments are not both visible."
+        ]
+      TypeDoesNotEndInSort core tel -> sep
+        [ prettyTCM v <+> " does not have the right type for a rewriting relation"
+        , "because its type does not end in a sort, but in "
+          <+> do inTopContext $ addContext tel $ prettyTCM core
+        ]
+
+    UnexpectedParameter par -> do
+      text "Unexpected parameter" <+> prettyA par
+
+    NoParameterOfName x -> do
+      text ("No parameter of name " ++ x)
+
+    UnexpectedModalityAnnotationInParameter par -> do
+      text "Unexpected modality/relevance annotation in" <+> prettyA par
+
+    SortDoesNotAdmitDataDefinitions name s ->fsep
+      [ "The universe"
+      , prettyTCM s
+      , "of"
+      , prettyTCM name
+      , "does not admit data or record declarations"
+      ]
+
+    SortCannotDependOnItsIndex name t -> fsep
+      [ "The sort of" <+> prettyTCM name
+      , "cannot depend on its indices in the type"
+      , prettyTCM t
+      ]
+
+    ExpectedBindingForParameter a b -> sep
+      [ "Expected binding for parameter"
+      , text (absName b) <+> text ":" <+> prettyTCM (unDom a)
+      ]
+
+    UnexpectedTypeSignatureForParameter xs -> do
+      let s | length xs > 1 = "s"
+            | otherwise     = ""
+      text ("Unexpected type signature for parameter" ++ s) <+> sep (fmap prettyA xs)
 
     where
     mpar n args
@@ -1246,6 +1612,8 @@ prettyInEqual t1 t2 = do
         (I.Def{}, I.Var{}) -> varDef
         (I.Var{}, I.Con{}) -> varCon
         (I.Con{}, I.Var{}) -> varCon
+        (I.Def x _, I.Def y _)
+          | isExtendedLambdaName x, isExtendedLambdaName y -> extLamExtLam x y
         _                  -> empty
   where
     varDef, varCon, generic :: MonadPretty m => m Doc
@@ -1257,6 +1625,15 @@ prettyInEqual t1 t2 = do
     varVar i j = parens $ fwords $
                    "because one has de Bruijn index " ++ show i
                    ++ " and the other " ++ show j
+
+    extLamExtLam :: MonadPretty m => QName -> QName -> m Doc
+    extLamExtLam a b = vcat
+      [ fwords "Because they are distinct extended lambdas: one is defined at"
+      , "  " <+> pretty (nameBindingSite (qnameName a))
+      , fwords "and the other at"
+      , "  " <+> (pretty (nameBindingSite (qnameName b)) <> ",")
+      , fwords "so they have different internal representations."
+      ]
 
 class PrettyUnequal a where
   prettyUnequal :: MonadPretty m => a -> m Doc -> a -> m Doc
@@ -1278,12 +1655,16 @@ instance PrettyTCM SplitError where
     BlockedType b t -> enterClosure t $ \ t -> fsep $
       pwords "Cannot split on argument of unresolved type" ++ [prettyTCM t]
 
-    ErasedDatatype causedByWithoutK t -> enterClosure t $ \ t -> fsep $
+    ErasedDatatype reason t -> enterClosure t $ \ t -> fsep $
       pwords "Cannot branch on erased argument of datatype" ++
       [prettyTCM t] ++
-      if causedByWithoutK
-      then pwords "because the K rule is turned off"
-      else []
+      case reason of
+        NoErasedMatches ->
+          pwords "because the option --erased-matches is not active"
+        NoK ->
+          pwords "because the K rule is turned off"
+        SeveralConstructors ->
+          []
 
     CoinductiveDatatype t -> enterClosure t $ \ t -> fsep $
       pwords "Cannot pattern match on the coinductive type" ++ [prettyTCM t]
@@ -1470,11 +1851,7 @@ class Verbalize a where
   verbalize :: a -> String
 
 instance Verbalize Hiding where
-  verbalize h =
-    case h of
-      Hidden     -> "hidden"
-      NotHidden  -> "visible"
-      Instance{} -> "instance"
+  verbalize = hidingToString
 
 instance Verbalize Relevance where
   verbalize r =
@@ -1498,7 +1875,7 @@ instance Verbalize Cohesion where
 
 instance Verbalize Modality where
   verbalize mod | mod == defaultModality = "default"
-  verbalize (Modality rel qnt coh) = intercalate "," $
+  verbalize (Modality rel qnt coh) = intercalate ", " $
     [ verbalize rel | rel /= defaultRelevance ] ++
     [ verbalize qnt | qnt /= defaultQuantity ] ++
     [ verbalize coh | coh /= defaultCohesion ]

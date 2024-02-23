@@ -43,8 +43,8 @@ elements of some type ``A`` as follows:
 As opposed to :ref:`inductive record types <recursive-records>`, we have to introduce the keyword
 ``coinductive`` before defining the fields that constitute the record.
 
-It is interesting to note that it is not necessary to give an explicit
-constructor to the record type ``Stream``.
+It is interesting to note that it is not necessary to give an :ref:`explicit
+constructor <coinductive-constructors>` to the record type ``Stream``.
 
 ..
   ::
@@ -111,6 +111,137 @@ Finally, we can prove that ``merge`` is a left inverse for ``split``:
     hd-≡ (merge-split-id _)  = refl
     tl-≈ (merge-split-id xs) = merge-split-id (tl xs)
 
+.. _coinductive-constructors:
+
+Coinductive Record Constructors
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+It is possible to give an explicit constructor to coinductive record types like ``Stream``:
+
+::
+
+    record Stream' (A : Set) : Set where
+      coinductive
+      constructor cons
+      field
+        hd : A
+        tl : Stream' A
+
+..
+  ::
+
+    open Stream'
+
+However, this constructor cannot be pattern-matched:
+
+::
+
+    -- Get the third element of a stream
+    third : ∀{A} → Stream' A → A
+
+    -- Not allowed:
+    -- third (cons _ (cons _ (cons x _))) = x
+
+Instead, you can use the record fields as projections:
+
+::
+
+    third str = str .tl .tl .hd
+
+The constructor can be used as usual in the right-hand side of definitions:
+
+::
+
+    -- Prepend a list to a stream
+    prepend : ∀{A} → List A → Stream' A → Stream' A
+    prepend [] str = str
+    prepend (a ∷ as) str = cons a (prepend as str)
+
+However, it doesn't count as 'guarding' for the productivity checker:
+
+::
+
+    -- Make a stream with one element repeated forever
+    cycle : ∀{A} → A → Stream' A
+
+    -- Does not termination-check:
+    -- cycle a = cons a (cycle a)
+
+Instead, you can use copattern matching:
+
+::
+
+    cycle a .hd = a
+    cycle a .tl = cycle a
+
+It is also possible to use copattern-matching lambdas:
+
+::
+
+    cycle' : ∀{A} → A → Stream' A
+    cycle' a = λ where
+      .hd → a
+      .tl → cycle' a
+
+
+For more information on these restrictions, see `this pull request <https://github.com/agda/agda/pull/4611>`_,
+and `this commit <https://github.com/agda/agda/commit/d771ac257ee9a1f9662364e5db8a50f9994dac49>`_.
+
+.. _eta-pragma:
+
+The ``ETA`` pragma
+__________________
+
+Agda does not permit the ``eta-equality`` directive in ``coinductive`` ``record`` declarations,
+since η for coinductive types is unsafe in general and can make the type checker loop.
+For instance, the following code would lead to infinite η expansion when checking ``test``:
+
+.. code-block:: agda
+
+  record R : Set where
+   coinductive; eta-equality
+   field force : R
+  open R
+
+  foo : R
+  foo .force .force = foo
+
+  test : foo .force ≡ foo
+  test = refl
+
+If you know what you are doing, you can override Agda and force a coinductive record to support η via the ``ETA`` pragma.
+For instance, η is safe for colists, as infinite η expansion is blocked by the choice between the ``Colist`` constructors:
+
+..
+  ::
+  module COLIST where
+    -- place in module to avoid clashing with another _∷_ below
+
+::
+
+    open import Agda.Builtin.Equality
+
+    mutual
+      data Colist (A : Set) : Set where
+        []  : Colist A
+        _∷_ : A → ∞Colist A → Colist A
+
+      record ∞Colist (A : Set) : Set where
+        coinductive
+        constructor delay
+        field       force : Colist A
+    open ∞Colist
+
+    {-# ETA ∞Colist #-}
+
+    test : {A : Set} (x : ∞Colist A) → x ≡ delay (force x)
+    test x = refl
+
+Note however that ``ETA`` is not allowed in :option:`--safe` mode, for reasons mentioned above.
+This pragma is intended for experiments and not recommended in production code.
+It might be removed in future versions of Agda.
+
+.. _old-coinduction:
 
 Old Coinduction
 ---------------

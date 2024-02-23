@@ -15,7 +15,7 @@ import Control.Monad.State
 import Control.Monad.IO.Class ( MonadIO(..) )
 
 
-import Data.Function
+import Data.Function (on)
 import qualified Data.List as List
 import Data.Monoid
 import Data.Maybe
@@ -28,7 +28,7 @@ import Agda.Utils.ListT
 import Agda.Utils.Null
 import Agda.Utils.Monad hiding (finally)
 import qualified Agda.Utils.Maybe.Strict as Strict
-import Agda.Utils.Pretty
+import Agda.Syntax.Common.Pretty
 import Agda.Utils.Time
 import Agda.Utils.Trie (Trie)
 import qualified Agda.Utils.Trie as Trie
@@ -216,6 +216,7 @@ reset = modifyBenchmark $
   mapCurrentAccount (const Strict.Nothing) .
   mapTimings (const Trie.empty)
 
+{-# INLINABLE billTo #-}
 -- | Bill a computation to a specific account.
 --   Works even if the computation is aborted by an exception.
 

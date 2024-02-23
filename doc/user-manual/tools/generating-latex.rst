@@ -32,10 +32,12 @@ from :file:`agda.sty`.
 .. note::
 
   The :file:`agda.sty` shipped with Agda is located at
-  :file:`{${AGDA_DIR}}/latex/agda.sty`.  Since version 2.6.2, the
-  :envvar:`AGDA_DIR` is printed by option :option:`--print-agda-dir`.
-  Thus, you can get hold of the CSS file via
-  :samp:`cat $(agda --print-agda-dir)/latex/agda.sty`.
+  :file:`{${Agda_datadir}}/latex/agda. Since version 2.6.2, the Agda
+  data directory can be printed using the option
+  :option:`--print-agda-dir`, which has been an alias of
+  :option:`--print-agda-data-dir` since 2.6.4.1. Thus, you can get hold
+  of the class file via :samp:`cat $(agda
+  --print-agda-data-dir)/latex/agda.sty`.
 
 .. _unicode-latex:
 
@@ -136,7 +138,7 @@ Known pitfalls and issues
       \setmainfont{Latin Modern Roman}
 
     Note that you might not want to turn off all kinds of ligatures in
-    the entire document. See the `examples <Examples>`_ below for
+    the entire document. See the :ref:`examples` below for
     information on how to set up special font families without TeX
     ligatures that are only used for Agda code.
 
@@ -156,9 +158,9 @@ Options
 The following command-line options change the behaviour of the LaTeX
 backend:
 
-``--latex-dir={directory}``
+:option:`--latex-dir={DIR}`
   Changes the output directory where :file:`agda.sty` and the output
-  :file:`.tex` file are placed to :samp:`{directory}`. Default:
+  :file:`.tex` file are placed to :samp:`{DIR}`. Default:
   ``latex``.
 
 :option:`--only-scope-checking`
@@ -544,7 +546,7 @@ issuing the command
 
 .. code-block:: console
 
-   $ cp $(agda --print-agda-dir)/latex/postprocess-latex.pl .
+   $ cp $(agda --print-agda-data-dir)/latex/postprocess-latex.pl .
 
 In order to generate a PDF, you can then do the following:
 
@@ -738,6 +740,7 @@ a library of code.
 
      \ExecuteMetaData[latex/Code.tex]{plus}
 
+.. _examples:
 
 Examples
 --------

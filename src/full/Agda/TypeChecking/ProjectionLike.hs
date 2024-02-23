@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
 
 -- | Dropping initial arguments (``parameters'') from a function which can be
 --   easily reconstructed from its principal argument.
@@ -74,7 +75,9 @@ import Agda.TypeChecking.Free (runFree, IgnoreSorts(..))
 import Agda.TypeChecking.Substitute
 import Agda.TypeChecking.Positivity
 import Agda.TypeChecking.Pretty
-import Agda.TypeChecking.Reduce (reduce)
+import Agda.TypeChecking.Records
+import Agda.TypeChecking.Reduce (reduce, abortIfBlocked)
+import Agda.TypeChecking.Telescope
 
 import Agda.TypeChecking.DropArgs
 
@@ -82,7 +85,7 @@ import Agda.Utils.List
 import Agda.Utils.Maybe
 import Agda.Utils.Monad
 import Agda.Utils.Permutation
-import Agda.Utils.Pretty ( prettyShow )
+import Agda.Syntax.Common.Pretty ( prettyShow )
 import Agda.Utils.Size
 
 import Agda.Utils.Impossible
@@ -129,6 +132,7 @@ projView v = do
 
     _ -> fallback
 
+{-# SPECIALIZE reduceProjectionLike :: Term -> TCM Term #-}
 -- | Reduce away top-level projection like functions.
 --   (Also reduces projections, but they should not be there,
 --   since Internal is in lambda- and projection-beta-normal form.)
@@ -146,6 +150,7 @@ reduceProjectionLike v = do
 data ProjEliminator = EvenLone | ButLone | NoPostfix
   deriving Eq
 
+{-# SPECIALIZE elimView :: ProjEliminator -> Term -> TCM Term #-}
 -- | Turn prefix projection-like function application into postfix ones.
 --   This does just one layer, such that the top spine contains
 --   the projection-like functions as projections.
@@ -172,10 +177,11 @@ elimView pe v = do
       case pv of
         NoProjection{}        -> return v
         LoneProjectionLike f ai
-          | pe==EvenLone  -> return $ Lam ai $ Abs "r" $ Var 0 [Proj ProjPrefix f]
+          | pe == EvenLone  -> return $ Lam ai $ Abs "r" $ Var 0 [Proj ProjPrefix f]
           | otherwise     -> return v
         ProjectionView f a es -> (`applyE` (Proj ProjPrefix f : es)) <$> elimView pe (unArg a)
 
+{-# SPECIALIZE eligibleForProjectionLike :: QName -> TCM Bool #-}
 -- | Which @Def@types are eligible for the principle argument
 --   of a projection-like function?
 eligibleForProjectionLike :: (HasConstInfo m) => QName -> m Bool
@@ -265,7 +271,7 @@ makeProjection x = whenM (optProjectionLike <$> pragmaOptions) $ do
     def@Function{funProjection = Left MaybeProjection, funClauses = cls,
                  funSplitTree = st0, funCompiled = cc0, funInv = NotInjective,
                  funMutual = Just [], -- Andreas, 2012-09-28: only consider non-mutual funs
-                 funAbstr = ConcreteDef} -> do
+                 funAbstr = ConcreteDef, funOpaque = TransparentDef} -> do
       ps0 <- filterM validProj $ candidateArgs [] t
       reportSLn "tc.proj.like" 30 $ if null ps0 then "  no candidates found"
                                                 else "  candidates: " ++ prettyShow ps0
@@ -322,6 +328,8 @@ makeProjection x = whenM (optProjectionLike <$> pragmaOptions) $ do
       reportSLn "tc.proj.like" 30 $ "  injective functions can't be projections"
     Function{funAbstr = AbstractDef} ->
       reportSLn "tc.proj.like" 30 $ "  abstract functions can't be projections"
+    Function{funOpaque = OpaqueDef _} ->
+      reportSLn "tc.proj.like" 30 $ "  opaque functions can't be projections"
     Function{funProjection = Right{}} ->
       reportSLn "tc.proj.like" 30 $ "  already projection like"
     Function{funProjection = Left NeverProjection} ->
@@ -421,3 +429,72 @@ makeProjection x = whenM (optProjectionLike <$> pragmaOptions) $ do
       where
         candidateRec NoAbs{}   = []
         candidateRec (Abs x t) = candidateArgs (var (size vs) : vs) t
+
+{-# SPECIALIZE inferNeutral :: Term -> TCM Type #-}
+-- | Infer type of a neutral term.
+--   See also @infer@ in @Agda.TypeChecking.CheckInternal@, which has a very similar
+--   logic but also type checks all arguments.
+inferNeutral :: (PureTCM m, MonadBlock m) => Term -> m Type
+inferNeutral u = do
+  reportSDoc "tc.infer" 20 $ "inferNeutral" <+> prettyTCM u
+  case u of
+    Var i es -> do
+      a <- typeOfBV i
+      loop a (Var i) es
+    Def f es -> do
+      whenJustM (isRelevantProjection f) $ \_ -> nonInferable
+      a <- defType <$> getConstInfo f
+      loop a (Def f) es
+    MetaV x es -> do -- we assume meta instantiations to be well-typed
+      a <- metaType x
+      loop a (MetaV x) es
+    _ -> nonInferable
+  where
+    nonInferable :: MonadDebug m => m a
+    nonInferable = __IMPOSSIBLE_VERBOSE__ $ unlines
+      [ "inferNeutral: non-inferable term:"
+      , "  " ++ prettyShow u
+      ]
+    loop :: (PureTCM m, MonadBlock m) => Type -> (Elims -> Term) -> Elims -> m Type
+    loop t hd [] = return t
+    loop t hd (e:es) = do
+      t' <- case e of
+        Apply (Arg ai v) ->
+          ifPiType t (\_ b -> return $ b `absApp` v) __IMPOSSIBLE__
+        IApply x y r ->
+          ifPath t (\_ b -> return $ b `absApp` r) __IMPOSSIBLE__
+        Proj o f -> do
+          -- @projectTyped@ expects the type to be reduced.
+          t <- reduce t
+          ifJustM (projectTyped (hd []) t o f) (\(_,_,t') -> return t') __IMPOSSIBLE__
+      loop t' (hd . (e:)) es
+
+{-# SPECIALIZE computeDefType :: QName -> Elims -> TCM Type #-}
+-- | Compute the head type of a Def application. For projection-like functions
+--   this requires inferring the type of the principal argument.
+computeDefType :: (PureTCM m, MonadBlock m) => QName -> Elims -> m Type
+computeDefType f es = do
+  def <- getConstInfo f
+  -- To compute the type @a@ of a projection-like @f@,
+  -- we have to infer the type of its first argument.
+  let defaultResult = return $ defType def
+  -- Find a first argument to @f@.
+  case es of
+    _ | projectionArgs def <= 0 -> defaultResult
+    (Apply arg : _) -> do
+      -- Infer its type.
+      reportSDoc "tc.infer" 30 $
+        "inferring type of internal arg: " <+> prettyTCM arg
+      -- Jesper, 2023-02-06: infer crashes on non-inferable terms,
+      -- e.g. applications of projection-like functions. Hence we bring them
+      -- into postfix form.
+      targ <- inferNeutral =<< elimView EvenLone (unArg arg)
+      reportSDoc "tc.infer" 30 $
+        "inferred type: " <+> prettyTCM targ
+      -- getDefType wants the argument type reduced.
+      -- Andreas, 2016-02-09, Issue 1825: The type of arg might be
+      -- a meta-variable, e.g. in interactive development.
+      -- In this case, we postpone.
+      targ <- abortIfBlocked targ
+      fromMaybeM __IMPOSSIBLE__ $ getDefType f targ
+    _ -> defaultResult

@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
+
 {-# LANGUAGE GADTs        #-}
 {-# LANGUAGE DataKinds    #-}
 
@@ -22,7 +24,7 @@ import Agda.Syntax.Concrete
 import Agda.Syntax.Concrete.Operators.Parser.Monad hiding (parse)
 import qualified Agda.Syntax.Concrete.Operators.Parser.Monad as P
 
-import Agda.Utils.Pretty
+import Agda.Syntax.Common.Pretty
 import Agda.Utils.List  ( spanEnd )
 import Agda.Utils.List1 ( List1, pattern (:|), (<|) )
 import qualified Agda.Utils.List1 as List1
@@ -98,7 +100,8 @@ instance IsExpr Expr where
 
 instance IsExpr Pattern where
     exprView = \case
-        IdentP x         -> LocalV x
+        IdentP True x    -> LocalV x
+        IdentP False _   -> __IMPOSSIBLE__
         AppP e1 e2       -> AppV e1 e2
         OpAppP r d ns es -> OpAppV d ns $ (fmap . fmap . fmap) (noPlaceholder . Ordinary) es
         HiddenP _ e      -> HiddenArgV e
@@ -107,7 +110,7 @@ instance IsExpr Pattern where
         e@WildP{}        -> WildV e
         e                -> OtherV e
     unExprView = \case
-        LocalV x       -> IdentP x
+        LocalV x       -> IdentP True x
         AppV e1 e2     -> AppP e1 e2
         OpAppV d ns es -> let ess :: [NamedArg Pattern]
                               ess = (fmap . fmap . fmap)

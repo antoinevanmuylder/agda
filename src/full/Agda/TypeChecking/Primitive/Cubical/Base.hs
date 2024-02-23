@@ -1,5 +1,6 @@
 -- | Implementations of the basic primitives of Cubical Agda: The
 -- interval and its operations.
+
 module Agda.TypeChecking.Primitive.Cubical.Base
   ( requireCubical
   , primIntervalType
@@ -39,7 +40,6 @@ import Agda.TypeChecking.Monad.Builtin
 import Agda.TypeChecking.Monad.Context
 import Agda.TypeChecking.Monad.Pure
 import Agda.TypeChecking.Monad.Base
-import Agda.TypeChecking.Monad.Env
 
 import Agda.TypeChecking.Substitute.Class (absBody, raise, apply)
 
@@ -52,7 +52,7 @@ import Agda.Syntax.Common
   (Cubical(..), Arg(..), Relevance(..), setRelevance, defaultArgInfo, hasQuantity0)
 
 import Agda.TypeChecking.Primitive.Base
-  (SigmaKit(..), (-->), el', nPi', pPi', (<@>), (<#>), (<..>), argN, getSigmaKit)
+  (SigmaKit(..), (-->), nPi', pPi', (<@>), (<#>), (<..>), argN, getSigmaKit)
 
 import Agda.Syntax.Internal
 
@@ -66,7 +66,7 @@ requireCubical
   -> TCM ()
 requireCubical wanted s = do
   cubical         <- optCubical <$> pragmaOptions
-  inErasedContext <- hasQuantity0 <$> getEnv
+  inErasedContext <- hasQuantity0 <$> viewTC eQuantity
   case cubical of
     Just CFull -> return ()
     Just CErased | wanted == CErased || inErasedContext -> return ()
@@ -222,8 +222,8 @@ data Command = DoTransp | DoHComp
 
 -- | The built-in name associated with a particular Kan operation.
 kanOpName :: KanOperation -> String
-kanOpName TranspOp{} = builtinTrans
-kanOpName HCompOp{}  = builtinHComp
+kanOpName TranspOp{} = getBuiltinId PrimTrans
+kanOpName HCompOp{}  = getBuiltinId PrimHComp
 
 -- | Our Kan operations are @transp@ and @hcomp@. The KanOperation
 -- record stores the data associated with a Kan operation on arbitrary
@@ -272,19 +272,27 @@ instance Reduce a => Reduce (FamilyOrNot a) where
 -- | For the Kan operations in @Glue@ and @hcomp {Type}@, we optimise
 -- evaluation a tiny bit by differentiating the term produced when
 -- evaluating a Kan operation by itself vs evaluating it under @unglue@.
+-- (See @headStop@ below.)
 data TermPosition
   = Head
   | Eliminated
   deriving (Eq,Show)
 
--- | If we're computing a Kan operation for one of the "unstable" type
--- formers (@Glue@, @hcomp {Type}@), this tells us whether the type will
--- reduce further, and whether we should care.
+-- | Kan operations for the "unstable" type formers (@Glue@, @hcomp {Type}@) are
+-- computed "negatively": they never actually produce a @glue φ t a@ term. Instead,
+-- we block the computation unless such a term would reduce further, which happens
+-- in two cases:
 --
+<<<<<<< HEAD
 -- When should we care? When we're in the 'Head' 'TermPosition'. When
 -- will the type reduce further? When @φ@, its formula, is not i1.
 
 -- headStop tpos phi == True <-> (tpos=Head and phi!=1)
+=======
+-- * when the formula @φ@ is i1, in which case we reduce to @t@;
+-- * when we're under an @unglue@, i.e. in 'Eliminated' 'TermPosition', in which case
+--   we reduce to @a@.
+>>>>>>> prep-2.6.4.2
 headStop :: PureTCM m => TermPosition -> m Term -> m Bool
 headStop tpos phi
   | Head <- tpos = do
@@ -374,6 +382,7 @@ hfill la bA phi u u0 i = do
         ])
     <@> u0
 
+{-# SPECIALIZE decomposeInterval :: Term -> TCM [(IntMap Bool, [Term])] #-}
 -- | Decompose an interval expression @i : I@ as in
 -- 'decomposeInterval'', but discard any inconsistent mappings.
 decomposeInterval :: HasBuiltins m => Term -> m [(IntMap Bool, [Term])]
@@ -381,6 +390,7 @@ decomposeInterval t = do
   decomposeInterval' t <&> \xs ->
     [ (bm, ts) | (bsm, ts) <- xs, bm <- maybeToList $ traverse BoolSet.toSingleton bsm ]
 
+{-# SPECIALIZE decomposeInterval' :: Term -> TCM [(IntMap BoolSet, [Term])] #-}
 -- | Decompose an interval expression @φ : I@ into a set of possible
 -- assignments for the variables mentioned in @φ@, together any leftover
 -- neutral terms that could not be put into 'IntervalView' form.

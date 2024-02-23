@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 set -ue
 PATH=./.cabal-sandbox/bin${PATH:+:$PATH}
@@ -8,13 +8,13 @@ ChoicesQuestion() {
     shift; shift; shift
     while true; do
         {   echo -n "$question ["
-            [ "$default" = "$first" ] && echo -n "$first" | tr '[a-z]' '[A-Z]' || echo -n "$first"
+            [ "$default" = "$first" ] && echo -n "$first" | tr '[:lower:]' '[:upper:]' || echo -n "$first"
             for c in "$@"; do
                 echo -n '/'
-                [ "$default" = "$c" ] && echo -n "$c" | tr '[a-z]' '[A-Z]' || echo -n "$c"
+                [ "$default" = "$c" ] && echo -n "$c" | tr '[:lower:]' '[:upper:]' || echo -n "$c"
             done
             echo -n '] '
-            read ans;
+            read -r ans;
         } </dev/tty >/dev/tty
         if ! [ "$ans" ]; then
             echo "$default"
@@ -27,14 +27,15 @@ ChoicesQuestion() {
     done
 }
 YesNoQuestion() {
-    local r=$(ChoicesQuestion "$1" "${2:-y}" y n)
+    local r
+    r=$(ChoicesQuestion "$1" "${2:-y}" y n)
     [ "$r" = y ]
 }
 
 Question() {
     local question="$1" default="$2" ans
     echo -n "$question [$default] " >/dev/tty
-    read ans </dev/tty
+    read -r ans </dev/tty
     [ "$ans" ] || ans="$default"
     echo "$ans"
 }
@@ -57,6 +58,9 @@ updateVersion() {
     sed -ri "s/(\(\s*defvar\s+agda2-version\s+)\"[0-9.]+\"/\1\"$version\"/" \
         src/data/emacs-mode/agda2-mode.el
 
+    # Update the tag in the deployment workflow
+    sed -ri "s/--notes-start-tag v[0-9.]+/--notes-start-tag v$version/" deploy.yml
+
     sed -ri "s/^(VERSION\s+=\s+).*/\1$version/" mk/paths.mk
 
     sed -ri "s/\"Agda version [0-9.]+\"/\"Agda version $version\"/" \
@@ -77,7 +81,7 @@ git clone "$url" "$srcdir"
 cd "$srcdir"
 
 version=$( sed -rn '/^version:\s*([0-9]+\.[0-9]+)\.([0-9]+)(\.[0-9]+)?\s*$/ {s//\1 \2/p; q}' Agda.cabal \
-         | { read maj min; echo "$maj.$(( 1 + $min))"; } )
+         | { read -r maj min; echo "$maj.$(( 1 + min))"; } )
 version=$( Question "Release version number?" "$version" )
 echo "$version" | grep -Eqx "[0-9]+(\.[0-9]+){2,3}" || { echo "Bad version number: $version" >&2; exit 1; }
 echo "$version" | grep -Eqx "[0-9]+(\.[0-9]+){2}" && maint=${version##*.} || maint=0
@@ -131,7 +135,7 @@ cabal sdist
 cabal check
 cabal install
 
-AGDA_BIN="`pwd`/.cabal-sandbox/bin/agda"
+AGDA_BIN="$(pwd)/.cabal-sandbox/bin/agda"
 export AGDA_BIN
 
 make install-fix-agda-whitespace
@@ -149,7 +153,7 @@ cabal install --only-dependencies -j
 cabal configure
 cabal install
 
-AGDA_BIN="`pwd`/.cabal-sandbox/bin/agda"
+AGDA_BIN="$(pwd)/.cabal-sandbox/bin/agda"
 export AGDA_BIN
 
 stdlib=std-lib
@@ -164,7 +168,7 @@ cd "$srcdir"
 git diff-index --cached --quiet HEAD || git commit -vm "Preparing new release ($version)."
 git tag "$version"
 git push --tags HEAD
-git checkout Agda.cabal
+git restore Agda.cabal
 
 cabal upload "dist/Agda-$version.tar.gz"
 
@@ -172,14 +176,14 @@ cabal upload "dist/Agda-$version.tar.gz"
 # XXX Announce the release of the new version on the Agda mailing list.
 
 [ $maint = 0 ] && maintv="$version" || maintv="${version%.*}"
-git checkout -b "maint-$maintv"
-updateVersion "${maintv}.$(( $maint + 1 ))"
+git switch -c "maint-$maintv"
+updateVersion "${maintv}.$(( maint + 1 ))"
 
 sed -ri 's/^#\s*(override CABAL_OPTS\+=--program-suffix=-\$\(VERSION\))$/\1/' Makefile
 git add Makefile
-git commit -vm "Release ${maintv}.$(( $maint + 1))."
+git commit -vm "Release ${maintv}.$(( maint + 1))."
 
-git checkout master
+git switch master
 git merge "maint-$version"
 
 if [ $maint = 0 ]; then
@@ -194,5 +198,5 @@ if [ $maint = 0 ]; then
 fi
 
 git push
-git checkout "maint-$version"
+git switch "maint-$version"
 git push -u origin "maint-$version"
