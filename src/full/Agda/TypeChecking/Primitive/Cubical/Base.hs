@@ -282,19 +282,16 @@ data TermPosition
 -- computed "negatively": they never actually produce a @glue φ t a@ term. Instead,
 -- we block the computation unless such a term would reduce further, which happens
 -- in two cases:
---
-<<<<<<< HEAD
--- When should we care? When we're in the 'Head' 'TermPosition'. When
--- will the type reduce further? When @φ@, its formula, is not i1.
-
--- headStop tpos phi == True <-> (tpos=Head and phi!=1)
-=======
 -- * when the formula @φ@ is i1, in which case we reduce to @t@;
 -- * when we're under an @unglue@, i.e. in 'Eliminated' 'TermPosition', in which case
 --   we reduce to @a@.
 >>>>>>> prep-2.6.4.2
 headStop :: PureTCM m => TermPosition -> m Term -> m Bool
 headStop tpos phi
+  -- TODO-antva: remove this?
+  -- When should we care? When we're in the 'Head' 'TermPosition'. When
+  -- will the type reduce further? When @φ@, its formula, is not i1.
+  -- headStop tpos phi == True <-> (tpos=Head and phi!=1)
   | Head <- tpos = do
     phi <- intervalView =<< (reduce =<< phi)
     return $ not $ isIOne phi

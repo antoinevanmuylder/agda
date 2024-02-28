@@ -1333,24 +1333,13 @@ instance KillRange Sort where
     LockUniv   -> LockUniv
     LevelUniv  -> LevelUniv
     IntervalUniv -> IntervalUniv
-<<<<<<< HEAD
-    CstrUniv -> CstrUniv
-    Type a     -> killRange1 Type a
-    Prop a     -> killRange1 Prop a
-    SSet a     -> killRange1 SSet a
-    PiSort a s1 s2 -> killRange3 PiSort a s1 s2
-    FunSort s1 s2 -> killRange2 FunSort s1 s2
-    UnivSort s -> killRange1 UnivSort s
-    MetaS x es -> killRange1 (MetaS x) es
-    DefS d es  -> killRange2 DefS d es
-=======
+    CstrUniv -> CstrUniv    
     Univ u a   -> killRangeN (Univ u) a
     PiSort a s1 s2 -> killRangeN PiSort a s1 s2
     FunSort s1 s2 -> killRangeN FunSort s1 s2
     UnivSort s -> killRangeN UnivSort s
     MetaS x es -> killRangeN (MetaS x) es
     DefS d es  -> killRangeN DefS d es
->>>>>>> prep-2.6.4.2
     s@DummyS{} -> s
 
 instance KillRange Substitution where

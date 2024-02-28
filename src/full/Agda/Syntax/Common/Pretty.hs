@@ -13,19 +13,11 @@ import Prelude hiding (null)
 import qualified Data.Foldable as Fold
 import qualified Data.IntSet as IntSet
 import qualified Data.IntMap as IntMap
-<<<<<<< HEAD:src/full/Agda/Utils/Pretty.hs
-import Data.Map (Map)
-import qualified Data.Map as Map
-import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
-import Data.Set (Set)
-import qualified Data.Set as Set
-import Data.Text (Text)
-=======
->>>>>>> prep-2.6.4.2:src/full/Agda/Syntax/Common/Pretty.hs
 import qualified Data.Text as T
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Data.HashMap.Strict (HashMap)
 import Data.IntSet (IntSet)
 import Data.IntMap (IntMap)
 import Data.Word (Word64)
@@ -133,10 +125,9 @@ instance Pretty a => Pretty (IntMap a) where
 instance (Pretty k, Pretty v) => Pretty (Map k v) where
   pretty = prettyMap . Map.toList
 
-<<<<<<< HEAD:src/full/Agda/Utils/Pretty.hs
 instance (Pretty k, Pretty v) => Pretty (HashMap k v) where
   pretty = prettyMap . HashMap.toList
-=======
+
 -- Pretty instances for dependencies of this module (to avoid dependency cycles)
 
 instance Pretty AbsolutePath where
@@ -182,7 +173,6 @@ instance Pretty a => Pretty (Range' (Strict.Maybe a)) where
 instance (Pretty a, HasRange a) => Pretty (PrintRange a) where
   pretty (PrintRange a) = pretty a <+> parens ("at" <+> pretty (getRange a))
 
->>>>>>> prep-2.6.4.2:src/full/Agda/Syntax/Common/Pretty.hs
 
 -- * Generalizing the original type from list to Foldable
 

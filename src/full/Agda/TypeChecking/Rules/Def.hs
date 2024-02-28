@@ -8,13 +8,8 @@ import Control.Monad        ( forM, forM_ )
 import Control.Monad.Except ( MonadError(..) )
 
 import Data.Bifunctor
-<<<<<<< HEAD
 import Data.Function
-import Data.IntSet (IntSet) --TODO-antva: remove
-=======
-import Data.Function (on)
 import Data.IntSet (IntSet)
->>>>>>> prep-2.6.4.2
 import qualified Data.IntSet as IntSet
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap

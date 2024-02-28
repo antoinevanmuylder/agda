@@ -96,6 +96,25 @@ data BuiltinId
   | BuiltinIsOneEmpty
   | BuiltinSub
   | BuiltinSubIn
+
+  | BuiltinBridgeInterval
+  | BuiltinBIZero
+  | BuiltinBIOne
+  | BuiltinBridgeP
+  | BuiltinCstrUniv
+  | BuiltinBCstr
+  | BuiltinBHolds
+  | BuiltinBitHolds
+  | BuiltinBPartial
+  | BuiltinMCstr
+  | BuiltinMHolds
+  | BuiltinMitHolds
+  | BuiltinMPartial
+  | BuiltinMPartialP
+  | BuiltinMHoldsEmpty
+  | BuiltinMHolds1
+  | BuiltinMHolds2
+
   | BuiltinSizeUniv
   | BuiltinSize
   | BuiltinSizeLt
@@ -315,6 +334,25 @@ instance IsBuiltin BuiltinId where
     BuiltinIsOneEmpty                        -> "ISONEEMPTY"
     BuiltinSub                               -> "SUB"
     BuiltinSubIn                             -> "SUBIN"
+
+    BuiltinBridgeInterval                    -> "BRIDGEINTERVAL"
+    BuiltinBIZero                            -> "BIZERO"
+    BuiltinBIOne                             -> "BIONE"
+    BuiltinBridgeP                           -> "BRIDGEP"
+    BuiltinCstrUniv                          -> "CSTRUNIV"
+    BuiltinBCstr                             -> "BCSTR"
+    BuiltinBHolds                            -> "BHOLDS"
+    BuiltinBitHolds                          -> "BITHOLDS"
+    BuiltinBPartial                          -> "BPARTIAL"
+    BuiltinMCstr                             -> "MCSTR"
+    BuiltinMHolds                            -> "MHOLDS"
+    BuiltinMitHolds                          -> "MITHOLDS"
+    BuiltinMPartial                          -> "MPARTIAL"
+    BuiltinMPartialP                         -> "MPARTIALP"
+    BuiltinMHoldsEmpty                       -> "MHOLDSEMPTY"
+    BuiltinMHolds1                           -> "MHOLDS1"
+    BuiltinMHolds2                           -> "MHOLDS2"
+    
     BuiltinSizeUniv                          -> "SIZEUNIV"
     BuiltinSize                              -> "SIZE"
     BuiltinSizeLt                            -> "SIZELT"
@@ -479,6 +517,7 @@ instance IsBuiltin BuiltinId where
 isBuiltinNoDef :: BuiltinId -> Bool
 isBuiltinNoDef = hasElem builtinsNoDef
 
+
 builtinsNoDef :: [BuiltinId]
 builtinsNoDef =
   sizeBuiltins ++
@@ -493,6 +532,19 @@ builtinsNoDef =
   , builtinSub
   , builtinIZero
   , builtinIOne
+
+  , builtinBridgeInterval
+  , builtinBIZero
+  , builtinBIOne
+  , builtinCstrUniv
+  , builtinBCstr
+  , builtinBHolds
+  , builtinBPartial
+  , builtinMCstr
+  , builtinMHolds
+  , builtinMPartial
+  , builtinMPartialP
+  
   , builtinProp
   , builtinSet
   , builtinStrictSet
@@ -526,21 +578,15 @@ builtinNat, builtinSuc, builtinZero, builtinNatPlus, builtinNatMinus,
   builtinSub, builtinSubIn,
   builtinEquiv, builtinEquivFun, builtinEquivProof,
   builtinTranspProof,
-<<<<<<< HEAD
-  builtinGlue, builtin_glue, builtin_unglue,
-  builtin_glueU, builtin_unglueU,
-  builtinFaceForall,
-  builtinId, builtinReflId, builtinConId, builtinIdElim,
+
   builtinBridgeInterval, builtinBIZero, builtinBIOne, builtinBridgeP,
-  builtinExtent, builtinGel, builtin_gel, builtin_ungel, builtinCstrUniv, builtinBCstr,
-  builtinByes, builtinBno, builtinBisone, builtinBiszero, builtinBconj,
+  builtinCstrUniv, builtinBCstr,
   builtinBHolds, builtinBitHolds, builtinBPartial,
-  builtinMCstr, builtinMno, builtinMyes, builtinMkmc, builtinMHolds, builtinMitHolds, builtinMPartial,
-  builtinMComp, builtinMHComp, builtinTestPrim, builtinReflectMCstr, builtinPrsvMCstr, builtinAllMCstr, builtinAllMCstrCounit,
-  builtinEmbd, builtinMixedOr, builtinMPartialP, builtinMHoldsEmpty, builtinMHolds1, builtinMHolds2, builtin_mpor, builtinRefoldMhocom,
-=======
+  builtinMCstr, builtinMHolds, builtinMitHolds, builtinMPartial,
+  builtinMPartialP, builtinMHoldsEmpty, builtinMHolds1, builtinMHolds2,
+  
+
   builtinId, builtinReflId,
->>>>>>> prep-2.6.4.2
   builtinSizeUniv, builtinSize, builtinSizeLt,
   builtinSizeSuc, builtinSizeInf, builtinSizeMax,
   builtinInf, builtinSharp, builtinFlat,
@@ -600,255 +646,6 @@ builtinNat, builtinSuc, builtinZero, builtinNatPlus, builtinNatMinus,
   builtinAgdaTCMPragmaForeign,
   builtinAgdaTCMPragmaCompile
   :: BuiltinId
-
-<<<<<<< HEAD
-builtinNat                               = "NATURAL"
-builtinSuc                               = "SUC"
-builtinZero                              = "ZERO"
-builtinNatPlus                           = "NATPLUS"
-builtinNatMinus                          = "NATMINUS"
-builtinNatTimes                          = "NATTIMES"
-builtinNatDivSucAux                      = "NATDIVSUCAUX"
-builtinNatModSucAux                      = "NATMODSUCAUX"
-builtinNatEquals                         = "NATEQUALS"
-builtinNatLess                           = "NATLESS"
-builtinWord64                            = "WORD64"
-builtinInteger                           = "INTEGER"
-builtinIntegerPos                        = "INTEGERPOS"
-builtinIntegerNegSuc                     = "INTEGERNEGSUC"
-builtinFloat                             = "FLOAT"
-builtinChar                              = "CHAR"
-builtinString                            = "STRING"
-builtinUnit                              = "UNIT"
-builtinUnitUnit                          = "UNITUNIT"
-builtinSigma                             = "SIGMA"
-builtinBool                              = "BOOL"
-builtinTrue                              = "TRUE"
-builtinFalse                             = "FALSE"
-builtinList                              = "LIST"
-builtinNil                               = "NIL"
-builtinCons                              = "CONS"
-builtinMaybe                             = "MAYBE"
-builtinNothing                           = "NOTHING"
-builtinJust                              = "JUST"
-builtinIO                                = "IO"
-builtinId                                = "ID"
-builtinReflId                            = "REFLID"
-builtinConId                             = "primConId"
-builtinIdElim                            = "primIdElim"
-builtinPath                              = "PATH"
-builtinPathP                             = "PATHP"
-builtinIntervalUniv                      = "CUBEINTERVALUNIV"
-builtinInterval                          = "INTERVAL"
-builtinIMin                              = "primIMin"
-builtinIMax                              = "primIMax"
-builtinINeg                              = "primINeg"
-builtinIZero                             = "IZERO"
-builtinIOne                              = "IONE"
-builtinPartial                           = "PARTIAL"
-builtinPartialP                          = "PARTIALP"
-builtinIsOne                             = "ISONE"
-builtinItIsOne                           = "ITISONE"
-builtinEquiv                             = "EQUIV"
-builtinEquivFun                          = "EQUIVFUN"
-builtinEquivProof                        = "EQUIVPROOF"
-builtinTranspProof                       = "TRANSPPROOF"
-builtinGlue                              = "primGlue"
-builtin_glue                             = "prim^glue"
-builtin_unglue                           = "prim^unglue"
-builtin_glueU                            = "prim^glueU"
-builtin_unglueU                          = "prim^unglueU"
-builtinFaceForall                        = "primFaceForall"
-builtinIsOne1                            = "ISONE1"
-builtinIsOne2                            = "ISONE2"
-builtinIsOneEmpty                        = "ISONEEMPTY"
-builtinComp                              = "primComp"
-builtinPOr                               = "primPOr"
-builtinTrans                             = "primTransp"
-builtinHComp                             = "primHComp"
-builtinSub                               = "SUB"
-builtinSubIn                             = "SUBIN"
-builtinSubOut                            = "primSubOut"
-builtinBridgeInterval                    = "BRIDGEINTERVAL"
-builtinBIOne                             = "BIONE"
-builtinBIZero                            = "BIZERO"
-builtinBridgeP                           = "BRIDGEP"
-builtinExtent                            = "primExtent"
-builtinGel                               = "primGel"
-builtin_gel                              = "prim^gel"
-builtin_ungel                            = "prim^ungel"
-builtinCstrUniv                          = "CSTRUNIV"
-builtinBCstr                             = "BCSTR"
-builtinByes                              = "primByes"
-builtinBno                               = "primBno"
-builtinBisone                            = "primBisone"
-builtinBiszero                           = "primBiszero"
-builtinBconj                             = "primBconj"
-builtinBHolds                            = "BHOLDS"
-builtinBitHolds                          = "BITHOLDS"
-builtinBPartial                          = "BPARTIAL"
-builtinMCstr                             = "MCSTR"
-builtinMno                               = "primMno"
-builtinMyes                              = "primMyes"
-builtinMkmc                              = "primMkmc"
-builtinMHolds                            = "MHOLDS"
-builtinMitHolds                          = "MITHOLDS"
-builtinMPartial                          = "MPARTIAL"
-builtinMComp                             = "primMComp"
-builtinMHComp                            = "primMHComp"
-builtinReflectMCstr                      = "primReflectMCstr"
-builtinPrsvMCstr                         = "primPrsvMCstr"
-builtinEmbd                              = "primEmbd" 
-builtinMixedOr                           = "primMixedOr"
-builtinMPartialP                         = "MPARTIALP"
-builtinMHoldsEmpty                       = "MHOLDSEMPTY"
-builtinMHolds1                           = "MHOLDS1"
-builtinMHolds2                           = "MHOLDS2"
-builtin_mpor                             = "prim^mpor"
-builtinAllMCstr                          = "primAllMCstr"
-builtinAllMCstrCounit                    = "primAllMCstrCounit"
-builtinRefoldMhocom                      = "primRefoldMhocom"
-builtinTestPrim                          = "primTestPrim"
-builtinSizeUniv                          = "SIZEUNIV"
-builtinSize                              = "SIZE"
-builtinSizeLt                            = "SIZELT"
-builtinSizeSuc                           = "SIZESUC"
-builtinSizeInf                           = "SIZEINF"
-builtinSizeMax                           = "SIZEMAX"
-builtinInf                               = "INFINITY"
-builtinSharp                             = "SHARP"
-builtinFlat                              = "FLAT"
-builtinEquality                          = "EQUALITY"
-builtinRefl                              = "REFL"
-builtinRewrite                           = "REWRITE"
-builtinLevelMax                          = "LEVELMAX"
-builtinLevel                             = "LEVEL"
-builtinLevelZero                         = "LEVELZERO"
-builtinLevelSuc                          = "LEVELSUC"
-builtinSet                               = "TYPE"
-builtinProp                              = "PROP"
-builtinSetOmega                          = "SETOMEGA"
-builtinLockUniv                          = "primLockUniv"
-builtinSSetOmega                         = "STRICTSETOMEGA"
-builtinStrictSet                         = "STRICTSET"
-builtinFromNat                           = "FROMNAT"
-builtinFromNeg                           = "FROMNEG"
-builtinFromString                        = "FROMSTRING"
-builtinQName                             = "QNAME"
-builtinAgdaSort                          = "AGDASORT"
-builtinAgdaSortSet                       = "AGDASORTSET"
-builtinAgdaSortLit                       = "AGDASORTLIT"
-builtinAgdaSortProp                      = "AGDASORTPROP"
-builtinAgdaSortPropLit                   = "AGDASORTPROPLIT"
-builtinAgdaSortInf                       = "AGDASORTINF"
-builtinAgdaSortUnsupported               = "AGDASORTUNSUPPORTED"
-builtinHiding                            = "HIDING"
-builtinHidden                            = "HIDDEN"
-builtinInstance                          = "INSTANCE"
-builtinVisible                           = "VISIBLE"
-builtinRelevance                         = "RELEVANCE"
-builtinRelevant                          = "RELEVANT"
-builtinIrrelevant                        = "IRRELEVANT"
-builtinQuantity                          = "QUANTITY"
-builtinQuantity0                         = "QUANTITY-0"
-builtinQuantityω                         = "QUANTITY-ω"
-builtinModality                          = "MODALITY"
-builtinModalityConstructor               = "MODALITY-CONSTRUCTOR"
-builtinAssoc                             = "ASSOC"
-builtinAssocLeft                         = "ASSOCLEFT"
-builtinAssocRight                        = "ASSOCRIGHT"
-builtinAssocNon                          = "ASSOCNON"
-builtinPrecedence                        = "PRECEDENCE"
-builtinPrecRelated                       = "PRECRELATED"
-builtinPrecUnrelated                     = "PRECUNRELATED"
-builtinFixity                            = "FIXITY"
-builtinFixityFixity                      = "FIXITYFIXITY"
-builtinArg                               = "ARG"
-builtinArgInfo                           = "ARGINFO"
-builtinArgArgInfo                        = "ARGARGINFO"
-builtinArgArg                            = "ARGARG"
-builtinAbs                               = "ABS"
-builtinAbsAbs                            = "ABSABS"
-builtinAgdaTerm                          = "AGDATERM"
-builtinAgdaTermVar                       = "AGDATERMVAR"
-builtinAgdaTermLam                       = "AGDATERMLAM"
-builtinAgdaTermExtLam                    = "AGDATERMEXTLAM"
-builtinAgdaTermDef                       = "AGDATERMDEF"
-builtinAgdaTermCon                       = "AGDATERMCON"
-builtinAgdaTermPi                        = "AGDATERMPI"
-builtinAgdaTermSort                      = "AGDATERMSORT"
-builtinAgdaTermLit                       = "AGDATERMLIT"
-builtinAgdaTermUnsupported               = "AGDATERMUNSUPPORTED"
-builtinAgdaTermMeta                      = "AGDATERMMETA"
-builtinAgdaErrorPart                     = "AGDAERRORPART"
-builtinAgdaErrorPartString               = "AGDAERRORPARTSTRING"
-builtinAgdaErrorPartTerm                 = "AGDAERRORPARTTERM"
-builtinAgdaErrorPartPatt                 = "AGDAERRORPARTPATT"
-builtinAgdaErrorPartName                 = "AGDAERRORPARTNAME"
-builtinAgdaLiteral                       = "AGDALITERAL"
-builtinAgdaLitNat                        = "AGDALITNAT"
-builtinAgdaLitWord64                     = "AGDALITWORD64"
-builtinAgdaLitFloat                      = "AGDALITFLOAT"
-builtinAgdaLitChar                       = "AGDALITCHAR"
-builtinAgdaLitString                     = "AGDALITSTRING"
-builtinAgdaLitQName                      = "AGDALITQNAME"
-builtinAgdaLitMeta                       = "AGDALITMETA"
-builtinAgdaClause                        = "AGDACLAUSE"
-builtinAgdaClauseClause                  = "AGDACLAUSECLAUSE"
-builtinAgdaClauseAbsurd                  = "AGDACLAUSEABSURD"
-builtinAgdaPattern                       = "AGDAPATTERN"
-builtinAgdaPatVar                        = "AGDAPATVAR"
-builtinAgdaPatCon                        = "AGDAPATCON"
-builtinAgdaPatDot                        = "AGDAPATDOT"
-builtinAgdaPatLit                        = "AGDAPATLIT"
-builtinAgdaPatProj                       = "AGDAPATPROJ"
-builtinAgdaPatAbsurd                     = "AGDAPATABSURD"
-builtinAgdaDefinitionFunDef              = "AGDADEFINITIONFUNDEF"
-builtinAgdaDefinitionDataDef             = "AGDADEFINITIONDATADEF"
-builtinAgdaDefinitionRecordDef           = "AGDADEFINITIONRECORDDEF"
-builtinAgdaDefinitionDataConstructor     = "AGDADEFINITIONDATACONSTRUCTOR"
-builtinAgdaDefinitionPostulate           = "AGDADEFINITIONPOSTULATE"
-builtinAgdaDefinitionPrimitive           = "AGDADEFINITIONPRIMITIVE"
-builtinAgdaDefinition                    = "AGDADEFINITION"
-builtinAgdaMeta                          = "AGDAMETA"
-builtinAgdaTCM                           = "AGDATCM"
-builtinAgdaTCMReturn                     = "AGDATCMRETURN"
-builtinAgdaTCMBind                       = "AGDATCMBIND"
-builtinAgdaTCMUnify                      = "AGDATCMUNIFY"
-builtinAgdaTCMTypeError                  = "AGDATCMTYPEERROR"
-builtinAgdaTCMInferType                  = "AGDATCMINFERTYPE"
-builtinAgdaTCMCheckType                  = "AGDATCMCHECKTYPE"
-builtinAgdaTCMNormalise                  = "AGDATCMNORMALISE"
-builtinAgdaTCMReduce                     = "AGDATCMREDUCE"
-builtinAgdaTCMCatchError                 = "AGDATCMCATCHERROR"
-builtinAgdaTCMGetContext                 = "AGDATCMGETCONTEXT"
-builtinAgdaTCMExtendContext              = "AGDATCMEXTENDCONTEXT"
-builtinAgdaTCMInContext                  = "AGDATCMINCONTEXT"
-builtinAgdaTCMFreshName                  = "AGDATCMFRESHNAME"
-builtinAgdaTCMDeclareDef                 = "AGDATCMDECLAREDEF"
-builtinAgdaTCMDeclarePostulate           = "AGDATCMDECLAREPOSTULATE"
-builtinAgdaTCMDeclareData                = "AGDATCMDECLAREDATA"
-builtinAgdaTCMDefineData                 = "AGDATCMDEFINEDATA"
-builtinAgdaTCMDefineFun                  = "AGDATCMDEFINEFUN"
-builtinAgdaTCMGetType                    = "AGDATCMGETTYPE"
-builtinAgdaTCMGetDefinition              = "AGDATCMGETDEFINITION"
-builtinAgdaTCMBlockOnMeta                = "AGDATCMBLOCKONMETA"
-builtinAgdaTCMCommit                     = "AGDATCMCOMMIT"
-builtinAgdaTCMQuoteTerm                  = "AGDATCMQUOTETERM"
-builtinAgdaTCMUnquoteTerm                = "AGDATCMUNQUOTETERM"
-builtinAgdaTCMQuoteOmegaTerm             = "AGDATCMQUOTEOMEGATERM"
-builtinAgdaTCMIsMacro                    = "AGDATCMISMACRO"
-builtinAgdaTCMWithNormalisation          = "AGDATCMWITHNORMALISATION"
-builtinAgdaTCMWithReconsParams           = "AGDATCMWITHRECONSPARAMS"
-builtinAgdaTCMFormatErrorParts           = "AGDATCMFORMATERRORPARTS"
-builtinAgdaTCMDebugPrint                 = "AGDATCMDEBUGPRINT"
-builtinAgdaTCMOnlyReduceDefs             = "AGDATCMONLYREDUCEDEFS"
-builtinAgdaTCMDontReduceDefs             = "AGDATCMDONTREDUCEDEFS"
-builtinAgdaTCMNoConstraints              = "AGDATCMNOCONSTRAINTS"
-builtinAgdaTCMRunSpeculative             = "AGDATCMRUNSPECULATIVE"
-builtinAgdaTCMExec                       = "AGDATCMEXEC"
-builtinAgdaTCMGetInstances               = "AGDATCMGETINSTANCES"
-=======
 builtinNat                               = BuiltinNat
 builtinSuc                               = BuiltinSuc
 builtinZero                              = BuiltinZero
@@ -900,6 +697,25 @@ builtinIsOne2                            = BuiltinIsOne2
 builtinIsOneEmpty                        = BuiltinIsOneEmpty
 builtinSub                               = BuiltinSub
 builtinSubIn                             = BuiltinSubIn
+
+builtinBridgeInterval                    = BuiltinBridgeInterval
+builtinBIZero                            = BuiltinBIZero
+builtinBIOne                             = BuiltinBIOne
+builtinBridgeP                           = BuiltinBridgeP
+builtinCstrUniv                          = BuiltinCstrUniv
+builtinBCstr                             = BuiltinBCstr
+builtinBHolds                            = BuiltinBHolds
+builtinBitHolds                          = BuiltinBitHolds
+builtinBPartial                          = BuiltinBPartial
+builtinMCstr                             = BuiltinMCstr
+builtinMHolds                            = BuiltinMHolds
+builtinMitHolds                          = BuiltinMitHolds
+builtinMPartial                          = BuiltinMPartial
+builtinMPartialP                         = BuiltinMPartialP
+builtinMHoldsEmpty                       = BuiltinMHoldsEmpty
+builtinMHolds1                           = BuiltinMHolds1
+builtinMHolds2                           = BuiltinMHolds2
+
 builtinSizeUniv                          = BuiltinSizeUniv
 builtinSize                              = BuiltinSize
 builtinSizeLt                            = BuiltinSizeLt
@@ -1050,7 +866,6 @@ builtinAgdaBlocker                       = BuiltinAgdaBlocker
 builtinAgdaBlockerAny                    = BuiltinAgdaBlockerAny
 builtinAgdaBlockerAll                    = BuiltinAgdaBlockerAll
 builtinAgdaBlockerMeta                   = BuiltinAgdaBlockerMeta
->>>>>>> prep-2.6.4.2
 
 -- | Lookup a builtin by the string used in the @BUILTIN@ pragma.
 builtinById :: String -> Maybe BuiltinId
@@ -1059,44 +874,7 @@ builtinById = flip M.lookup m where
 
 -- * Primitives
 
-<<<<<<< HEAD
-builtinsNoDef :: [String]
-builtinsNoDef =
-  sizeBuiltins ++
-  [ builtinConId
-  , builtinIntervalUniv
-  , builtinId
-  , builtinReflId
-  , builtinInterval
-  , builtinPartial
-  , builtinPartialP
-  , builtinIsOne
-  , builtinSub
-  , builtinIZero
-  , builtinIOne
-  , builtinBridgeInterval --TODO-antva not sure about those..
-  , builtinBIZero         -- when stuff is in this list,   we do not have to postulate it in .agda?
-  , builtinBIOne 
-  , builtinCstrUniv
-  , builtinBCstr
-  , builtinByes
-  , builtinBno
-  , builtinBisone
-  , builtinBiszero
-  , builtinBconj
-  , builtinBHolds
-  , builtinBPartial 
-  , builtinMCstr
-  , builtinMHolds
-  , builtinMPartial
-  , builtinMPartialP -- .. until here (included). what about BitHolds, MitHolds?
-  , builtinSet
-  , builtinProp
-  , builtinSetOmega
-  , builtinStrictSet
-  , builtinSSetOmega
-  ]
-=======
+
 -- | A primitive name, defined by the @primitive@ block.
 data PrimitiveId
   -- Cubical
@@ -1121,6 +899,30 @@ data PrimitiveId
   | PrimIdFace
   | PrimIdPath
   | PrimHComp
+  -- Bridges
+  | PrimExtent
+  | PrimGel
+  | Prim_gel
+  | Prim_ungel
+  | PrimByes
+  | PrimBno
+  | PrimBisone
+  | PrimBiszero
+  | PrimBconj
+  | PrimMno
+  | PrimMyes
+  | PrimMkmc
+  | PrimMComp
+  | PrimMHComp
+  | PrimTestPrim
+  | PrimReflectMCstr
+  | PrimPrsvMCstr
+  | PrimAllMCstr
+  | PrimAllMCstrCounit
+  | PrimEmbd
+  | PrimMixedOr
+  | Prim_mpor
+  | PrimRefoldMhocom
   --  Integer
   | PrimShowInteger
   -- Natural
@@ -1225,7 +1027,6 @@ data PrimitiveId
   | PrimMetaToNatInjective
   | PrimLockUniv
   deriving (Show, Eq, Ord, Bounded, Enum, Generic)
->>>>>>> prep-2.6.4.2
 
 instance NFData PrimitiveId
 
@@ -1264,6 +1065,30 @@ instance IsBuiltin PrimitiveId where
     PrimIdFace                            -> "primIdFace"
     PrimIdPath                            -> "primIdPath"
     PrimHComp                             -> "primHComp"
+    --Bridges
+    PrimExtent                            -> "primExtent"
+    PrimGel                               -> "primGel"
+    Prim_gel                              -> "prim^gel"
+    Prim_ungel                            -> "prim^ungel"
+    PrimByes                              -> "primByes"
+    PrimBno                               -> "primBno"
+    PrimBisone                            -> "primBisone"
+    PrimBiszero                           -> "primBiszero"
+    PrimBconj                             -> "primBconj"
+    PrimMno                               -> "primMno"
+    PrimMyes                              -> "primMyes"
+    PrimMkmc                              -> "primMkmc"
+    PrimMComp                             -> "primMComp"
+    PrimMHComp                            -> "primMHComp"
+    PrimTestPrim                          -> "primTestPrim"
+    PrimReflectMCstr                      -> "primReflectMCstr"
+    PrimPrsvMCstr                         -> "primPrsvMCstr"
+    PrimAllMCstr                          -> "primAllMCstr"
+    PrimAllMCstrCounit                    -> "primAllMCstrCounit"
+    PrimEmbd                              -> "primEmbd"
+    PrimMixedOr                           -> "primMixedOr"
+    Prim_mpor                             -> "prim^mpor"
+    PrimRefoldMhocom                      -> "primRefoldMhocom"    
     --  Integer
     PrimShowInteger                       -> "primShowInteger"
     -- Natural
@@ -1373,7 +1198,14 @@ builtinConId, builtinIdElim, builtinSubOut,
   builtinGlue, builtin_glue, builtin_unglue, builtin_glueU, builtin_unglueU,
   builtinFaceForall, builtinComp, builtinPOr,
   builtinTrans,  builtinDepIMin,
-  builtinIdFace, builtinIdPath, builtinHComp, builtinLockUniv
+  builtinIdFace, builtinIdPath, builtinHComp, builtinLockUniv,
+  
+  builtinExtent, builtinGel, builtin_gel, builtin_ungel,
+  builtinByes, builtinBno, builtinBisone, builtinBiszero, builtinBconj,
+  builtinMno, builtinMyes, builtinMkmc,
+  builtinMComp, builtinMHComp, builtinTestPrim, builtinReflectMCstr, builtinPrsvMCstr, builtinAllMCstr, builtinAllMCstrCounit,
+  builtinEmbd, builtinMixedOr,
+  builtin_mpor, builtinRefoldMhocom,
   :: PrimitiveId
 builtinConId                             = PrimConId
 builtinIdElim                            = PrimIdElim
@@ -1395,6 +1227,31 @@ builtinIdFace                            = PrimIdFace
 builtinIdPath                            = PrimIdPath
 builtinHComp                             = PrimHComp
 builtinLockUniv                          = PrimLockUniv
+
+builtinExtent                            = PrimExtent
+builtinGel                               = PrimGel
+builtin_gel                              = Prim_gel
+builtin_ungel                            = Prim_ungel
+builtinByes                              = PrimByes
+builtinBno                               = PrimBno
+builtinBisone                            = PrimBisone
+builtinBiszero                           = PrimBiszero
+builtinBconj                             = PrimBconj
+builtinMno                               = PrimMno
+builtinMyes                              = PrimMyes
+builtinMkmc                              = PrimMkmc
+builtinMComp                             = PrimMComp
+builtinMHComp                            = PrimMHComp
+builtinTestPrim                          = PrimTestPrim
+builtinReflectMCstr                      = PrimReflectMCstr
+builtinPrsvMCstr                         = PrimPrsvMCstr
+builtinAllMCstr                          = PrimAllMCstr
+builtinAllMCstrCounit                    = PrimAllMCstrCounit
+builtinEmbd                              = PrimEmbd
+builtinMixedOr                           = PrimMixedOr
+builtin_mpor                             = Prim_mpor
+builtinRefoldMhocom                      = PrimRefoldMhocom
+
 
 -- | Lookup a primitive by its identifier.
 primitiveById :: String -> Maybe PrimitiveId

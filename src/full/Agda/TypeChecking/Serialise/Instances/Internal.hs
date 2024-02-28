@@ -147,22 +147,6 @@ instance EmbPrj IsFibrant where
 instance EmbPrj Univ where
 
 instance EmbPrj I.Sort where
-<<<<<<< HEAD
-  icod_ (Type  a  ) = icodeN 0 Type a
-  icod_ (Prop  a  ) = icodeN 1 Prop a
-  icod_ SizeUniv    = icodeN 2 SizeUniv
-  icod_ (Inf f a)   = icodeN 3 Inf f a
-  icod_ (PiSort a b c) = icodeN 4 PiSort a b c
-  icod_ (FunSort a b) = icodeN 5 FunSort a b
-  icod_ (UnivSort a) = icodeN 6 UnivSort a
-  icod_ (DefS a b)   = icodeN 7 DefS a b
-  icod_ (SSet  a  ) = icodeN 8 SSet a
-  icod_ LockUniv    = icodeN 9 LockUniv
-  icod_ IntervalUniv = icodeN 10 IntervalUniv
-  icod_ CstrUniv     = icodeN 11 CstrUniv
-  icod_ (MetaS a b)  = icodeN 12 MetaS a b
-  icod_ (DummyS s)   = icodeN 13 DummyS s
-=======
   icod_ = \case
     Univ a b     -> icodeN 0  Univ a b
     SizeUniv     -> icodeN 2  SizeUniv
@@ -176,7 +160,7 @@ instance EmbPrj I.Sort where
     MetaS a b    -> icodeN 11 MetaS a b
     DummyS s     -> icodeN 12 DummyS s
     LevelUniv    -> icodeN 13 LevelUniv
->>>>>>> prep-2.6.4.2
+    CstrUniv     -> icodeN 14 CstrUniv
 
   value = vcase valu where
     valu [0, a, b] = valuN Univ a b
@@ -188,15 +172,10 @@ instance EmbPrj I.Sort where
     valu [7, a, b] = valuN DefS a b
     valu [9]       = valuN LockUniv
     valu [10]      = valuN IntervalUniv
-<<<<<<< HEAD
-    valu [11]      = valuN CstrUniv
-    valu [12, a, b] = valuN MetaS a b
-    valu [13, s]   = valuN DummyS s
-=======
     valu [11, a, b] = valuN MetaS a b
     valu [12, s]   = valuN DummyS s
     valu [13]      = valuN LevelUniv
->>>>>>> prep-2.6.4.2
+    valu [14]      = valuN CstrUniv
     valu _         = malformed
 
 instance EmbPrj DisplayForm where

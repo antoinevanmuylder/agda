@@ -68,12 +68,8 @@ import qualified Data.List as List ( sort )
 import Agda.Utils.Maybe
 import Agda.Utils.Monad
 import Agda.Utils.Null
-<<<<<<< HEAD
-import Agda.Utils.Pretty ( prettyShow )
-import qualified Agda.Utils.Pretty as P
-=======
 import Agda.Syntax.Common.Pretty ( prettyShow )
->>>>>>> prep-2.6.4.2
+import qualified Agda.Syntax.Common.Pretty as P
 import Agda.Utils.Size
 import Agda.Utils.Tuple
 
@@ -1040,14 +1036,10 @@ checkConstructorApplication cmp org t c args = do
 type DisambiguateConstructor = TCM (Either Blocker ConHead)
 
 -- | Returns an unblocking action in case of failure.
-<<<<<<< HEAD
---   TODO-antva: duplicate path code in the case of bridge if relevant?
-disambiguateConstructor :: List1 QName -> Type -> TCM (Either Blocker ConHead)
-disambiguateConstructor cs0 t = do
-=======
 disambiguateConstructor :: List1 QName -> A.Args -> Type -> DisambiguateConstructor
 disambiguateConstructor cs0 args t = do
->>>>>>> prep-2.6.4.2
+  --   TODO-antva: duplicate path code in the case of bridge if relevant?
+
   reportSLn "tc.check.term.con" 40 $ "Ambiguous constructor: " ++ prettyShow cs0
   reportSDoc "tc.check.term.con" 40 $ vcat $ "Arguments:" : map (nest 2 . prettyTCM) args
 

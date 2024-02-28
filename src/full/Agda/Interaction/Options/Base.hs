@@ -77,6 +77,7 @@ module Agda.Interaction.Options.Base
     , lensOptRewriting
     , lensOptCubical
     , lensOptGuarded
+    , lensOptBridges
     , lensOptFirstOrder
     , lensOptPostfixProjections
     , lensOptKeepPatternVariables
@@ -138,6 +139,7 @@ module Agda.Interaction.Options.Base
     , optEraseRecordParameters
     , optRewriting
     , optGuarded
+    , optBridges
     , optFirstOrder
     , optPostfixProjections
     , optKeepPatternVariables
@@ -312,45 +314,6 @@ instance NFData CommandLineOptions
 -- | Options which can be set in a pragma.
 
 data PragmaOptions = PragmaOptions
-<<<<<<< HEAD
-  { optShowImplicit              :: Bool
-  , optShowIrrelevant            :: Bool
-  , optUseUnicode                :: UnicodeOrAscii
-  , optVerbose                   :: !Verbosity
-  , optProfiling                 :: ProfileOptions
-  , optProp                      :: Bool
-  , optTwoLevel                  :: WithDefault 'False
-  , optAllowUnsolved             :: Bool
-  , optAllowIncompleteMatch      :: Bool
-  , optDisablePositivity         :: Bool
-  , optTerminationCheck          :: Bool
-  , optTerminationDepth          :: CutOff
-    -- ^ Cut off structural order comparison at some depth in termination checker?
-  , optUniverseCheck             :: Bool
-  , optOmegaInOmega              :: Bool
-  , optCumulativity              :: Bool
-  , optSizedTypes                :: WithDefault 'False
-  , optGuardedness               :: WithDefault 'False
-  , optInjectiveTypeConstructors :: Bool
-  , optUniversePolymorphism      :: Bool
-  , optIrrelevantProjections     :: Bool
-  , optExperimentalIrrelevance   :: Bool  -- ^ irrelevant levels, irrelevant data matching
-  , optWithoutK                  :: WithDefault 'False
-  , optCubicalCompatible         :: WithDefault 'False
-  , optCopatterns                :: Bool  -- ^ Allow definitions by copattern matching?
-  , optPatternMatching           :: Bool  -- ^ Is pattern matching allowed in the current file?
-  , optExactSplit                :: Bool
-  , optEta                       :: Bool
-  , optForcing                   :: Bool  -- ^ Perform the forcing analysis on data constructors?
-  , optProjectionLike            :: Bool  -- ^ Perform the projection-likeness analysis on functions?
-  , optEraseRecordParameters     :: Bool  -- ^ Mark parameters of record modules as erased?
-  , optRewriting                 :: Bool  -- ^ Can rewrite rules be added and used?
-  , optCubical                   :: Maybe Cubical
-  , optGuarded                   :: Bool
-  , optBridges                   :: Bool
-  , optFirstOrder                :: Bool  -- ^ Should we speculatively unify function applications as if they were injective?
-  , optPostfixProjections        :: Bool
-=======
   { _optShowImplicit              :: WithDefault 'False
   , _optShowGeneralized           :: WithDefault 'True
       -- ^ Show generalized parameters in Pi types
@@ -403,10 +366,10 @@ data PragmaOptions = PragmaOptions
       -- ^ Can rewrite rules be added and used?
   , _optCubical                   :: Maybe Cubical
   , _optGuarded                   :: WithDefault 'False
+  , _optBridges                   :: WithDefault 'False
   , _optFirstOrder                :: WithDefault 'False
       -- ^ Should we speculatively unify function applications as if they were injective?
   , _optPostfixProjections        :: WithDefault 'False
->>>>>>> prep-2.6.4.2
       -- ^ Should system generated projections 'ProjSystem' be printed
       --   postfix (True) or prefix (False).
   , _optKeepPatternVariables      :: WithDefault 'False
@@ -529,6 +492,7 @@ optErasedMatches             :: PragmaOptions -> Bool
 optEraseRecordParameters     :: PragmaOptions -> Bool
 optRewriting                 :: PragmaOptions -> Bool
 optGuarded                   :: PragmaOptions -> Bool
+optBridges                   :: PragmaOptions -> Bool
 optFirstOrder                :: PragmaOptions -> Bool
 optPostfixProjections        :: PragmaOptions -> Bool
 optKeepPatternVariables      :: PragmaOptions -> Bool
@@ -590,6 +554,7 @@ optErasedMatches             = collapseDefault . _optErasedMatches && optErasure
 optEraseRecordParameters     = collapseDefault . _optEraseRecordParameters
 optRewriting                 = collapseDefault . _optRewriting
 optGuarded                   = collapseDefault . _optGuarded
+optBridges                   = collapseDefault . _optBridges
 optFirstOrder                = collapseDefault . _optFirstOrder
 optPostfixProjections        = collapseDefault . _optPostfixProjections
 optKeepPatternVariables      = collapseDefault . _optKeepPatternVariables
@@ -762,6 +727,9 @@ lensOptCubical f o = f (_optCubical o) <&> \ i -> o{ _optCubical = i }
 lensOptGuarded :: Lens' PragmaOptions _
 lensOptGuarded f o = f (_optGuarded o) <&> \ i -> o{ _optGuarded = i }
 
+lensOptBridges :: Lens' PragmaOptions _
+lensOptBridges f o = f (_optBridges o) <&> \ i -> o{ _optBridges = i }
+
 lensOptFirstOrder :: Lens' PragmaOptions _
 lensOptFirstOrder f o = f (_optFirstOrder o) <&> \ i -> o{ _optFirstOrder = i }
 
@@ -894,69 +862,6 @@ defaultOptions = Options
 
 defaultPragmaOptions :: PragmaOptions
 defaultPragmaOptions = PragmaOptions
-<<<<<<< HEAD
-  { optShowImplicit              = False
-  , optShowIrrelevant            = False
-  , optUseUnicode                = UnicodeOk
-  , optVerbose                   = Strict.Nothing
-  , optProfiling                 = noProfileOptions
-  , optProp                      = False
-  , optTwoLevel                  = Default
-  , optExperimentalIrrelevance   = False
-  , optIrrelevantProjections     = False -- off by default in > 2.5.4, see issue #2170
-  , optAllowUnsolved             = False
-  , optAllowIncompleteMatch      = False
-  , optDisablePositivity         = False
-  , optTerminationCheck          = True
-  , optTerminationDepth          = defaultCutOff
-  , optUniverseCheck             = True
-  , optOmegaInOmega              = False
-  , optCumulativity              = False
-  , optSizedTypes                = Default
-  , optGuardedness               = Default
-  , optInjectiveTypeConstructors = False
-  , optUniversePolymorphism      = True
-  , optWithoutK                  = Default
-  , optCubicalCompatible         = Default
-  , optCopatterns                = True
-  , optPatternMatching           = True
-  , optExactSplit                = False
-  , optEta                       = True
-  , optForcing                   = True
-  , optProjectionLike            = True
-  , optEraseRecordParameters     = False
-  , optRewriting                 = False
-  , optCubical                   = Nothing
-  , optGuarded                   = False
-  , optBridges                   = False
-  , optFirstOrder                = False
-  , optPostfixProjections        = False
-  , optKeepPatternVariables      = False
-  , optInstanceSearchDepth       = 500
-  , optOverlappingInstances      = False
-  , optQualifiedInstances        = True
-  , optInversionMaxDepth         = 50
-  , optSafe                      = False
-  , optDoubleCheck               = False
-  , optSyntacticEquality         = Strict.Nothing
-  , optWarningMode               = defaultWarningMode
-  , optCompileNoMain             = False
-  , optCaching                   = True
-  , optCountClusters             = False
-  , optAutoInline                = False
-  , optPrintPatternSynonyms      = True
-  , optFastReduce                = True
-  , optCallByName                = False
-  , optConfluenceCheck           = Nothing
-  , optCohesion                  = False
-  , optFlatSplit                 = Default
-  , optImportSorts               = True
-  , optAllowExec                 = False
-  , optSaveMetas                 = Default
-  , optShowIdentitySubstitutions = False
-  , optLoadPrimitives            = True
-  , optKeepCoveringClauses       = False
-=======
   { _optShowImplicit              = Default
   , _optShowGeneralized           = Default
   , _optShowIrrelevant            = Default
@@ -995,6 +900,7 @@ defaultPragmaOptions = PragmaOptions
   , _optRewriting                 = Default
   , _optCubical                   = Nothing
   , _optGuarded                   = Default
+  , _optBridges                   = Default
   , _optFirstOrder                = Default
   , _optPostfixProjections        = Default
   , _optKeepPatternVariables      = Default
@@ -1025,7 +931,6 @@ defaultPragmaOptions = PragmaOptions
   , _optKeepCoveringClauses       = Default
   , _optForcedArgumentRecursion   = Default
   , _optLargeIndices              = Default
->>>>>>> prep-2.6.4.2
   }
 
 -- | The options parse monad 'OptM' collects warnings that are not discarded
@@ -1281,21 +1186,10 @@ infectiveCoinfectiveOptions =
   , coinfectiveOption (not . optUniversePolymorphism)
                                               "--no-universe-polymorphism"
   , coinfectiveOption (not . optCumulativity) "--no-cumulativity"
-<<<<<<< HEAD
-  , infectiveOption (isJust . optCubical) "--cubical/--erased-cubical"
-  , infectiveOption optGuarded "--guarded"
-  , infectiveOption optBridges "--bridges"
-  , infectiveOption optProp "--prop"
-  , infectiveOption (collapseDefault . optTwoLevel) "--two-level"
-  , infectiveOption optRewriting "--rewriting"
-  , infectiveOption (collapseDefault . optSizedTypes) "--sized-types"
-  , infectiveOption (collapseDefault . optGuardedness) "--guardedness"
-  , infectiveOption (collapseDefault . optFlatSplit) "--flat-split"
-  , infectiveOption optCohesion "--cohesion"
-=======
   , coinfectiveOption optLevelUniverse        "--level-universe"
   , infectiveOption (isJust . optCubical)     "--cubical/--erased-cubical"
   , infectiveOption optGuarded                "--guarded"
+  , infectiveOption optBridges                "--bridges"
   , infectiveOption optProp                   "--prop"
   , infectiveOption optTwoLevel               "--two-level"
   , infectiveOption optRewriting              "--rewriting"
@@ -1305,7 +1199,6 @@ infectiveCoinfectiveOptions =
   , infectiveOption optCohesion               "--cohesion"
   , infectiveOption optErasure                "--erasure"
   , infectiveOption optErasedMatches          "--erased-matches"
->>>>>>> prep-2.6.4.2
   ]
   where
   cubicalCompatible =
@@ -1449,28 +1342,6 @@ cubicalFlag
   :: Cubical  -- ^ Which variant of Cubical Agda?
   -> Flag PragmaOptions
 cubicalFlag variant o =
-<<<<<<< HEAD
-  return $ o { optCubical  = Just variant
-             , optCubicalCompatible = setDefault True $ optCubicalCompatible o
-             , optWithoutK = setDefault True $ optWithoutK o
-             , optTwoLevel = setDefault True $ optTwoLevel o
-             , optFlatSplit = setDefault False (optFlatSplit o)
-             }
-
-guardedFlag :: Flag PragmaOptions
-guardedFlag o = do
-  return $ o { optGuarded  = True }
-
-bridgesFlag :: Flag PragmaOptions
-bridgesFlag o = do
-  return $ o { optBridges  = True }
-
-postfixProjectionsFlag :: Flag PragmaOptions
-postfixProjectionsFlag o = return $ o { optPostfixProjections = True }
-
-keepPatternVariablesFlag :: Flag PragmaOptions
-keepPatternVariablesFlag o = return $ o { optKeepPatternVariables = True }
-=======
   return $ o
   { _optCubical                 = Just variant
   , _optCubicalCompatible       = setDefault True  $ _optCubicalCompatible o
@@ -1479,7 +1350,18 @@ keepPatternVariablesFlag o = return $ o { optKeepPatternVariables = True }
   , _optFlatSplit               = setDefault False $ _optFlatSplit o
   , _optErasedMatches           = setDefault False $ _optErasedMatches o
   }
->>>>>>> prep-2.6.4.2
+
+
+
+bridgesFlag :: Flag PragmaOptions
+bridgesFlag o = do
+  mo <- cubicalFlag CFull o
+  return mo
+  { _optBridges = setDefault True $ _optBridges mo
+  , _optGuarded = setDefault True $ _optGuarded mo
+  }
+
+
 
 instanceDepthFlag :: String -> Flag PragmaOptions
 instanceDepthFlag s o = do
@@ -1860,24 +1742,12 @@ pragmaOptions = concat
                     "enable global confluence checking of REWRITE rules (more restrictive than --local-confluence-check)"
     , Option []     ["no-confluence-check"] (NoArg noConfluenceCheckFlag)
                     "disable confluence checking of REWRITE rules (default)"
-    , Option []     ["cubical"] (NoArg $ cubicalFlag CFull)
+    , Option []     ["cubical"] (NoArg $ cubicalFlag CFull)   
                     "enable cubical features (e.g. overloads lambdas for paths), implies --cubical-compatible"
+    , Option []     ["bridges"] (NoArg bridgesFlag)
+                    "enable bridges features"
     , Option []     ["erased-cubical"] (NoArg $ cubicalFlag CErased)
                     "enable cubical features (some only in erased settings), implies --cubical-compatible"
-<<<<<<< HEAD
-    , Option []     ["guarded"] (NoArg guardedFlag)
-                    "enable @lock/@tick attributes"
-    , Option []     ["bridges"] (NoArg bridgesFlag)
-                    "enable bridge variables"
-    -- , Option []     ["experimental-lossy-unification"] (NoArg firstOrderFlag)
-    , Option []     ["lossy-unification"] (NoArg firstOrderFlag)
-                    "enable heuristically unifying `f es = f es'` by unifying `es = es'`, even when it could lose solutions."
-    , Option []     ["postfix-projections"] (NoArg postfixProjectionsFlag)
-                    "make postfix projection notation the default"
-    , Option []     ["keep-pattern-variables"] (NoArg keepPatternVariablesFlag)
-                    "don't replace variables with dot patterns during case splitting"
-    , Option []     ["instance-search-depth"] (ReqArg instanceDepthFlag "N")
-=======
     ]
   , pragmaFlag      "guarded" lensOptGuarded
                     "enable @lock/@tick attributes" ""
@@ -1893,7 +1763,6 @@ pragmaOptions = concat
                     "eliminate absurd clauses in case splitting and coverage checking" ""
                     $ Just "do not automatically eliminate absurd clauses in case splitting and coverage checking (can speed up type-checking)"
   , [ Option []     ["instance-search-depth"] (ReqArg instanceDepthFlag "N")
->>>>>>> prep-2.6.4.2
                     "set instance search depth to N (default: 500)"
     ]
   , pragmaFlag      "overlapping-instances" lensOptOverlappingInstances

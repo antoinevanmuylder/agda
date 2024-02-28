@@ -16,11 +16,8 @@ import qualified Agda.Syntax.Abstract as A
 import qualified Agda.Syntax.Abstract.Views as A
 import Agda.Syntax.Common
 import Agda.Syntax.Internal
-<<<<<<< HEAD
 import Agda.Syntax.Literal (Literal(..))
 import Agda.Syntax.Internal.Pattern
-=======
->>>>>>> prep-2.6.4.2
 import Agda.Syntax.Position
 import qualified Agda.Syntax.Info as Info
 

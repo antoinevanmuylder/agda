@@ -775,14 +775,8 @@ instance ExtractCalls Sort where
       LockUniv   -> return empty
       LevelUniv  -> return empty
       IntervalUniv -> return empty
-<<<<<<< HEAD
       CstrUniv     -> return empty
-      Type t     -> terUnguarded $ extract t  -- no guarded levels
-      Prop t     -> terUnguarded $ extract t
-      SSet t     -> terUnguarded $ extract t
-=======
       Univ _ t       -> terUnguarded $ extract t  -- no guarded levels
->>>>>>> prep-2.6.4.2
       PiSort a s1 s2 -> extract (a, s1, s2)
       FunSort s1 s2 -> extract (s1, s2)
       UnivSort s -> extract s

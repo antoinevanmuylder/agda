@@ -10,28 +10,28 @@ module Agda.TypeChecking.Primitive.Cubical.HCompU
   where
 
 import Control.Monad
-<<<<<<< HEAD
-import Control.Monad.Except ( MonadError )
 
-import Agda.Utils.Functor
-import Agda.Utils.Monad
-import Agda.Utils.Maybe
-import qualified Agda.Utils.Pretty as P ( pretty )
+-- TODO-antva see if this is needed
+-- import Control.Monad.Except ( MonadError )
 
-import Agda.TypeChecking.Monad.Builtin
-import Agda.TypeChecking.Monad.Debug
-import Agda.TypeChecking.Pretty
-import Agda.TypeChecking.Monad.Context
-import Agda.TypeChecking.Monad.Base
-import Agda.TypeChecking.Monad.Pure
-import Agda.TypeChecking.Monad.Env
-import Agda.TypeChecking.Substitute (absBody, apply, sort, subst, applyE)
-import Agda.TypeChecking.Reduce (reduceB', reduceB, reduce')
-import Agda.TypeChecking.Names (NamesT, runNamesT, runNames, cl, lam, open, ilam)
+-- import Agda.Utils.Functor
+-- import Agda.Utils.Monad
+-- import Agda.Utils.Maybe
+-- import qualified Agda.Utils.Pretty as P ( pretty )
 
-import Agda.Interaction.Options.Base (optCubical)
-=======
->>>>>>> prep-2.6.4.2
+-- import Agda.TypeChecking.Monad.Builtin
+-- import Agda.TypeChecking.Monad.Debug
+-- import Agda.TypeChecking.Pretty
+-- import Agda.TypeChecking.Monad.Context
+-- import Agda.TypeChecking.Monad.Base
+-- import Agda.TypeChecking.Monad.Pure
+-- import Agda.TypeChecking.Monad.Env
+-- import Agda.TypeChecking.Substitute (absBody, apply, sort, subst, applyE)
+-- import Agda.TypeChecking.Reduce (reduceB', reduceB, reduce')
+-- import Agda.TypeChecking.Names (NamesT, runNamesT, runNames, cl, lam, open, ilam)
+
+-- import Agda.Interaction.Options.Base (optCubical)
+
 
 import Agda.Syntax.Common
   ( Cubical(..), Arg(..)

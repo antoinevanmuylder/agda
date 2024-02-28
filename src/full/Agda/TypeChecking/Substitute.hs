@@ -1601,28 +1601,13 @@ pattern LargeSort u n <- ((\ x@(SizeOfSort u n) -> guard (n >= 0) $> x) -> Just 
 -- | Returns @Left blocker@ for unknown (blocked) sorts, and otherwise
 --   returns @Right s@ where @s@ indicates the size and fibrancy.
 sizeOfSort :: Sort -> Either Blocker SizeOfSort
-<<<<<<< HEAD
-sizeOfSort Type{}       = Right $ SmallSort IsFibrant
-sizeOfSort Prop{}       = Right $ SmallSort IsFibrant
-sizeOfSort SizeUniv     = Right $ SmallSort IsFibrant
-sizeOfSort LockUniv     = Right $ SmallSort IsFibrant
-sizeOfSort IntervalUniv = Right $ SmallSort IsStrict
-sizeOfSort CstrUniv     = Right $ SmallSort IsStrict
-sizeOfSort (Inf f n)    = Right $ LargeSort f n
-sizeOfSort SSet{}       = Right $ SmallSort IsStrict
-sizeOfSort (MetaS m _)  = Left $ unblockOnMeta m
-sizeOfSort FunSort{}    = Left neverUnblock
-sizeOfSort PiSort{}     = Left neverUnblock
-sizeOfSort UnivSort{}   = Left neverUnblock
-sizeOfSort DefS{}       = Left neverUnblock
-sizeOfSort DummyS{}     = Left neverUnblock
-=======
 sizeOfSort = \case
   Univ u _     -> Right $ SmallSort u
   SizeUniv     -> Right $ SmallSort UType
   LockUniv     -> Right $ SmallSort UType
   LevelUniv    -> Right $ SmallSort UType
   IntervalUniv -> Right $ SmallSort USSet
+  CstrUniv     -> Right $ SmallSort USSet --TODO-antva: previously sizeOfSort CstrUniv     = Right $ SmallSort IsStrict
   Inf u n      -> Right $ LargeSort u n
   MetaS m _    -> Left $ unblockOnMeta m
   FunSort{}    -> Left neverUnblock
@@ -1630,7 +1615,6 @@ sizeOfSort = \case
   UnivSort{}   -> Left neverUnblock
   DefS{}       -> Left neverUnblock
   DummyS{}     -> Left neverUnblock
->>>>>>> prep-2.6.4.2
 
 isSmallSort :: Sort -> Bool
 isSmallSort s = case sizeOfSort s of

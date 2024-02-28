@@ -210,13 +210,9 @@ instance AbsTerm Sort where
     s@Inf{}    -> s
     SizeUniv   -> SizeUniv
     LockUniv   -> LockUniv
-<<<<<<< HEAD
-    IntervalUniv -> LockUniv --TODO-antva: why?
     CstrUniv     -> CstrUniv
-=======
     LevelUniv  -> LevelUniv
     IntervalUniv -> IntervalUniv
->>>>>>> prep-2.6.4.2
     PiSort a s1 s2 -> PiSort (absS a) (absS s1) (absS s2)
     FunSort s1 s2 -> FunSort (absS s1) (absS s2)
     UnivSort s -> UnivSort $ absS s
