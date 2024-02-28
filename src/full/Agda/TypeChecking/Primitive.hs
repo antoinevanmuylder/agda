@@ -949,60 +949,6 @@ primitiveFunctions = localTCStateSavingWarnings <$> Map.fromListWith __IMPOSSIBL
   , PrimQNameFixity       |-> mkPrimFun1 (nameFixity . qnameName)
   , PrimQNameToWord64s    |-> mkPrimFun1 ((\ (NameId x (ModuleNameHash y)) -> (x, y)) . nameId . qnameName
                                           :: QName -> (Word64, Word64))
-<<<<<<< HEAD
-  , "primQNameToWord64sInjective" |-> primQNameToWord64sInjective
-  , "primMetaEquality"    |-> mkPrimFun2 ((==) :: Rel MetaId)
-  , "primMetaLess"        |-> mkPrimFun2 ((<) :: Rel MetaId)
-  , "primShowMeta"        |-> mkPrimFun1 (T.pack . prettyShow :: MetaId -> Text)
-  , "primMetaToNat"       |-> mkPrimFun1 metaToNat
-  , "primMetaToNatInjective" |-> primMetaToNatInjective
-  , "primIMin"            |-> primIMin'
-  , "primIMax"            |-> primIMax'
-  , "primINeg"            |-> primINeg'
-  , "primPOr"             |-> primPOr
-  , "primComp"            |-> primComp
-  , builtinTrans          |-> primTrans'
-  , builtinHComp          |-> primHComp'
-  , "primPartial"         |-> primPartial'
-  , "primPartialP"        |-> primPartialP'
-  , builtinGlue           |-> primGlue'
-  , builtin_glue          |-> prim_glue'
-  , builtin_unglue        |-> prim_unglue'
-  , builtinFaceForall     |-> primFaceForall'
-  , "primDepIMin"         |-> primDepIMin'
-  , "primIdFace"          |-> primIdFace'
-  , "primIdPath"          |-> primIdPath'
-  , builtinIdElim         |-> primIdElim'
-  , builtinSubOut         |-> primSubOut'
-  , builtinConId          |-> primConId'
-  , builtin_glueU         |-> prim_glueU'
-  , builtin_unglueU       |-> prim_unglueU'
-  , builtinLockUniv       |-> primLockUniv'
-  , builtinExtent         |-> primExtent'
-  , builtinGel            |-> primGel'
-  , builtin_gel           |-> prim_gel'
-  , builtin_ungel         |-> prim_ungel'
-  , builtinBno            |-> primBno'
-  , builtinByes           |-> primByes'
-  , builtinBisone         |-> primBisone'
-  , builtinBiszero        |-> primBiszero'
-  , builtinBconj          |-> primBconj'
-  , "primBPartial"        |-> primBPartial'
-  , "primMno"             |-> primMno'
-  , "primMyes"            |-> primMyes'
-  , "primMkmc"            |-> primMkmc'
-  , "primMPartial"        |-> primMPartial'
-  , builtinMHComp         |-> primMHComp'
-  , builtinReflectMCstr   |-> primReflectMCstr'
-  , builtinEmbd           |-> primEmbd'
-  , "primMixedOr"         |-> primMixedOr'
-  , "primMPartialP"       |-> primMPartialP'
-  , builtin_mpor          |-> prim_mpor'
-  , builtinPrsvMCstr      |-> primPrsvMCstr'
-  , builtinAllMCstr       |-> primAllMCstr'
-  , builtinAllMCstrCounit |-> primAllMCstrCounit'
-  , builtinRefoldMhocom   |-> primRefoldMhocom'
-=======
   , PrimQNameToWord64sInjective   |-> primQNameToWord64sInjective
   , PrimMetaEquality      |-> mkPrimFun2 ((==) :: Rel MetaId)
   , PrimMetaLess          |-> mkPrimFun2 ((<) :: Rel MetaId)
@@ -1032,6 +978,32 @@ primitiveFunctions = localTCStateSavingWarnings <$> Map.fromListWith __IMPOSSIBL
   , Prim_glueU            |-> prim_glueU'
   , Prim_unglueU          |-> prim_unglueU'
   , PrimLockUniv          |-> primLockUniv'
+
+  --TODO-antva adapt
+  , PrimExtent            |-> primExtent'
+  , PrimGel               |-> primGel'
+  , Prim_gel              |-> prim_gel'
+  , Prim_ungel            |-> prim_ungel'
+  , PrimBno               |-> primBno'
+  , PrimByes              |-> primByes'
+  , PrimBisone            |-> primBisone'
+  , PrimBiszero           |-> primBiszero'
+  , PrimBconj             |-> primBconj'
+  -- , "primBPartial"        |-> primBPartial'
+  , PrimMno               |-> primMno'
+  , PrimMyes              |-> primMyes'
+  , PrimMkmc              |-> primMkmc'
+  , "primMPartial"        |-> primMPartial'
+  , builtinMHComp         |-> primMHComp'
+  , builtinReflectMCstr   |-> primReflectMCstr'
+  , builtinEmbd           |-> primEmbd'
+  , "primMixedOr"         |-> primMixedOr'
+  , "primMPartialP"       |-> primMPartialP'
+  , builtin_mpor          |-> prim_mpor'
+  , builtinPrsvMCstr      |-> primPrsvMCstr'
+  , builtinAllMCstr       |-> primAllMCstr'
+  , builtinAllMCstrCounit |-> primAllMCstrCounit'
+  , builtinRefoldMhocom   |-> primRefoldMhocom'  
 >>>>>>> prep-2.6.4.2
   ]
   where
