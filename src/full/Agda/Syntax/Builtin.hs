@@ -105,11 +105,11 @@ data BuiltinId
   | BuiltinBCstr
   | BuiltinBHolds
   | BuiltinBitHolds
-  | BuiltinBPartial
   | BuiltinMCstr
   | BuiltinMHolds
   | BuiltinMitHolds
-  | BuiltinMPartial
+  | BuiltinBPartial --those 3 also exist as PrimitiveId's
+  | BuiltinMPartial 
   | BuiltinMPartialP
   | BuiltinMHoldsEmpty
   | BuiltinMHolds1
@@ -923,6 +923,9 @@ data PrimitiveId
   | PrimMixedOr
   | Prim_mpor
   | PrimRefoldMhocom
+  | PrimBPartial
+  | PrimMPartial
+  | PrimMPartialP
   --  Integer
   | PrimShowInteger
   -- Natural
@@ -1088,7 +1091,10 @@ instance IsBuiltin PrimitiveId where
     PrimEmbd                              -> "primEmbd"
     PrimMixedOr                           -> "primMixedOr"
     Prim_mpor                             -> "prim^mpor"
-    PrimRefoldMhocom                      -> "primRefoldMhocom"    
+    PrimRefoldMhocom                      -> "primRefoldMhocom"
+    PrimBPartial                          -> "primBPartial"
+    PrimMPartial                          -> "primMPartial"
+    PrimMPartialP                         -> "primMPartialP"
     --  Integer
     PrimShowInteger                       -> "primShowInteger"
     -- Natural

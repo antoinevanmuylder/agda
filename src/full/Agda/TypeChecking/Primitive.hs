@@ -37,11 +37,8 @@ import Agda.TypeChecking.Level
 import Agda.TypeChecking.Quote (quoteTermWithKit, quoteTypeWithKit, quoteDomWithKit, quotingKit)
 import Agda.TypeChecking.Primitive.Base
 import Agda.TypeChecking.Primitive.Cubical
-<<<<<<< HEAD
 import Agda.TypeChecking.Primitive.Bridges
 import Agda.TypeChecking.Primitive.Cubical.Base
-=======
->>>>>>> prep-2.6.4.2
 import Agda.TypeChecking.Warnings
 
 import Agda.Utils.Char
@@ -978,8 +975,6 @@ primitiveFunctions = localTCStateSavingWarnings <$> Map.fromListWith __IMPOSSIBL
   , Prim_glueU            |-> prim_glueU'
   , Prim_unglueU          |-> prim_unglueU'
   , PrimLockUniv          |-> primLockUniv'
-
-  --TODO-antva adapt
   , PrimExtent            |-> primExtent'
   , PrimGel               |-> primGel'
   , Prim_gel              |-> prim_gel'
@@ -989,22 +984,21 @@ primitiveFunctions = localTCStateSavingWarnings <$> Map.fromListWith __IMPOSSIBL
   , PrimBisone            |-> primBisone'
   , PrimBiszero           |-> primBiszero'
   , PrimBconj             |-> primBconj'
-  -- , "primBPartial"        |-> primBPartial'
   , PrimMno               |-> primMno'
   , PrimMyes              |-> primMyes'
   , PrimMkmc              |-> primMkmc'
-  , "primMPartial"        |-> primMPartial'
-  , builtinMHComp         |-> primMHComp'
-  , builtinReflectMCstr   |-> primReflectMCstr'
-  , builtinEmbd           |-> primEmbd'
-  , "primMixedOr"         |-> primMixedOr'
-  , "primMPartialP"       |-> primMPartialP'
-  , builtin_mpor          |-> prim_mpor'
-  , builtinPrsvMCstr      |-> primPrsvMCstr'
-  , builtinAllMCstr       |-> primAllMCstr'
-  , builtinAllMCstrCounit |-> primAllMCstrCounit'
-  , builtinRefoldMhocom   |-> primRefoldMhocom'  
->>>>>>> prep-2.6.4.2
+  , PrimMHComp            |-> primMHComp'
+  , PrimReflectMCstr      |-> primReflectMCstr'
+  , PrimEmbd              |-> primEmbd'
+  , PrimMixedOr           |-> primMixedOr'
+  , Prim_mpor             |-> prim_mpor'
+  , PrimPrsvMCstr         |-> primPrsvMCstr'
+  , PrimAllMCstr          |-> primAllMCstr'
+  , PrimAllMCstrCounit    |-> primAllMCstrCounit'
+  , PrimRefoldMhocom      |-> primRefoldMhocom'
+  , PrimBPartial          |-> primBPartial'
+  , PrimMPartial          |-> primMPartial'
+  , PrimMPartialP         |-> primMPartialP'
   ]
   where
     (|->) = (,)
