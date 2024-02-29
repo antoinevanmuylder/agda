@@ -166,8 +166,8 @@ primHComp' = do
           hPi' "φ" primIntervalType $ \ phi ->
           nPi' "i" primIntervalType (\ i -> pPi' "o" phi $ \ _ -> el' a bA) -->
           (el' a bA --> el' a bA)
-<<<<<<< HEAD
-  return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 $ \ ts@[l, bA, phi@(Arg infPhi phitm), u@(Arg infU utm), u0] nelims -> do
+  let occs = [Mixed, StrictPos, Mixed, StrictPos, StrictPos]
+  return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 occs $ \ ts@[l, bA, phi@(Arg infPhi phitm), u@(Arg infU utm), u0] nelims -> do
     bridges <- optBridges <$> pragmaOptions
     case bridges of
       False ->  do
@@ -187,12 +187,6 @@ primHComp' = do
                         -- i:I, mprf:MHolds (i m∨ bno) ⊢ u i (reflect {phi} mprf)
                         (pure $ raise 2 utm) <@> i <..> ( (pure reflct) <#> (pure $ raise 2 phitm) <..> mprf )
         return $ YesReduction NoSimplification $ mixhcomp `apply` [l, bA, Arg infPhi iotaPhi, Arg infU liftReflectU, u0]
-        
-=======
-  let occs = [Mixed, StrictPos, Mixed, StrictPos, StrictPos]
-  return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 occs $ \ts nelims -> do
-    primTransHComp DoHComp ts nelims
->>>>>>> prep-2.6.4.2
 
 -- | Construct a helper for CCHM composition, with a string indicating
 -- what function uses it.
@@ -628,8 +622,8 @@ primTransHComp cmd ts nelims = do
                      else redReturn $ Def transpR [] `apply` (map (fmap lam_i) as ++ [ignoreBlocking sphi, u0])
 
                 -- Records know how to hcomp themselves:
-<<<<<<< HEAD
-                | nelims > 0, Just as <- allApplyElims es, DoHComp <- cmd, Just hCompR <- nameOfHComp kit -> do
+
+                | doR r, Just as <- allApplyElims es, DoHComp <- cmd, Just hCompR <- nameOfHComp kit -> do
                     reportSDoc "tc.prim.hcomp.rec" 20 $ text "About to compute hcomp at record type"
                     reportSDoc "tc.prim.hcomp.rec" 20 $ nest 2 $ vcat
                       [ "record name:" <+> (return $ P.pretty $ defName info)
@@ -639,10 +633,6 @@ primTransHComp cmd ts nelims = do
                       , "base  : " <+> (prettyTCM $ unArg u0)
                       , "nelims: " <+> (return $ P.pretty nelims) ]
                     redReturn $ Def hCompR [] `apply` (as ++ [ignoreBlocking sphi, fromMaybe __IMPOSSIBLE__ u,u0])
-=======
-                | doR r, Just as <- allApplyElims es, DoHComp <- cmd, Just hCompR <- nameOfHComp kit ->
-                  redReturn $ Def hCompR [] `apply` (as ++ [ignoreBlocking sphi, fromMaybe __IMPOSSIBLE__ u,u0])
->>>>>>> prep-2.6.4.2
 
                 -- If this is a record with no fields, then compData
                 -- will know what to do with it:
@@ -652,14 +642,10 @@ primTransHComp cmd ts nelims = do
               -- higher inductive type, then hcomp is normal; But
               -- compData knows what to do for the general cases.
               Datatype{dataPars = pars, dataIxs = ixs, dataPathCons = pcons, dataTransp = mtrD}
-<<<<<<< HEAD
                 | and [null pcons && ixs == 0 | DoHComp  <- [cmd]], Just as <- allApplyElims es -> do
                   reportSLn "tc.prim.hcomp" 40 $ "rule for hcomp at data (not HIT/indexed) fires"
-                  compData mtrD ((not $ null $ pcons) || ixs > 0) (pars+ixs) cmd l (as <$ t) sbA sphi u u0
-=======
-                | and [null pcons && ixs == 0 | DoHComp  <- [cmd]], Just as <- allApplyElims es ->
                   compData mtrD ((not $ null $ pcons) || ixs > 0) (pars + ixs) cmd l (as <$ t) sbA sphi u u0
->>>>>>> prep-2.6.4.2
+
 
               -- Is this an axiom with constrant transport? Then. Well. Transport is constant.
               Axiom constTransp | constTransp, [] <- es, DoTransp <- cmd -> redReturn $ unArg u0
@@ -695,7 +681,6 @@ primTransHComp cmd ts nelims = do
       -> Arg Term -- ^ u0
       -> ReduceM (Reduced MaybeReducedArgs Term)
     compData mtrD False _ cmd@DoHComp (IsNot l) (IsNot ps) fsc sphi (Just u) a0 = do
-<<<<<<< HEAD
       reportSDoc "tc.prim.hcomp.data" 40 $ text "compData (DoHComp) with args"
       reportSDoc "tc.prim.hcomp.data" 40 $ nest 2 $ vcat
         [ "lvl" <+> (return $ P.pretty l)
@@ -704,12 +689,8 @@ primTransHComp cmd ts nelims = do
         , "the constraint" <+> (return $ P.pretty $ ignoreBlocking $ sphi)
         , "u adjustement " <+> (return $ P.pretty $ u)
         , "base " <+> (return $ P.pretty $ a0) ]
-      
-      let getTermLocal = getTerm $ "builtinHComp for data types"
-=======
       let getTermLocal :: IsBuiltin a => a -> ReduceM Term
           getTermLocal = getTerm $ "builtinHComp for data types"
->>>>>>> prep-2.6.4.2
 
       let sc = famThing <$> fsc
       tEmpty <- getTermLocal builtinIsOneEmpty
