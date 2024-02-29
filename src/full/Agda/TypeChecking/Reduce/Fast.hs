@@ -444,22 +444,6 @@ fastReduce' norm v = do
   tcState <- getTCState
   let name (Con c _ _) = c
       name _         = __IMPOSSIBLE__
-<<<<<<< HEAD
-  zero  <- fmap name <$> getBuiltin' builtinZero
-  suc   <- fmap name <$> getBuiltin' builtinSuc
-  true  <- fmap name <$> getBuiltin' builtinTrue
-  false <- fmap name <$> getBuiltin' builtinFalse
-  refl  <- fmap name <$> getBuiltin' builtinRefl
-  force <- fmap primFunName <$> getPrimitive' "primForce"
-  erase <- fmap primFunName <$> getPrimitive' "primErase"
-  hcomp  <- getPrimitiveName' builtinHComp
-  mhocom <- getPrimitiveName' builtinMHComp
-  refoldMhocom <- getPrimitiveName' builtinRefoldMhocom
-  let bEnv = BuiltinEnv { bZero = zero, bSuc = suc, bTrue = true, bFalse = false, bRefl = refl,
-                          bPrimForce = force, bPrimErase = erase,
-                          bHComp = hcomp, bMHComp = mhocom , bRefoldMhocom = refoldMhocom }
-=======
-
       -- Gather builtins using 'BuiltinAccess' rather than with the default
       -- 'HasBuiltins ReduceM' instance. This increases laziness, allowing us to
       -- avoid costly builtin lookups unless needed.
@@ -475,9 +459,14 @@ fastReduce' norm v = do
       force = primitiveName PrimForce
       erase = primitiveName PrimErase
 
+      hcomp = primitiveName PrimHComp
+      mhocom = primitiveName PrimMHComp
+      refoldMhocom = primitiveName PrimRefoldMhocom
+
       bEnv = BuiltinEnv { bZero = zero, bSuc = suc, bTrue = true, bFalse = false, bRefl = refl,
-                          bPrimForce = force, bPrimErase = erase }
->>>>>>> prep-2.6.4.2
+                          bPrimForce = force, bPrimErase = erase,
+                          bHComp = hcomp, bMHComp = mhocom , bRefoldMhocom = refoldMhocom }
+
   allowedReductions <- asksTC envAllowedReductions
   rwr <- optRewriting <$> pragmaOptions
   constInfo <- unKleisli $ \f -> do

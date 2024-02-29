@@ -240,7 +240,7 @@ coreBuiltins =
                                                    ( el' l (bA <@> primBIZero) ) -->
                                                    ( el' l (bA <@> primBIOne) ) -->
                                                    (sort . tmSort <$> l) ))
-  , (builtinCstrUniv                          |-> BuiltinSort "primCstrUniv")
+  , (builtinCstrUniv                          |-> BuiltinSort SortCstrUniv)
   , (builtinBCstr                             |-> BuiltinPostulate Relevant (requireBridges "" >> (return $ sort CstrUniv)))
   , (builtinBHolds                            |-> BuiltinPostulate Relevant (requireBridges "" >> (tbcstr --> return (ssort $ ClosedLevel 0))))
   , (builtinBitHolds                          |-> BuiltinPostulate Relevant (requireBridges "" >> (elSSet $ primBHolds <@> primByes)))
@@ -1099,34 +1099,19 @@ bindBuiltinNoDef b q = inTopContext $ do
               , dataTransp     = Nothing
               }
 
-<<<<<<< HEAD
-    Just (BuiltinSort sortname) -> do
-      let s = case sortname of
-                "primSet"      -> mkType 0
-                "primProp"     -> mkProp 0
-                "primStrictSet" -> mkSSet 0
-                "primSetOmega" -> Inf IsFibrant 0
-                "primStrictSetOmega" -> Inf IsStrict 0
-                "primIntervalUniv" -> IntervalUniv
-                "primCstrUniv" -> CstrUniv
-                _              -> __IMPOSSIBLE__
-          def = PrimitiveSort sortname s
-      -- Check for the cubical flag if the sort requries it
-      case sortname of
-        "primIntervalUniv" -> requireCubical CErased ""
-        "primCstrUniv" -> requireCubical CErased ""
-=======
+
     Just (BuiltinSort builtinSort) -> do
       let s = case builtinSort of
                 SortUniv u       -> Univ u $ ClosedLevel 0
                 SortOmega u      -> Inf u 0
                 SortIntervalUniv -> IntervalUniv
+                SortCstrUniv     -> CstrUniv
                 SortLevelUniv    -> LevelUniv
           def = PrimitiveSort builtinSort s
       -- Check for the cubical flag if the sort requries it
       case builtinSort of
         SortIntervalUniv -> requireCubical CErased ""
->>>>>>> prep-2.6.4.2
+        SortCstrUniv     -> requireBridges
         _ -> return ()
       addConstant' q defaultArgInfo q (sort $ univSort s) def
       bindBuiltinName b $ Def q []

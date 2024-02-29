@@ -237,38 +237,12 @@ sortOf t = do
     sortOfE :: Type -> (Elims -> Term) -> Elims -> m Sort
     sortOfE a hd []     = ifIsSort a return __IMPOSSIBLE__
     sortOfE a hd (e:es) = do
-<<<<<<< HEAD
-     reportSDoc "tc.sort" 50 $ vcat
-       [ "sortOfE"
-       , "  a  = " <+> prettyTCM a
-       , "  hd = " <+> prettyTCM (hd [])
-       , "  e  = " <+> prettyTCM e
-       ]
-     case e of
-      Apply (Arg ai v) -> do
-        ba <- reduceB a
-        case unEl (ignoreBlocking ba) of
-          Pi b c -> sortOfE (c `absApp` v) (hd . (e:)) es
-          _ | Blocked m _ <- ba -> patternViolation m
-            | otherwise         -> ifM (optRewriting <$> pragmaOptions)
-                {-then-} (patternViolation neverUnblock)  -- Not IMPOSSIBLE because of possible non-confluent rewriting (see #5531)
-                {-else-} __IMPOSSIBLE__
-      Proj o f -> do
-        a <- reduce a
-        ~(El _ (Pi b c)) <- fromMaybe __IMPOSSIBLE__ <$> getDefType f a
-        hd' <- applyE <$> applyDef o f (argFromDom b $> hd [])
-        sortOfE (c `absApp` (hd [])) hd' es
-      IApply x y r -> do
-        (b , c) <- fromMaybe __IMPOSSIBLE__ <$> isPathBridge a
-        sortOfE (c `absApp` r) (hd . (e:)) es
-=======
       reportSDoc "tc.sort" 50 $ vcat
         [ "sortOfE"
         , "  a  = " <+> prettyTCM a
         , "  hd = " <+> prettyTCM (hd [])
         , "  e  = " <+> prettyTCM e
         ]
->>>>>>> prep-2.6.4.2
 
       ba <- reduceB a
 
@@ -295,8 +269,10 @@ sortOf t = do
           _ -> fallback
 
         IApply x y r -> do
-          (b , c) <- fromMaybe __IMPOSSIBLE__ <$> isPath a'
+          (b , c) <- fromMaybe __IMPOSSIBLE__ <$> isPathBridge a'
           sortOfE (c `absApp` r) (hd . (e:)) es
+
+          
 
 {-# INLINE sortOfType #-}
 -- | Reconstruct the minimal sort of a type (ignoring the sort annotation).

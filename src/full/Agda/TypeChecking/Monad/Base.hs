@@ -3458,6 +3458,7 @@ data BuiltinSort
   | SortOmega Univ
   | SortIntervalUniv
   | SortLevelUniv
+  | SortCstrUniv
   deriving (Show, Eq, Generic)
 
 pattern SortProp, SortSet, SortStrictSet, SortPropOmega, SortSetOmega, SortStrictSetOmega :: BuiltinSort
@@ -3471,7 +3472,7 @@ pattern SortStrictSetOmega = SortOmega USSet
 {-# COMPLETE
   SortProp, SortSet, SortStrictSet,
   SortPropOmega, SortSetOmega, SortStrictSetOmega,
-  SortIntervalUniv, SortLevelUniv #-}
+  SortIntervalUniv, SortLevelUniv, SortCstrUniv #-}
 
 data BuiltinDescriptor
   = BuiltinData (TCM Type) [BuiltinId]

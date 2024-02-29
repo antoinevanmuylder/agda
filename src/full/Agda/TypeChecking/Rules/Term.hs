@@ -473,15 +473,12 @@ checkLambda' cmp b xps typ body target = do
     [ "info           =" <+> (text . show) info
     ]
   TelV tel btyp <- telViewUpTo numbinds target
-<<<<<<< HEAD
   if size tel < numbinds || numbinds /= 1
     then (if possiblePathBridge then trySeeingIfPathBridge else dontUseTargetType)
     else useTargetType tel btyp
-=======
   if numbinds == 1 && not (null tel) then useTargetType tel btyp
-  else if possiblePath then trySeeingIfPath
+  else if possiblePathBridge then trySeeingIfPathBridge
   else dontUseTargetType
->>>>>>> prep-2.6.4.2
 
   where
 

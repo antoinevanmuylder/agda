@@ -117,18 +117,6 @@ checkDataDef i name uc (A.DataDefParams gpars ps) cs =
                   else throwError err
               reduce s
 
-<<<<<<< HEAD
-            withK <- not . collapseDefault . optWithoutK <$>
-                     pragmaOptions
-            -- Parameters are always hidden in constructors. For
-            -- non-indexed data types the parameters are erased, and
-            -- if --with-K is active this applies also to indexed data
-            -- types.
-            let tel  = abstract gtel ptel
-                tel' = (if withK || nofIxs == 0
-                        then applyQuantity zeroQuantity
-                        else id) .
-=======
             withK   <- not . optWithoutK <$>
                        pragmaOptions
             erasure <- optErasure <$> pragmaOptions
@@ -138,7 +126,6 @@ checkDataDef i name uc (A.DataDefParams gpars ps) cs =
             -- applies also to indexed data types.
             let tel  = abstract gtel ptel
                 tel' = applyWhen (erasure && (withK || nofIxs == 0)) (applyQuantity zeroQuantity) .
->>>>>>> prep-2.6.4.2
                        hideAndRelParams <$>
                        tel
 

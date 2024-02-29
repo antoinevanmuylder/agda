@@ -773,6 +773,7 @@ getInstanceDefs = do
 
 ---------------------------------------------------------------------------
 -- * Bridge version
+-- * TODO-antva: might need to readapt those functions
 ---------------------------------------------------------------------------
 
 -- we duplicate the above functions, but this time they are able to handle
