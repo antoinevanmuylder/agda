@@ -21,12 +21,8 @@ import Agda.TypeChecking.Primitive.Base
 
 import Agda.Utils.Maybe
 import Agda.Utils.Monad
-<<<<<<< HEAD
-import Agda.Utils.Pretty (prettyShow)
-import qualified Agda.Utils.Pretty as P ( pretty )
-=======
 import Agda.Syntax.Common.Pretty (prettyShow)
->>>>>>> prep-2.6.4.2
+import Agda.Syntax.Common.Pretty as P
 
 import Agda.Utils.Impossible
 

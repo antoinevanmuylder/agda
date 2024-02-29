@@ -201,15 +201,15 @@ instance PrettyTCM a => PrettyTCM (Closure a) where
 instance {-# OVERLAPPABLE #-} PrettyTCM a => PrettyTCM [a] where
   prettyTCM = prettyList . map prettyTCM
 
-<<<<<<< HEAD
+
 instance PrettyTCM a => PrettyTCM (IntMap a) where
   prettyTCM = prettyTCM . IntMap.toList
 
 instance PrettyTCM BoolSet where 
   prettyTCM = prettyTCM . BoolSet.toList
-=======
+
 {-# SPECIALIZE prettyTCM :: PrettyTCM a => [a] -> TCM Doc #-}
->>>>>>> prep-2.6.4.2
+
 
 instance {-# OVERLAPPABLE #-} PrettyTCM a => PrettyTCM (Maybe a) where
   prettyTCM = maybe empty prettyTCM
@@ -225,13 +225,13 @@ instance (PrettyTCM a, PrettyTCM b, PrettyTCM c) => PrettyTCM (a,b,c) where
   prettyTCM (a, b, c) = parens $
     prettyTCM a <> comma <> prettyTCM b <> comma <> prettyTCM c
 
-<<<<<<< HEAD
+
 instance (PrettyTCM a, PrettyTCM b, PrettyTCM c, PrettyTCM d) => PrettyTCM (a,b,c, d) where
   prettyTCM (a, b, c, d) = parens $
     prettyTCM a <> comma <> prettyTCM b <> comma <> prettyTCM c <> comma <> prettyTCM d
-=======
+
 {-# SPECIALIZE prettyTCM :: (PrettyTCM a, PrettyTCM b, PrettyTCM c) => (a, b, c) -> TCM Doc #-}
->>>>>>> prep-2.6.4.2
+
 
 instance PrettyTCM Term               where prettyTCM = prettyA <=< reify
 instance PrettyTCM Type               where prettyTCM = prettyA <=< reify

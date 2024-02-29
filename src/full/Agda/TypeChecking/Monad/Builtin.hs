@@ -122,12 +122,8 @@ setBuiltinThings b = stLocalBuiltins `setTCLens` b
 
 bindBuiltinName :: BuiltinId -> Term -> TCM ()
 bindBuiltinName b x = do
-<<<<<<< HEAD
   reportSDoc "tc.prim" 20 $ return $ "binding (?)builtin" <+> (P.text b)  
-  builtin <- getBuiltinThing b
-=======
   builtin <- getBuiltinThing b'
->>>>>>> prep-2.6.4.2
   case builtin of
     Just (Builtin y) -> typeError $ DuplicateBuiltinBinding b y x
     Just Prim{}      -> typeError $ __IMPOSSIBLE__
@@ -137,12 +133,8 @@ bindBuiltinName b x = do
 
 bindPrimitive :: PrimitiveId -> PrimFun -> TCM ()
 bindPrimitive b pf = do
-<<<<<<< HEAD
   reportSDoc "tc.prim" 20 $ return $ "binding (?)primitive" <+> (P.text b)
-  builtin <- getBuiltinThing b
-=======
   builtin <- getBuiltinThing b'
->>>>>>> prep-2.6.4.2
   case builtin of
     Just (Builtin _) -> typeError $ NoSuchPrimitiveFunction (getBuiltinId b)
     Just (Prim x)    -> typeError $ (DuplicatePrimitiveBinding b `on` primFunName) x pf
@@ -188,20 +180,9 @@ getPrimitive' x = (getPrim =<<) <$> getBuiltinThing (PrimitiveName x)
 
 {-# INLINABLE getPrimitive #-}
 getPrimitive :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m)
-<<<<<<< HEAD
-             => String -> m PrimFun
-getPrimitive x = do
-  -- tcs <- getTCState
-  -- -- defs :: String
-  -- let defs = P.prettyShow $ HashMap.keys $ tcs ^. stImports ^. sigDefinitions
-  fromMaybeM (typeError $ GenericError $
-              "there is no primitive function called " ++ x ++ " (< getPrimitive)\n") $
-             getPrimitive' x
-=======
              => PrimitiveId -> m PrimFun
 getPrimitive x =
   fromMaybeM (typeError . NoSuchPrimitiveFunction $ getBuiltinId x) $ getPrimitive' x
->>>>>>> prep-2.6.4.2
 
 getPrimitiveTerm :: (HasBuiltins m, MonadError TCErr m, MonadTCEnv m, ReadTCState m)
                  => PrimitiveId -> m Term
@@ -972,13 +953,8 @@ instance EqualityUnview EqualityTypeData where
   equalityUnview (EqualityTypeData s equality l t lhs rhs) =
     El s $ Def equality $ map Apply (l ++ [t, lhs, rhs])
 
-<<<<<<< HEAD
--- | Primitives with typechecking constrants generated when tc-ing an application
-constrainedPrims :: [String]
-=======
 -- | Primitives with typechecking constrants.
 constrainedPrims :: [PrimitiveId]
->>>>>>> prep-2.6.4.2
 constrainedPrims =
   [ builtinConId
   , builtinPOr
@@ -988,7 +964,7 @@ constrainedPrims =
   , builtin_glue
   , builtin_glueU
   , builtinMHComp
-  , builtin_mpor --refoldMhocom as well?
+  , builtin_mpor --TODO-antva refoldMhocom as well?
   ]
 
 getNameOfConstrained :: HasBuiltins m => PrimitiveId -> m (Maybe QName)

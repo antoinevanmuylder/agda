@@ -643,12 +643,8 @@ instance Occurs Sort where
       s@LockUniv -> return s
       s@LevelUniv -> return s
       s@IntervalUniv -> return s
-<<<<<<< HEAD
       s@CstrUniv     -> return s
-      UnivSort s -> UnivSort <$> do flexibly $ occurs s
-=======
       UnivSort s -> UnivSort <$> do flexibly $ occurs_ s
->>>>>>> prep-2.6.4.2
       MetaS x es -> do
         MetaV x es <- occurs (MetaV x es)
         return $ MetaS x es

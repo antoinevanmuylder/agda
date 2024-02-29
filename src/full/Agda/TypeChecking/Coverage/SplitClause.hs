@@ -35,11 +35,6 @@ import Agda.Utils.Maybe
 import Agda.Utils.Monad
 import Agda.Utils.Null
 import Agda.Utils.Permutation
-<<<<<<< HEAD
-import Agda.Utils.Pretty (prettyShow)
-import qualified Agda.Utils.Pretty as P ( pretty )
-=======
->>>>>>> prep-2.6.4.2
 import Agda.Utils.Singleton
 import Agda.Utils.Size
 import Agda.Utils.WithDefault
