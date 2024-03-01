@@ -61,11 +61,8 @@ import qualified Agda.Utils.List1 as List1
 import Agda.Utils.Monad
 import Agda.Utils.Maybe
 import Agda.Utils.Permutation
-<<<<<<< HEAD
-import qualified Agda.Utils.Pretty as P-- (prettyShow)
-=======
 import Agda.Syntax.Common.Pretty (prettyShow)
->>>>>>> prep-2.6.4.2
+import Agda.Syntax.Common.Pretty as P
 import qualified Agda.Utils.ProfileOptions as Profile
 import Agda.Utils.BoolSet (BoolSet)
 import qualified Agda.Utils.BoolSet as BoolSet
@@ -424,16 +421,12 @@ compareTerm' cmp a m n =
        mHComp <- getPrimitiveName' builtinHComp
        mSub   <- getBuiltinName' builtinSub
        mUnglueU <- getPrimitiveTerm' builtin_unglueU
-<<<<<<< HEAD
-       mSubIn   <- getPrimitiveTerm' builtinSubIn
        mGel <- getPrimitiveName' builtinGel
        mBHolds <- getBuiltinName' builtinBHolds
        mMHolds <- getBuiltinName' builtinMHolds
        mBCstr <- getBuiltinName' builtinBCstr
        mMCstr <- getBuiltinName' builtinMCstr
-=======
        mSubIn   <- getBuiltin' builtinSubIn
->>>>>>> prep-2.6.4.2
        case ty of
          Def q es | Just q == mIsOne -> return ()
          Def q es | Just q == mGlue, Just args@(l:_:a:phi:_) <- allApplyElims es -> do
@@ -1529,11 +1522,7 @@ leqSort s1 s2 = do
       (Univ u _, Inf u' _) -> answer $ u <= u'
       (Inf u _, Univ u' _) -> answer $ u == u' && typeInTypeEnabled
 
-<<<<<<< HEAD
-      -- @LockUniv@, @IntervalUniv@, @CstrUniv@, @SizeUniv@, and @Prop0@ are bottom sorts.
-=======
-      -- @LockUniv@, @LevelUniv@, @IntervalUniv@, @SizeUniv@, and @Prop0@ are bottom sorts.
->>>>>>> prep-2.6.4.2
+      -- @LockUniv@, @LevelUniv@, @IntervalUniv@, @CstrUniv@, @SizeUniv@, and @Prop0@ are bottom sorts.
       -- So is @Set0@ if @Prop@ is not enabled.
       (_       , LockUniv) -> equalSort s1 s2
       (_       , LevelUniv) -> equalSort s1 s2
@@ -1543,28 +1532,15 @@ leqSort s1 s2 = do
       (_       , Prop (Max 0 [])) -> equalSort s1 s2
       (_       , Type (Max 0 []))
         | not propEnabled  -> equalSort s1 s2
-
-<<<<<<< HEAD
-      -- @SizeUniv@, @LockUniv@, @CstrUniv@ are unrelated to any @Set l@ or @Prop l@
-      (SizeUniv, Type{}  ) -> no
-      (SizeUniv, Prop{}  ) -> no
-=======
-      -- @SizeUniv@, @LockUniv@ and @LevelUniv@ are unrelated to any @Set l@ or @Prop l@
+      -- @SizeUniv@, @LockUniv@ and @LevelUniv@, @CstrUniv@ are unrelated to any @Set l@ or @Prop l@
       (SizeUniv, Univ{}  ) -> no
->>>>>>> prep-2.6.4.2
       (SizeUniv , Inf{}  ) -> no
       (LockUniv, Univ{}  ) -> no
       (LockUniv , Inf{}  ) -> no
-<<<<<<< HEAD
-      (LockUniv, SSet{}  ) -> no
-      (CstrUniv, Type{}  ) -> no
-      (CstrUniv, Prop{}  ) -> no
-      (CstrUniv , Inf{}  ) -> no
-      (CstrUniv, SSet{}  ) -> no
-=======
+      (CstrUniv, Univ{}) -> no
+      (CstrUniv, Inf{})  -> no
       (LevelUniv, Univ{}  ) -> no
       (LevelUniv , Inf{}  ) -> no
->>>>>>> prep-2.6.4.2
 
       -- @IntervalUniv@ is below @SSet l@, but not @Set l@ or @Prop l@
       (IntervalUniv, Type{}) -> no
@@ -1977,16 +1953,9 @@ equalSort s1 s2 = do
             (LockUniv   , LockUniv   ) -> yes
             (LevelUniv  , LevelUniv  ) -> yes
             (IntervalUniv , IntervalUniv) -> yes
-<<<<<<< HEAD
-            (CstrUniv , CstrUniv) -> yes
-            (Prop a     , Prop b     ) -> equalLevel a b `catchInequalLevel` no
-            (Inf f m    , Inf f' n   ) ->
-              if f == f' && (m == n || typeInTypeEnabled || omegaInOmegaEnabled) then yes else no
-            (SSet a     , SSet b     ) -> equalLevel a b
-=======
+            (CstrUniv , CstrUniv) -> yes            
             (Inf u m    , Inf u' n   ) ->
               if u == u' && (m == n || infInInf) then yes else no
->>>>>>> prep-2.6.4.2
 
             -- if --type-in-type is enabled, Setωᵢ is equal to any Set ℓ (see #3439)
             (Univ u _   , Inf  u' _  ) -> answer $ u == u' && typeInTypeEnabled
@@ -2262,27 +2231,7 @@ equalSort s1 s2 = do
         err         -> throwError err
 
 
-<<<<<<< HEAD
--- -- This should probably represent face maps with a more precise type
--- toFaceMaps :: Term -> TCM [[(Int,Term)]]
--- toFaceMaps t = do
---   view <- intervalView'
---   iz <- primIZero
---   io <- primIOne
---   ineg <- (\ q t -> Def q [Apply $ Arg defaultArgInfo t]) <$> fromMaybe __IMPOSSIBLE__ <$> getPrimitiveName' "primINeg"
-
---   let f IZero = mzero
---       f IOne  = return []
---       f (IMin x y) = do xs <- (f . view . unArg) x; ys <- (f . view . unArg) y; return (xs ++ ys)
---       f (IMax x y) = msum $ map (f . view . unArg) [x,y]
---       f (INeg x)   = map (id -*- not) <$> (f . view . unArg) x
---       f (OTerm (Var i [])) = return [(i,True)]
---       f (OTerm _) = return [] -- what about metas? we should suspend? maybe no metas is a precondition?
---       isConsistent xs = all (\ xs -> length xs == 1) . map nub . Map.elems $ xs  -- optimize by not doing generate + filter
---       as = map (map (id -*- head) . Map.toAscList) . filter isConsistent . map (Map.fromListWith (++) . map (id -*- (:[]))) $ (f (view t))
---   xs <- mapM (mapM (\ (i,b) -> (,) i <$> intervalUnview (if b then IOne else IZero))) as
---   return xs
-
+-- This docu may be outdated
 -- | t =  φ1 ∨ φ2 ∨ ...∨ φn : I.
 --   @forallFaceMaps t kb k :: m [a]@ executes k (or kb if something  is blocked) n times.
 --   The jth time corresponds to the continuation k applied when the (conjunctive) path interval clause φj holds.
@@ -2291,8 +2240,6 @@ equalSort s1 s2 = do
 --    - cxt' is a shortened cxt (some path variables say x and z : I disappear)
 --    - sigma: cxt' -> cxt sets x and z to some value i0 or i1.
 --   when writing k we may assume to be in ambient context cxt'
-=======
->>>>>>> prep-2.6.4.2
 forallFaceMaps
   :: MonadConversion m
   => Term
@@ -2351,11 +2298,8 @@ forallFaceMaps t kb k = do
       io  <- primIOne
       let t = foldr (\ x r -> and `apply` [argN x,argN r]) io ts
       ifBlocked t blocked unblocked
-<<<<<<< HEAD
-=======
     addBindings [] m = m
     addBindings ((Dom{domInfo = info,unDom = (nm,ty)},t):bs) m = addLetBinding info Inserted nm t ty (addBindings bs m)
->>>>>>> prep-2.6.4.2
 
 -- | @forallBridgeFaceMaps t k@ does continuation k in case bridge variable x = @xi : BI is set to bi0, bi1
 forallBridgeFaceMaps :: MonadConversion m => Int -> (Substitution -> m a) -> m [a]

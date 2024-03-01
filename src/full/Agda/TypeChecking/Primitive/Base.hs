@@ -151,7 +151,7 @@ toPrefinitePi _ = __IMPOSSIBLE__
 el' :: Applicative m => m Term -> m Term -> m Type
 el' l a = El <$> (tmSort <$> l) <*> a
 
-<<<<<<< HEAD
+
 levelLubTm :: Term -> Term -> Term
 levelLubTm l0 l1 = levelTm $ levelLub (atomicLevel l0) (atomicLevel l1)
 
@@ -167,10 +167,10 @@ tmSortLub l0 l1 =
 
 elLub' :: Applicative m => m Term -> m Term -> m Term -> m Type
 elLub' l0 l1 a = El <$> (tmSortLub <$> l0 <*> l1) <*> a
-=======
+
 els :: Applicative m => m Sort -> m Term -> m Type
 els l a = El <$> l <*> a
->>>>>>> prep-2.6.4.2
+
 
 el's :: Applicative m => m Term -> m Term -> m Type
 el's l a = El <$> (SSet . atomicLevel <$> l) <*> a
@@ -326,8 +326,8 @@ getSigmaKit = do
             , sigmaFst  = unDom fst
             , sigmaSnd  = unDom snd
             }
-<<<<<<< HEAD
         _ -> __IMPOSSIBLE__
+
 
 
 --helper for printing
@@ -352,6 +352,3 @@ toExplicitArgs t = case t of
     forElims es = map forElim es
 
     withArgInf = (setRelevance Relevant) . (setHiding NotHidden)
-=======
-        _ -> __IMPOSSIBLE__  -- This invariant is ensured in bindBuiltinSigma
->>>>>>> prep-2.6.4.2

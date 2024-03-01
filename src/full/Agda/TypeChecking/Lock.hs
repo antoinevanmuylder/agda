@@ -45,17 +45,13 @@ checkLockedVars
      -- ^ type of the lock
   -> TCM ()
 checkLockedVars t ty lk lk_ty = catchConstraint (CheckLockedVars t ty lk lk_ty) $ do
-<<<<<<< HEAD
-  reportSDoc "tc.term.lock" 40 $ "Checking locked vars.." <+> "lk    = " <+> (pretty lk) <+> " : " <+> (pretty lk_ty)
-=======
   -- Have to instantiate the lock, otherwise we might block on it even
   -- after it's been solved (e.g.: it's an interaction point, see #6528)
   -- Update (Andreas, 2023-10-23, issue #6913): need even full instantiation.
   -- Since @lk@ is typically just a variable, 'instantiateFull' is not expensive here.
   -- In #6913 it was a postulate applied to a meta, thus, 'instantiate' was not enough.
   lk <- instantiateFull lk
-  reportSDoc "tc.term.lock" 40 $ "Checking locked vars.."
->>>>>>> prep-2.6.4.2
+  reportSDoc "tc.term.lock" 40 $ "Checking locked vars.." <+> "lk    = " <+> (pretty lk) <+> " : " <+> (pretty lk_ty)
   reportSDoc "tc.term.lock" 50 $ nest 2 $ vcat
      [ text "t     = " <+> pretty t
      , text "ty    = " <+> pretty ty
@@ -79,7 +75,6 @@ checkLockedVars t ty lk lk_ty = catchConstraint (CheckLockedVars t ty lk lk_ty) 
     rigid = rigidVars fv
     -- flexible = IMap.keysSet $ flexibleVars fv
     termVars = allVars fv -- ISet.union rigid flexible
-<<<<<<< HEAD
     earlierVars = ISet.fromList [i+1 .. size cxt - 1]
   reportSDoc "tc.term.lock" 50 $ vcat
      [ text "Displaying first fv analysis... holds iff termVars in earlierVars"
@@ -91,11 +86,6 @@ checkLockedVars t ty lk lk_ty = catchConstraint (CheckLockedVars t ty lk lk_ty) 
     reportSDoc "tc.term.lock" 40 $ "Above lk is for sure fresh in term"
     return ()
   else do
-=======
-    earlierVars = ISet.fromList [i + 1 .. size cxt - 1]
-  if termVars `ISet.isSubsetOf` earlierVars then return () else do
->>>>>>> prep-2.6.4.2
-
   checked <- fmap catMaybes . forM toCheck $ \ (j,dom) -> do
     ifM (isTimeless (snd . unDom $ dom) i)
         (return $ Just j)

@@ -328,104 +328,97 @@ checkSpine action a hd es cmp t = do
   coerceSize (compareType cmp) (hd es) t' t
   return $ hd es'
 
-<<<<<<< HEAD
--- | @inferSpine t self es@ checks that spine @es@ eliminates
---   value @self@ of type @t@ and returns the remaining type
---   (target of elimination) and the final self (has that type).
-inferSpine :: (MonadCheckInternal m) => Type -> Term -> Elims -> m (Term, Type)
-inferSpine a v es = first fst <$> inferSpine' defaultAction a v v es
+-- TODO-antva: remove
+-- -- | @inferSpine t self es@ checks that spine @es@ eliminates
+-- --   value @self@ of type @t@ and returns the remaining type
+-- --   (target of elimination) and the final self (has that type).
+-- inferSpine :: (MonadCheckInternal m) => Type -> Term -> Elims -> m (Term, Type)
+-- inferSpine a v es = first fst <$> inferSpine' defaultAction a v v es
 
--- | Returns both the real term (first) and the transformed term (second). The
---   transformed term is not necessarily a valid term, so it must not be used
---   in types.
-inferSpine' :: (MonadCheckInternal m)
-            => Action m -> Type -> Term -> Term -> Elims -> m ((Term, Term), Type)
-inferSpine' action t self self' [] = return ((self, self'), t)
-inferSpine' action t self self' (e : es) = do
-  reportSDoc "tc.infer.internal" 30 $ sep
-    [ "inferSpine': "
-    , "type t = " <+> pretty t
-    , "self  = " <+> pretty self
-    , "self' = " <+> pretty self'
-    , "eliminated by e = " <+> pretty e
-    ]
-  case e of
-    IApply x y r -> do
-      (a, b) <- shouldBePathBridge t
-      case ((getLock $ domInfo a) == defaultLock) of
-        True -> do -- t is a path type
-          reportSDoc "tc.infer.internal" 30 (text "path IApply case")
-          r' <- checkInternal' action r CmpLeq (unDom a)
-          izero <- primIZero
-          ione  <- primIOne
-          x' <- checkInternal' action x CmpLeq (b `absApp` izero)
-          y' <- checkInternal' action y CmpLeq (b `absApp` ione)
-          inferSpine' action (b `absApp` r) (self `applyE` [e]) (self' `applyE` [IApply x' y' r']) es
-        False -> do -- t is a bridge type
-          reportSDoc "tc.infer.internal" 30 (text "bridge IApply case")
-          r' <- checkInternal' action r CmpLeq (unDom a)
-          bizero <- primBIZero
-          bione  <- primBIOne
-          x' <- checkInternal' action x CmpLeq (b `absApp` bizero)
-          y' <- checkInternal' action y CmpLeq (b `absApp` bione)
-          inferSpine' action (b `absApp` r) (self `applyE` [e]) (self' `applyE` [IApply x' y' r']) es
-    Apply (Arg ai v) -> do
-      (a, b) <- shouldBePi t
-      ai <- checkArgInfo action ai $ domInfo a
-      v' <- checkInternal' action v CmpLeq $ unDom a
-      inferSpine' action (b `absApp` v) (self `applyE` [e]) (self' `applyE` [Apply (Arg ai v')]) es
-    -- case: projection or projection-like
-    Proj o f -> do
-      (a, b) <- shouldBePi =<< shouldBeProjectible t f
-      u  <- applyDef o f (argFromDom a $> self)
-      u' <- applyDef o f (argFromDom a $> self')
-      inferSpine' action (b `absApp` self) u u' es
+-- -- | Returns both the real term (first) and the transformed term (second). The
+-- --   transformed term is not necessarily a valid term, so it must not be used
+-- --   in types.
+-- inferSpine' :: (MonadCheckInternal m)
+--             => Action m -> Type -> Term -> Term -> Elims -> m ((Term, Term), Type)
+-- inferSpine' action t self self' [] = return ((self, self'), t)
+-- inferSpine' action t self self' (e : es) = do
+--   reportSDoc "tc.infer.internal" 30 $ sep
+--     [ "inferSpine': "
+--     , "type t = " <+> pretty t
+--     , "self  = " <+> pretty self
+--     , "self' = " <+> pretty self'
+--     , "eliminated by e = " <+> pretty e
+--     ]
+--   case e of
+--     IApply x y r -> do
+--       (a, b) <- shouldBePathBridge t
+--       case ((getLock $ domInfo a) == defaultLock) of
+--         True -> do -- t is a path type
+--           reportSDoc "tc.infer.internal" 30 (text "path IApply case")
+--           r' <- checkInternal' action r CmpLeq (unDom a)
+--           izero <- primIZero
+--           ione  <- primIOne
+--           x' <- checkInternal' action x CmpLeq (b `absApp` izero)
+--           y' <- checkInternal' action y CmpLeq (b `absApp` ione)
+--           inferSpine' action (b `absApp` r) (self `applyE` [e]) (self' `applyE` [IApply x' y' r']) es
+--         False -> do -- t is a bridge type
+--           reportSDoc "tc.infer.internal" 30 (text "bridge IApply case")
+--           r' <- checkInternal' action r CmpLeq (unDom a)
+--           bizero <- primBIZero
+--           bione  <- primBIOne
+--           x' <- checkInternal' action x CmpLeq (b `absApp` bizero)
+--           y' <- checkInternal' action y CmpLeq (b `absApp` bione)
+--           inferSpine' action (b `absApp` r) (self `applyE` [e]) (self' `applyE` [IApply x' y' r']) es
+--     Apply (Arg ai v) -> do
+--       (a, b) <- shouldBePi t
+--       ai <- checkArgInfo action ai $ domInfo a
+--       v' <- checkInternal' action v CmpLeq $ unDom a
+--       inferSpine' action (b `absApp` v) (self `applyE` [e]) (self' `applyE` [Apply (Arg ai v')]) es
+--     -- case: projection or projection-like
+--     Proj o f -> do
+--       (a, b) <- shouldBePi =<< shouldBeProjectible t f
+--       u  <- applyDef o f (argFromDom a $> self)
+--       u' <- applyDef o f (argFromDom a $> self')
+--       inferSpine' action (b `absApp` self) u u' es
 
--- | Type should either be a record type of a type eligible for
---   the principal argument of projection-like functions.
-shouldBeProjectible :: (MonadCheckInternal m) => Type -> QName -> m Type
--- shouldBeProjectible t f = maybe failure return =<< projectionType t f
-shouldBeProjectible t f = do
-    t <- abortIfBlocked t
-    maybe failure return =<< getDefType f t
-  where failure = typeError $ ShouldBeRecordType t
-    -- TODO: more accurate error that makes sense also for proj.-like funs.
+-- -- | Type should either be a record type of a type eligible for
+-- --   the principal argument of projection-like functions.
+-- shouldBeProjectible :: (MonadCheckInternal m) => Type -> QName -> m Type
+-- -- shouldBeProjectible t f = maybe failure return =<< projectionType t f
+-- shouldBeProjectible t f = do
+--     t <- abortIfBlocked t
+--     maybe failure return =<< getDefType f t
+--   where failure = typeError $ ShouldBeRecordType t
+--     -- TODO: more accurate error that makes sense also for proj.-like funs.
 
-shouldBePath :: (MonadCheckInternal m) => Type -> m (Dom Type, Abs Type)
-shouldBePath t = do
-  t <- abortIfBlocked t
-  m <- isPath t
-  case m of
-    Just p  -> return p
-    Nothing -> typeError $ ShouldBePath t
+-- shouldBePath :: (MonadCheckInternal m) => Type -> m (Dom Type, Abs Type)
+-- shouldBePath t = do
+--   t <- abortIfBlocked t
+--   m <- isPath t
+--   case m of
+--     Just p  -> return p
+--     Nothing -> typeError $ ShouldBePath t
 
-shouldBePathBridge :: (MonadCheckInternal m) => Type -> m (Dom Type, Abs Type)
-shouldBePathBridge t = do
-  t <- abortIfBlocked t
-  m <- isPathBridge t
-  case m of
-    Just p  -> return p
-    Nothing -> typeError $ GenericError "Should be path/bridge type."
+-- shouldBePathBridge :: (MonadCheckInternal m) => Type -> m (Dom Type, Abs Type)
+-- shouldBePathBridge t = do
+--   t <- abortIfBlocked t
+--   m <- isPathBridge t
+--   case m of
+--     Just p  -> return p
+--     Nothing -> typeError $ GenericError "Should be path/bridge type."
 
-shouldBePi :: (MonadCheckInternal m) => Type -> m (Dom Type, Abs Type)
-shouldBePi t = abortIfBlocked t >>= \ case
-  El _ (Pi a b) -> return (a, b)
-  _             -> typeError $ ShouldBePi t
+-- shouldBePi :: (MonadCheckInternal m) => Type -> m (Dom Type, Abs Type)
+-- shouldBePi t = abortIfBlocked t >>= \ case
+--   El _ (Pi a b) -> return (a, b)
+--   _             -> typeError $ ShouldBePi t
 
--- | Check if sort is well-formed.
-checkSort :: (MonadCheckInternal m) => Action m -> Sort -> m Sort
-checkSort action s =
-  case s of
-    Type l   -> Type <$> checkLevel action l
-    Prop l   -> Prop <$> checkLevel action l
-    Inf f n  -> return $ Inf f n
-    SSet l   -> SSet <$> checkLevel action l
-=======
+
+
+
 instance CheckInternal Sort where
   checkInternal' action s cmp _ = case s of
     Univ u l -> Univ u <$> inferInternal' action l
     Inf u n  -> return $ Inf u n
->>>>>>> prep-2.6.4.2
     SizeUniv -> return SizeUniv
     LockUniv -> return LockUniv
     LevelUniv -> return LevelUniv
