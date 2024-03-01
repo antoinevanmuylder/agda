@@ -285,7 +285,6 @@ data TermPosition
 -- * when the formula @φ@ is i1, in which case we reduce to @t@;
 -- * when we're under an @unglue@, i.e. in 'Eliminated' 'TermPosition', in which case
 --   we reduce to @a@.
->>>>>>> prep-2.6.4.2
 headStop :: PureTCM m => TermPosition -> m Term -> m Bool
 headStop tpos phi
   -- TODO-antva: remove this?
