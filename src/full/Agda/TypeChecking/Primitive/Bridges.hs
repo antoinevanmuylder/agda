@@ -62,7 +62,7 @@ import Agda.Utils.Monad
 import Agda.Utils.Null
 import Agda.Utils.Tuple
 import Agda.Utils.Size
-import qualified Agda.Utils.Pretty as P
+import qualified Agda.Syntax.Common.Pretty as P
 import Agda.Utils.VarSet as VSet hiding (null)
 
 
@@ -240,7 +240,7 @@ extentType = do
   return t
   where
     newBline bB aa a0 a1 = glam lkDefaultArgInfo "i" (\i -> bB <@> i <@> (aa <@@> (a0, a1, i) )) -- i is a bridge elim hence the double "at".
-    lkDefaultArgInfo = setLock IsLock defaultArgInfo
+    lkDefaultArgInfo = setLock (IsLock LockOTick) defaultArgInfo
 
 
 -- | @semiFreshForFvars fvs lk@ checks whether the following condition holds:
@@ -368,7 +368,7 @@ primExtent' = do
     captureIn m ri =
       let sigma = ([var (i+1) | i <- [0 .. ri - 1] ] ++ [var 0]) ++# raiseS (ri + 2) in
       Lam ldArgInfo $ Abs "r" $ applySubst sigma m
-    ldArgInfo = setLock IsLock defaultArgInfo
+    ldArgInfo = setLock (IsLock LockOTick) defaultArgInfo
     fallback lA lB bA bB r bM' n0 n1 nn =
       return $ NoReduction $ map notReduced [lA, lB, bA, bB, n0, n1, nn, r] ++ [reduced bM']
 
@@ -595,8 +595,8 @@ primBisone' = do
   requireBridges "in primBisone'"
   typ <- (primBridgeIntervalType --> primBCstrType)
   return $ PrimImpl typ  $ primFun __IMPOSSIBLE__ 1 $ \args@[ r ] -> do
-    bno <- getTerm builtinBisone builtinBno
-    byes <- getTerm builtinBisone builtinByes
+    bno <- getTerm (getBuiltinId builtinBisone) builtinBno
+    byes <- getTerm (getBuiltinId builtinBisone) builtinByes
     r' <- reduceB' r
     viewr <- bridgeIntervalView $ unArg $ ignoreBlocking r'
     case viewr of
@@ -610,8 +610,8 @@ primBiszero' = do
   requireBridges "in primBisone'"
   typ <- (primBridgeIntervalType --> primBCstrType)
   return $ PrimImpl typ  $ primFun __IMPOSSIBLE__ 1 $ \args@[ r ] -> do
-    bno <- getTerm builtinBisone builtinBno
-    byes <- getTerm builtinBisone builtinByes
+    bno <- getTerm (getBuiltinId builtinBisone) builtinBno
+    byes <- getTerm (getBuiltinId builtinBisone) builtinByes
     r' <- reduceB' r
     viewr <- bridgeIntervalView $ unArg $ ignoreBlocking r'
     case viewr of
@@ -657,10 +657,10 @@ primBconj' = do
   requireBridges "in primBconj'"
   typ <- (primBCstrType --> primBCstrType --> primBCstrType)
   return $ PrimImpl typ  $ primFun __IMPOSSIBLE__ 2 $ \args@[ psi1 , psi2 ] -> do
-    bno <- getTerm builtinBconj builtinBno
-    byes <- getTerm builtinBconj builtinByes
-    bisone <- getTerm builtinBconj builtinBisone
-    biszero <- getTerm builtinBconj builtinBiszero
+    bno <- getTerm (getBuiltinId builtinBconj) builtinBno
+    byes <- getTerm (getBuiltinId builtinBconj) builtinByes
+    bisone <- getTerm (getBuiltinId builtinBconj) builtinBisone
+    biszero <- getTerm (getBuiltinId builtinBconj) builtinBiszero
     psi1' <- reduceB' psi1
     psi2' <- reduceB' psi2
     viewPsi1 <- bcstrView $ unArg $ ignoreBlocking psi1'

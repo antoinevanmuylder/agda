@@ -141,8 +141,8 @@ getLockVar lk = do
 
 -- | Types of variables that are anyway timeless
 --   The cubical interval, cubical constraints, the bridge interval.
-timelessThings :: [String]
-timelessThings = map getBuiltinId [builtinInterval, builtinIsOne, builtinBridgeInterval]
+timelessThings :: [BuiltinId]
+timelessThings = [builtinInterval, builtinIsOne, builtinBridgeInterval]
 
 
 isTimeless :: Type -> Int ->  TCM Bool
