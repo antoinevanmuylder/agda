@@ -138,7 +138,7 @@ defaultDom :: a -> Dom a
 defaultDom = defaultArgDom defaultArgInfo
 
 lkDefaultDom :: a -> Dom a
-lkDefaultDom = defaultArgDom $ setLock IsLock defaultArgInfo
+lkDefaultDom = defaultArgDom $ setLock (IsLock LockOTick) defaultArgInfo
 
 defaultArgDom :: ArgInfo -> a -> Dom a
 defaultArgDom info x = domFromArg (Arg info x)

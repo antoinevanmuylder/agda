@@ -1211,7 +1211,7 @@ builtinConId, builtinIdElim, builtinSubOut,
   builtinMno, builtinMyes, builtinMkmc,
   builtinMComp, builtinMHComp, builtinTestPrim, builtinReflectMCstr, builtinPrsvMCstr, builtinAllMCstr, builtinAllMCstrCounit,
   builtinEmbd, builtinMixedOr,
-  builtin_mpor, builtinRefoldMhocom,
+  builtin_mpor, builtinRefoldMhocom
   :: PrimitiveId
 builtinConId                             = PrimConId
 builtinIdElim                            = PrimIdElim

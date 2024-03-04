@@ -42,6 +42,9 @@ import Agda.Syntax.Internal
 import Agda.TypeChecking.Monad.Base
 import Agda.TypeChecking.Monad.Builtin
 import Agda.TypeChecking.Monad.Pure
+import Agda.TypeChecking.Monad.Context (getContext, addContext)
+import Agda.TypeChecking.Monad.Debug
+import Agda.TypeChecking.Pretty
 
 import Agda.TypeChecking.Names
   ( runNamesT, runNames, cl, lam, open, ilam )

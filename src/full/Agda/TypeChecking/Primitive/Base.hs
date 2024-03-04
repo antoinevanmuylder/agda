@@ -79,7 +79,7 @@ hPi, nPi, lPi :: (MonadAddContext m, MonadDebug m)
          => String -> m Type -> m Type -> m Type
 hPi = gpi $ setHiding Hidden defaultArgInfo
 nPi = gpi defaultArgInfo
-lPi = gpi $ setLock IsLock defaultArgInfo
+lPi = gpi $ setLock (IsLock LockOTick) defaultArgInfo
 
 -- | the above type combinators in hoas style
 hPi', nPi' , lPi' :: (MonadFail m, MonadAddContext m, MonadDebug m)
@@ -260,7 +260,7 @@ domH :: e -> Dom e
 domH = setHiding Hidden . defaultDom
 
 argL :: e -> Arg e
-argL = Arg $ setLock IsLock defaultArgInfo
+argL = Arg $ setLock (IsLock LockOTick) defaultArgInfo
 
 ---------------------------------------------------------------------------
 -- * Accessing the primitive functions

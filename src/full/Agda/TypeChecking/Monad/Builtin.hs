@@ -27,7 +27,7 @@ import Agda.Syntax.Internal as I
 import Agda.TypeChecking.Monad.Base
 
 import Agda.TypeChecking.Monad.Debug
-import Agda.Utils.Pretty as P
+import Agda.Syntax.Common.Pretty as P
 -- import Agda.Utils.Lens
 -- import Data.HashMap.Strict (HashMap)
 -- import qualified Data.HashMap.Strict as HashMap
@@ -122,7 +122,7 @@ setBuiltinThings b = stLocalBuiltins `setTCLens` b
 
 bindBuiltinName :: BuiltinId -> Term -> TCM ()
 bindBuiltinName b x = do
-  reportSDoc "tc.prim" 20 $ return $ "binding (?)builtin" <+> (P.text b)  
+  reportSDoc "tc.prim" 20 $ return $ "binding (?)builtin" <+> (P.text $ getBuiltinId b)
   builtin <- getBuiltinThing b'
   case builtin of
     Just (Builtin y) -> typeError $ DuplicateBuiltinBinding b y x
@@ -133,7 +133,7 @@ bindBuiltinName b x = do
 
 bindPrimitive :: PrimitiveId -> PrimFun -> TCM ()
 bindPrimitive b pf = do
-  reportSDoc "tc.prim" 20 $ return $ "binding (?)primitive" <+> (P.text b)
+  reportSDoc "tc.prim" 20 $ return $ "binding (?)primitive" <+> (P.text $ getBuiltinId b)
   builtin <- getBuiltinThing b'
   case builtin of
     Just (Builtin _) -> typeError $ NoSuchPrimitiveFunction (getBuiltinId b)
@@ -382,22 +382,22 @@ primBisone                            = getPrimitiveTerm builtinBisone
 primBConj                             = getPrimitiveTerm builtinBconj
 primBHolds                            = getBuiltin builtinBHolds
 primBitHolds                          = getBuiltin builtinBitHolds
-primBPartial                          = getPrimitiveTerm "primBPartial"
+primBPartial                          = getPrimitiveTerm PrimBPartial
 primMCstr                             = getBuiltin builtinMCstr
-primMno                               = getPrimitiveTerm "primMno"
-primMyes                              = getPrimitiveTerm "primMyes"
-primMkmc                              = getPrimitiveTerm "primMkmc"
+primMno                               = getPrimitiveTerm PrimMno
+primMyes                              = getPrimitiveTerm PrimMyes
+primMkmc                              = getPrimitiveTerm PrimMkmc
 primMHolds                            = getBuiltin builtinMHolds
 primMitHolds                          = getBuiltin builtinMitHolds
-primMPartial                          = getPrimitiveTerm "primMPartial"
-primMHComp                            = getPrimitiveTerm "primMHComp"
-primMComp                             = getPrimitiveTerm "primMComp"
-primTestPrim                          = getPrimitiveTerm "primTestPrim"
-primReflectMCstr                      = getPrimitiveTerm "primReflectMCstr"
+primMPartial                          = getPrimitiveTerm PrimMPartial
+primMHComp                            = getPrimitiveTerm PrimMHComp
+primMComp                             = getPrimitiveTerm PrimMComp
+primTestPrim                          = getPrimitiveTerm PrimTestPrim
+primReflectMCstr                      = getPrimitiveTerm PrimReflectMCstr
 primPrsvMCstr                         = getPrimitiveTerm builtinPrsvMCstr
 primEmbd                              = getPrimitiveTerm builtinEmbd
 primMixedOr                           = getPrimitiveTerm builtinMixedOr
-primMPartialP                         = getPrimitiveTerm "primMPartialP"
+primMPartialP                         = getPrimitiveTerm PrimMPartialP
 primMHoldsEmpty                       = getBuiltin builtinMHoldsEmpty
 primMHolds1                           = getBuiltin builtinMHolds1
 primMHolds2                           = getBuiltin builtinMHolds2

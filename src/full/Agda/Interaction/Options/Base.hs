@@ -1356,9 +1356,9 @@ cubicalFlag variant o =
 bridgesFlag :: Flag PragmaOptions
 bridgesFlag o = do
   mo <- cubicalFlag CFull o
-  return mo
-  { _optBridges = setDefault True $ _optBridges mo
-  , _optGuarded = setDefault True $ _optGuarded mo
+  return mo {
+    _optBridges = setDefault True $ _optBridges mo
+    , _optGuarded = setDefault True $ _optGuarded mo
   }
 
 

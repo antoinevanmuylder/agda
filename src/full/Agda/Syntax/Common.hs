@@ -1746,7 +1746,7 @@ defaultArgInfo =  ArgInfo
   }
 
 lkDefaultArgInfo :: ArgInfo
-lkDefaultArgInfo = setLock IsLock defaultArgInfo
+lkDefaultArgInfo = setLock (IsLock LockOTick) defaultArgInfo
 
 -- Accessing through ArgInfo
 
