@@ -49,6 +49,7 @@ import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Telescope
 import Agda.TypeChecking.Lock
+import Agda.TypeChecking.Positivity.Occurrence
 -- import Agda.TypeChecking.Primitive.Cubical ( headStop , TermPosition(..) ) --TODO-antva move to Primitive.Base, maybe.
 
 import Agda.Utils.Either
@@ -739,8 +740,8 @@ primMkmc' = do
     byes <- getTerm "primMkmc'" builtinByes
     iz <- getTerm "primMkmc'" builtinIZero
     io <- getTerm "primMkmc'" builtinIOne
-    mno <- getTerm "primMKmc'" "primMno"
-    myes <- getTerm "primMKmc'" "primMyes"
+    mno <- getTerm "primMKmc'" PrimMno
+    myes <- getTerm "primMKmc'" PrimMyes
     φ' <- reduceB' φ
     ψ' <- reduceB' ψ
     viewφ <- intervalView $ unArg $ ignoreBlocking φ'
@@ -761,9 +762,9 @@ data MCstrView
 
 mcstrView' :: HasBuiltins m => m (Term -> MCstrView)
 mcstrView' = do
-  mno <- getPrimitiveName' "primMno"
-  myes <- getPrimitiveName' "primMyes"
-  mkmc <- getPrimitiveName' "primMkmc"
+  mno <- getPrimitiveName' PrimMno
+  myes <- getPrimitiveName' PrimMyes
+  mkmc <- getPrimitiveName' PrimMkmc
   return $ \ t ->
     case t of
       Def q es ->
@@ -1081,7 +1082,8 @@ primMHComp' = do
           nPi' "i" primIntervalType (\ i -> mpPi' "o" zeta $ \ _ -> el' l bA) -->
           (el' l bA --> el' l bA)
   -- nelims = # of additional elims (ie after u0)
-  return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 $ \ ts@[l, bA, zeta@(Arg infZeta zetatm), u@(Arg infU utm), u0] nelims -> do
+  let occs = [Mixed, StrictPos, Mixed, StrictPos, StrictPos]  
+  return $ PrimImpl t $ PrimFun __IMPOSSIBLE__ 5 occs $ \ ts@[l, bA, zeta@(Arg infZeta zetatm), u@(Arg infU utm), u0] nelims -> do
   reportSDoc "tc.prim.mhcomp" 25 $ text "beginning of mhocom at ... equation"
   reportSDocDocs "tc.prim.mhcomp" 40
     (text "reducing in primMHComp with args...")
@@ -1093,7 +1095,8 @@ primMHComp' = do
     , "nelims=" <+> (return $ P.pretty nelims) ]
   sZeta <- reduceB' zeta
   vZeta <- mcstrView $ unArg $ ignoreBlocking sZeta
-  let clP s = getTerm (builtinMHComp) s
+
+  let clP s = getTerm (getBuiltinId builtinMHComp) s --TODO-antva: might be overspecialized
 
   case vZeta of
     Myes -> do -- adjusting u0 everywhere.
@@ -1207,7 +1210,7 @@ mhcompPi :: (Dom Type, Abs Type)
          -> ReduceM (Maybe Term)
 mhcompPi {- cmd t -} ab zeta u u0 = do
  reportSLn "tc.prim.mhcomp" 25 $ "in primMHComp, reduction for Pi type fired."
- let getTermLocal = getTerm $ builtinMHComp ++ " for function types"
+ let getTermLocal = getTerm $ (getBuiltinId builtinMHComp) ++ " for function types"
  -- tTrans <- getTermLocal builtinTrans
  tMHComp <- getTermLocal builtinMHComp
  -- tINeg <- getTermLocal builtinINeg
@@ -1264,19 +1267,19 @@ mhcompGlue :: PureTCM m =>
            -> m (Maybe Term)
 mhcompGlue psi u u0 glueArgs@(la, lb, bA, phi, bT, e) tpos = do
   reportSLn "tc.prim.mhcomp.glue" 25 $ "mhcompGlue was fired"
-  let getTermLocal = getTerm $ (builtinMHComp ++ " for " ++ builtinGlue)
-  tmpor <- getTermLocal builtin_mpor
-  tEmbd <- getTermLocal "primEmbd"
-  tMixedOr <- getTermLocal "primMixedOr"
-  tIMax <- getTermLocal builtinIMax
-  tIMin <- getTermLocal builtinIMin
-  tINeg <- getTermLocal builtinINeg
-  tMHComp <- getTermLocal builtinMHComp
-  tEFun  <- getTermLocal builtinEquivFun
-  tglue   <- getTermLocal builtin_glue
-  tunglue <- getTermLocal builtin_unglue
-  io      <- getTermLocal builtinIOne
-  tItIsOne <- getTermLocal builtinItIsOne
+  let locals = ((getBuiltinId builtinMHComp) ++ " for " ++ (getBuiltinId builtinGlue))
+  tmpor <- getTerm locals builtin_mpor
+  tEmbd <- getTerm locals PrimEmbd
+  tMixedOr <- getTerm locals PrimMixedOr
+  tIMax <- getTerm locals builtinIMax
+  tIMin <- getTerm locals builtinIMin
+  tINeg <- getTerm locals builtinINeg
+  tMHComp <- getTerm locals builtinMHComp
+  tEFun  <- getTerm locals builtinEquivFun
+  tglue   <- getTerm locals builtin_glue
+  tunglue <- getTerm locals builtin_unglue
+  io      <- getTerm locals builtinIOne
+  tItIsOne <- getTerm locals builtinItIsOne
   view <- intervalView'
   runNamesT [] $ do
     [psi, u, u0] <- mapM (open . unArg) [psi, u, u0]                         -- psi = ambient MCstr, from mhocom call.
@@ -1358,9 +1361,9 @@ mhcompMixHCompU psi u u0 inrArgs@(la, mphi, mbT, bA) tpos = do
     , "innter args (ℓ,φ:MCstr,T,A) are: " <+> prettyTCM (unArg la, unArg mphi, unArg mbT, unArg bA)
     , "tpos :: TermPosition is: " <+> (text $ show tpos) ]
   
-  let getTermLocal = getTerm $ (builtinMHComp ++ " for " ++ builtinMHComp ++ "(lifted hcomp)" ++ " of Set")
-  io      <- getTermLocal builtinIOne
-  iz      <- getTermLocal builtinIZero
+  let locals = ((getBuiltinId builtinMHComp) ++ " for " ++ (getBuiltinId builtinMHComp) ++ "(lifted hcomp)" ++ " of Set")
+  io      <- getTerm locals builtinIOne
+  iz      <- getTerm locals builtinIZero
 
   smphi <- reduce mphi
   vmphi <- mcstrView (unArg smphi)
@@ -1375,21 +1378,21 @@ mhcompMixHCompU psi u u0 inrArgs@(la, mphi, mbT, bA) tpos = do
     _ -> __IMPOSSIBLE__
   if (not keepGoing) then (return Nothing) else do
 
-  tmpor <- getTermLocal builtin_mpor
-  tmixOr <- getTermLocal builtinMixedOr
-  tEmbd <- getTermLocal builtinEmbd
-  tIMax <- getTermLocal builtinIMax
-  tIMin <- getTermLocal builtinIMin
-  tINeg <- getTermLocal builtinINeg
-  -- tHComp <- getTermLocal builtinHComp
-  tMHComp <- getTermLocal builtinMHComp
-  tTransp  <- getTermLocal builtinTrans
-  tglue   <- getTermLocal builtin_glueU
-  tunglue <- getTermLocal builtin_unglueU
-  tLSuc   <- getTermLocal builtinLevelSuc
-  tSubIn <- getTermLocal builtinSubIn
-  tItIsOne <- getTermLocal builtinItIsOne
-  tPrsvMCstr <- getTermLocal builtinPrsvMCstr
+  tmpor <- getTerm locals builtin_mpor
+  tmixOr <- getTerm locals builtinMixedOr
+  tEmbd <- getTerm locals builtinEmbd
+  tIMax <- getTerm locals builtinIMax
+  tIMin <- getTerm locals builtinIMin
+  tINeg <- getTerm locals builtinINeg
+  -- tHComp <- getTerm locals builtinHComp
+  tMHComp <- getTerm locals builtinMHComp
+  tTransp  <- getTerm locals builtinTrans
+  tglue   <- getTerm locals builtin_glueU
+  tunglue <- getTerm locals builtin_unglueU
+  tLSuc   <- getTerm locals builtinLevelSuc
+  tSubIn <- getTerm locals builtinSubIn
+  tItIsOne <- getTerm locals builtinItIsOne
+  tPrsvMCstr <- getTerm locals builtinPrsvMCstr
   
   runNamesT [] $ do
     [psi, u, u0] <- mapM (open . unArg) [psi, u, u0]
@@ -1446,14 +1449,14 @@ mhcompPathP ::
         -> ReduceM (Reduced MaybeReducedArgs Term)
 mhcompPathP spsi u u0 l (bA,x,y) = do
   reportSLn "tc.prim.mhcomp.pathp" 25 "Rule for mhocom at PathP fires."
-  let getTermLocal = getTerm $ builtinMHComp ++ " for path types"
-  iz <- getTermLocal builtinIZero
-  tmhocom <- getTermLocal builtinMHComp
-  tINeg <- getTermLocal builtinINeg
-  tIMax <- getTermLocal builtinIMax
-  tMixedOr <- getTermLocal builtinMixedOr
-  tEmbd <- getTermLocal builtinEmbd
-  tmpor   <- getTermLocal builtin_mpor
+  let locals = (getBuiltinId builtinMHComp) ++ " for path types"
+  iz <- getTerm locals builtinIZero
+  tmhocom <- getTerm locals builtinMHComp
+  tINeg <- getTerm locals builtinINeg
+  tIMax <- getTerm locals builtinIMax
+  tMixedOr <- getTerm locals builtinMixedOr
+  tEmbd <- getTerm locals builtinEmbd
+  tmpor   <- getTerm locals builtin_mpor
   let
     ineg j = pure tINeg <@> j
     imax i j = pure tIMax <@> i <@> j
@@ -1493,9 +1496,9 @@ mhcompId ::
         -- ^ A : Type ℓ, x y : A
         -> ReduceM (Maybe (Reduced MaybeReducedArgs Term))
 mhcompId sphi u a0 l (bA , x , y) = do
-  let getTermLocal = getTerm $ builtinMHComp ++ " for " ++ builtinId
+  let locals = (getBuiltinId builtinMHComp) ++ " for " ++ (getBuiltinId builtinId)
   vsphi <- mcstrView $ unArg $ ignoreBlocking sphi
-  io <- getTermLocal builtinBIZero
+  io <- getTerm locals builtinBIZero
   mbno <- getName' builtinBno
   unmix <- case vsphi of
     Mno -> return $ Just io
@@ -1504,9 +1507,9 @@ mhcompId sphi u a0 l (bA , x , y) = do
   case unmix of
     Nothing -> return Nothing
     Just phi -> do
-      tHComp <- getTermLocal builtinHComp
-      tId <- getTermLocal builtinId
-      tPres <- getTermLocal builtinPrsvMCstr
+      tHComp <- getTerm locals builtinHComp
+      tId <- getTerm locals builtinId
+      tPres <- getTerm locals builtinPrsvMCstr
       runNamesT [] $ do
         -- NamesT ReduceM (Maybe (Reduced MaybeReducedArgs Term))
         [l , bA , x , y , phi , u , a0] <- mapM (open . unArg) [l , bA , x , y , argN phi, u , a0]
@@ -1616,21 +1619,22 @@ mhcompData l ps sc sphi u a0 = do
     , "u adjustement " <+> (return $ P.pretty $ u)
     , "base " <+> (return $ P.pretty $ a0) ]
   
-  let getTermLocal = getTerm $ builtinMHComp ++ " for data types"
-  -- tPOr   <- getTermLocal builtinPOr
-  mempty <- getTermLocal builtinMHoldsEmpty
-  mpor <- getTermLocal builtin_mpor
-  embd <- getTermLocal builtinEmbd
-  mixedOr <- getTermLocal builtinMixedOr
-  myes <- getTermLocal builtinMyes
-  biszero <- getTermLocal builtinBiszero
-  bisone <- getTermLocal builtinBisone
+
+  let locals = (getBuiltinId builtinMHComp) ++ " for data types"
+  -- tPOr   <- getTerm locals builtinPOr
+  mempty <- getTerm locals builtinMHoldsEmpty
+  mpor <- getTerm locals builtin_mpor
+  embd <- getTerm locals builtinEmbd
+  mixedOr <- getTerm locals builtinMixedOr
+  myes <- getTerm locals builtinMyes
+  biszero <- getTerm locals builtinBiszero
+  bisone <- getTerm locals builtinBisone
   
-  iO   <- getTermLocal builtinIOne
-  iZ   <- getTermLocal builtinIZero
-  mno  <- getTermLocal builtinMno
-  tMin <- getTermLocal builtinIMin
-  tNeg <- getTermLocal builtinINeg
+  iO   <- getTerm locals builtinIOne
+  iZ   <- getTerm locals builtinIZero
+  mno  <- getTerm locals builtinMno
+  tMin <- getTerm locals builtinIMin
+  tNeg <- getTerm locals builtinINeg
   let iNeg t = tNeg `apply` [argN t]
       iMin t u = tMin `apply` [argN t, argN u]
       -- iz = pure iZ
@@ -1813,19 +1817,19 @@ mhcompBridgeP ::
         -> ReduceM (Reduced MaybeReducedArgs Term)
 mhcompBridgeP spsi u u0 l (bA,x,y) = do
   reportSLn "tc.prim.mhcomp.bridgep" 25 "Rule for mhocom at BridgeP fires"
-  let getTermLocal = getTerm $ builtinMHComp ++ " for BridgeP types"
-  iz <- getTermLocal builtinIZero
-  biz <- getTermLocal builtinBIZero
-  tmhocom <- getTermLocal builtinMHComp
-  bconj <- getTermLocal builtinBconj
-  biszero <- getTermLocal builtinBiszero
-  bisone <- getTermLocal builtinBisone
-  -- tINeg <- getTermLocal builtinINeg
-  -- tIMax <- getTermLocal builtinIMax
-  tMixedOr <- getTermLocal builtinMixedOr
-  mkmc <- getTermLocal builtinMkmc
-  -- tEmbd <- getTermLocal builtinEmbd
-  tmpor   <- getTermLocal builtin_mpor
+  let locals = (getBuiltinId builtinMHComp) ++ " for BridgeP types"
+  iz <- getTerm locals builtinIZero
+  biz <- getTerm locals builtinBIZero
+  tmhocom <- getTerm locals builtinMHComp
+  bconj <- getTerm locals builtinBconj
+  biszero <- getTerm locals builtinBiszero
+  bisone <- getTerm locals builtinBisone
+  -- tINeg <- getTerm locals builtinINeg
+  -- tIMax <- getTerm locals builtinIMax
+  tMixedOr <- getTerm locals builtinMixedOr
+  mkmc <- getTerm locals builtinMkmc
+  -- tEmbd <- getTerm locals builtinEmbd
+  tmpor   <- getTerm locals builtin_mpor
   let
     -- ineg j = pure tINeg <@> j
     -- imax i j = pure tIMax <@> i <@> j
@@ -1879,14 +1883,14 @@ transpBridgeP l (bA, x , y) phi u0 = do
     , "path cofib φ is " <+> (prettyTCM phi)
     , "base u0 is " <+> (prettyTCM u0) ]
   
-  let getTermLocal = getTerm "transport for bridge types"
-  iz <- getTermLocal builtinIZero
-  io <- getTermLocal builtinIOne
-  mixedOr <- getTermLocal builtinMixedOr
-  mkmc <- getTermLocal builtinMkmc
-  bno <- getTermLocal builtinBno
-  biszero <- getTermLocal builtinBiszero
-  bisone <- getTermLocal builtinBisone
+  let locals = "transport for bridge types"
+  iz <- getTerm locals builtinIZero
+  io <- getTerm locals builtinIOne
+  mixedOr <- getTerm locals builtinMixedOr
+  mkmc <- getTerm locals builtinMkmc
+  bno <- getTerm locals builtinBno
+  biszero <- getTerm locals builtinBiszero
+  bisone <- getTerm locals builtinBisone
 
   -- Transport in bridge types becomes mixed /CCHM/ composition in the
   -- underlying line of spaces. The intuition is that not only do we
@@ -1931,14 +1935,14 @@ transpBridgeP l (bA, x , y) phi u0 = do
 --   what function uses it.
 mkMhecom :: HasBuiltins m => String -> NamesT m (NamesT m Term -> NamesT m Term -> NamesT m Term -> NamesT m Term -> NamesT m Term -> NamesT m Term)
 mkMhecom s = do
-  let getTermLocal = getTerm s
-  tIMax  <- getTermLocal builtinIMax
-  tINeg  <- getTermLocal builtinINeg
-  -- tHComp <- getTermLocal builtinHComp
-  mhocom <- getTermLocal builtinMHComp
-  tTrans <- getTermLocal builtinTrans
-  iz     <- getTermLocal builtinIZero
-  io     <- getTermLocal builtinIOne
+  let locals = s
+  tIMax  <- getTerm locals builtinIMax
+  tINeg  <- getTerm locals builtinINeg
+  -- tHComp <- getTerm locals builtinHComp
+  mhocom <- getTerm locals builtinMHComp
+  tTrans <- getTerm locals builtinTrans
+  iz     <- getTerm locals builtinIZero
+  io     <- getTerm locals builtinIOne
 
   let
     forward la bA r u = pure tTrans
@@ -2025,22 +2029,23 @@ transpGel l (lgel, bA0, bA1, bR, r@(Arg rinfo rtm@(Var ri [])) ) phi u0 = do --
     , "phi is " <+> (return $ P.pretty $ ignoreBlocking phi)
     , "base u0 is " <+> (return $ P.pretty u0) ]
 
-  let getTermLocal = getTerm "transport for Gel"
-  gel <- getTermLocal builtin_gel
-  ungel <- getTermLocal builtin_ungel
-  neg <- getTermLocal builtinINeg
-  max <- getTermLocal builtinIMax
-  bi0 <- getTermLocal builtinBIZero
-  bi1 <- getTermLocal builtinBIOne
-  trsp <- getTermLocal builtinTrans
-  i0 <- getTermLocal builtinIZero
-  i1 <- getTermLocal builtinIOne
+
+  let locals = "transport for Gel"
+  gel <- getTerm locals builtin_gel
+  ungel <- getTerm locals builtin_ungel
+  neg <- getTerm locals builtinINeg
+  max <- getTerm locals builtinIMax
+  bi0 <- getTerm locals builtinBIZero
+  bi1 <- getTerm locals builtinBIOne
+  trsp <- getTerm locals builtinTrans
+  i0 <- getTerm locals builtinIZero
+  i1 <- getTerm locals builtinIOne
 
 
   
   -- will be used for u0
   let
-    ldArgInfo = setLock IsLock defaultArgInfo
+    ldArgInfo = setLock (IsLock LockOTick) defaultArgInfo
     -- | precond: Γ0 , r:BI , Γ1 ⊢ M : ... and (semiFreshForFvars M @r) then
     --   postcond      Γ0, r:BI, Γ1 ⊢ (captureIn M @r) : (@tick r'' : BI) -> ...    
     captureIn m ri =
@@ -2108,22 +2113,21 @@ getMCstrBack msg clauses = do
 --   You may want to reduce the resulting constraint (see getMCstrBack)
 getMCstrBack' :: PureTCM m => String -> [ (CorBsplit, IntMap Bool) ] -> m Term
 getMCstrBack' msg [] = do
-  let getTermLocal = getTerm msg
-  mno <- getTermLocal builtinMno
+  mno <- getTerm msg builtinMno
   return mno
 getMCstrBack' msg  ( (skind, conjBools) : rest ) = do
-  let getTermLocal = getTerm msg
-  i1 <- getTermLocal builtinIOne
-  i0 <- getTermLocal builtinIZero
-  bi0 <- getTermLocal builtinBIZero
-  mkmc <- getTermLocal builtinMkmc
-  mixedOr <- getTermLocal builtinMixedOr
-  neg <- getTermLocal builtinINeg
-  iand <- getTermLocal builtinIMin
-  bisone <- getTermLocal builtinBisone
-  biszero <- getTermLocal builtinBiszero
-  byes <- getTermLocal builtinByes
-  bno <- getTermLocal builtinBno
+  let getTerm msg = getTerm msg
+  i1 <- getTerm msg builtinIOne
+  i0 <- getTerm msg builtinIZero
+  bi0 <- getTerm msg builtinBIZero
+  mkmc <- getTerm msg builtinMkmc
+  mixedOr <- getTerm msg builtinMixedOr
+  neg <- getTerm msg builtinINeg
+  iand <- getTerm msg builtinIMin
+  bisone <- getTerm msg builtinBisone
+  biszero <- getTerm msg builtinBiszero
+  byes <- getTerm msg builtinByes
+  bno <- getTerm msg builtinBno
 
   let
     -- gives j, or ~j for j db index, in CSPLIT case
@@ -2166,7 +2170,7 @@ getMCstrBack' msg  ( (skind, conjBools) : rest ) = do
   restMCstr <- getMCstrBack' msg rest
   return $ mixedOr `apply` [argN asMCstr, argN $ restMCstr]         
       
-  
+
 
 -- | ∀-mcstr : ((@tick x : BI) → MCstr) → MCstr
 --   deletes all clauses mentionning x:BI from input.
@@ -2176,8 +2180,8 @@ primAllMCstr' = do
   typ <- (primBridgeIntervalType -->* primMCstrType) --> primMCstrType
   
   return $ PrimImpl typ $ primFun __IMPOSSIBLE__ 1 $ \ [ absZeta ]  -> do
-    let getTermLocal = getTerm "in primAllMCstr'"
-    biType <- getTermLocal builtinBridgeInterval
+    let locals = "in primAllMCstr'"
+    biType <- getTerm locals builtinBridgeInterval
 
     mMkmc <- getPrimitiveName' builtinMkmc
     mMno <- getPrimitiveName' builtinMno
@@ -2281,7 +2285,7 @@ data CaptureVariant =
 --    Γ ⊢ u0 : Gel A0 A1 R x and reduction fires if x semi fresh in it
 --    Γ  ⊢ u : ∀ i -> MPartial ζ (Gel A0 A1 R x)
 --             and reduction fires only if x semifresh in various applications @u arg1 arg2@
-mhcompGel :: PureTCM m =>
+mhcompGel :: forall m. PureTCM m =>
           (Arg Term, Arg Term, Arg Term, Arg Term, Arg Term)
           -- ^ gel args: l, A0, A1, R, x
           -> Blocked (Arg Term) -- ^ simplified ambient constraint zeta
@@ -2375,7 +2379,7 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
         addContext("pvar1" :: String, cint) $ addContext ("oall" :: String, mholdsAll) $ do
           -- Γ, pvar1, oall ⊢ u pvar1 (epsi oall x)
           uio <- do
-            epsi <- getTermLocal builtinAllMCstrCounit
+            epsi <- getTerm locals builtinAllMCstrCounit
             (pure $ raise 2 (unArg u)) <@> (pure $ Var 1 []) <..> ((pure epsi) <#> (pure $ raise 2 xBindedZeta) <..> (pure $ Var 0 []) <@*> (pure $ Var (dbi + 2) []))
           sfreshRes <- lazySFresh uio (dbi + 2)
           let res = flip fmap sfreshRes $ \ bt ->
@@ -2393,7 +2397,7 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
         addContext ("pvar1" :: String, cint) $ addContext ("pvar2" :: String, cint) $ do
           --  Γ, y z :I ⊢ u (pvar1 ∧ pvar2)
           uyz <- do
-            iand <- getTermLocal builtinIMin
+            iand <- getTerm locals builtinIMin
             (pure $ raise 2 $ unArg u) <@> ((pure iand) <@> (pure $ Var 1 []) <@> (pure $ Var 0 []))
           sfreshRes <- lazySFresh uyz (dbi + 2)
           let res = flip fmap sfreshRes $ \ bt ->
@@ -2409,19 +2413,19 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
 
       where
         domCint = do
-          cint0 <- getTermLocal builtinInterval
+          cint0 <- getTerm locals builtinInterval
           let cint :: Type
               cint = El IntervalUniv cint0
           return $ defaultDom cint
 
         domMholdsAll = do
           mholdsAllTm <- do
-            mholds <- getTermLocal builtinMHolds
-            allmcstr <- getTermLocal builtinAllMCstr
+            mholds <- getTerm locals builtinMHolds
+            allmcstr <- getTerm locals builtinAllMCstr
             (pure mholds) <@> ((pure allmcstr) <@> (pure xBindedZeta))
           return $ (defaultDom $ El (mkSSet 0) mholdsAllTm) { domIsFinite = True } -- TODO-antva: also setRelevance?
 
-        getTermLocal = getTerm "in captureInU, mhocom at Gel"
+        locals = "in captureInU, mhocom at Gel"
 
 
   mxBindedUI <- captureInU CapInUI
@@ -2442,9 +2446,15 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
     [xBindedUI, xBindedUIO, xBindedUYZ] = flip map [mxBindedUI, mxBindedUIO, mxBindedUYZ] $ maybe __IMPOSSIBLE__ id --get rid of Just
   
   res <- runNamesT [] $ do --PureTCM m => namesT m (Maybe Term)
-    let getTermLocal = \ str -> do
-          res <- getTerm "in mhocom at Gel" str
+    let getTermLocal :: IsBuiltin a => a -> NamesT m (NamesT m Term)
+        getTermLocal bui = do
+          res <- getTerm "in mhocom at Gel" bui
           open res
+    --machin <- _foo
+    --TODO-antva remove
+    -- let getTermLocal = \ str -> do
+    --       res <- getTerm "in mhocom at Gel" str
+    --       open res
     gel <- getTermLocal builtin_gel
     mhocom <- getTermLocal builtinMHComp
     l <- open $ unArg l

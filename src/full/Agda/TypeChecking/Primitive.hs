@@ -38,7 +38,6 @@ import Agda.TypeChecking.Quote (quoteTermWithKit, quoteTypeWithKit, quoteDomWith
 import Agda.TypeChecking.Primitive.Base
 import Agda.TypeChecking.Primitive.Cubical
 import Agda.TypeChecking.Primitive.Bridges
-import Agda.TypeChecking.Primitive.Cubical.Base
 import Agda.TypeChecking.Warnings
 
 import Agda.Utils.Char

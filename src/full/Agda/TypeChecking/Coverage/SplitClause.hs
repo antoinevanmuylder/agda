@@ -13,6 +13,7 @@ import qualified Data.IntSet as IntSet
 
 import Agda.Syntax.Common
 import Agda.Syntax.Common.Pretty (prettyShow)
+import Agda.Syntax.Common.Pretty as P
 import Agda.Syntax.Internal hiding (DataOrRecord)
 
 import Agda.TypeChecking.Coverage.Match
@@ -25,6 +26,7 @@ import Agda.TypeChecking.Telescope
 import Agda.TypeChecking.Telescope.Path
 import Agda.TypeChecking.MetaVars
 import Agda.TypeChecking.Warnings
+import Agda.TypeChecking.Pretty
 
 import Agda.Interaction.Options
 
