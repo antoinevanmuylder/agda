@@ -793,7 +793,7 @@ checkArgumentsE'
                 lift $ reportSDoc "tc.term.args" 30 $ text $ show bA
                 u <- lift $ checkExpr (namedThing e) =<< primBridgeIntervalType --u : BI in internal syntax
                 binterval <- lift primBridgeIntervalType
-                let info' = setLock IsLock defaultArgInfo
+                let info' = setLock (IsLock LockOTick) defaultArgInfo
                 let c = Just $ Abs "t" (CheckLockedVars (Var 0 []) (raise 1 sFun) (raise 1 $ Arg info' u) (raise 1 binterval))
                 addCheckedArgs us (getRange e) (IApply (unArg x) (unArg y) u) c $ -- IApply attaches endpoints to bridge var (or cst)
                   checkArgumentsE'

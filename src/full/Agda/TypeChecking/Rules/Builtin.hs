@@ -244,12 +244,12 @@ coreBuiltins =
   , (builtinBCstr                             |-> BuiltinPostulate Relevant (requireBridges "" >> (return $ sort CstrUniv)))
   , (builtinBHolds                            |-> BuiltinPostulate Relevant (requireBridges "" >> (tbcstr --> return (ssort $ ClosedLevel 0))))
   , (builtinBitHolds                          |-> BuiltinPostulate Relevant (requireBridges "" >> (elSSet $ primBHolds <@> primByes)))
-  , (builtinBPartial                          |-> BuiltinPrim "primBPartial" (const $ return ()))
+  , (builtinBPartial                          |-> BuiltinPrim PrimBPartial (const $ return ()))
   , (builtinMCstr                             |-> BuiltinPostulate Relevant (requireBridges "" >> (return $ sort CstrUniv)))
   , (builtinMHolds                            |-> BuiltinPostulate Relevant (requireBridges "" >> (tmcstr --> return (ssort $ ClosedLevel 0))))
   , (builtinMitHolds                          |-> BuiltinPostulate Relevant (requireBridges "" >> (elSSet $ primMHolds <@> primMyes)))
-  , (builtinMPartial                          |-> BuiltinPrim "primMPartial" (const $ return ()))
-  , (builtinMPartialP                         |-> BuiltinPrim "primMPartialP" (const $ return ()))
+  , (builtinMPartial                          |-> BuiltinPrim PrimMPartial (const $ return ()))
+  , (builtinMPartialP                         |-> BuiltinPrim PrimMPartialP (const $ return ()))
   , (builtinMHoldsEmpty                       |-> BuiltinPostulate Relevant (runNamesT [] $
                                                                    hPi' "l" (el $ cl primLevel) $ \ l ->
                                                                    hPi' "A" (mpPi' "o" (cl primMno) $ \ _ ->
@@ -1111,7 +1111,7 @@ bindBuiltinNoDef b q = inTopContext $ do
       -- Check for the cubical flag if the sort requries it
       case builtinSort of
         SortIntervalUniv -> requireCubical CErased ""
-        SortCstrUniv     -> requireBridges
+        SortCstrUniv     -> requireBridges ""
         _ -> return ()
       addConstant' q defaultArgInfo q (sort $ univSort s) def
       bindBuiltinName b $ Def q []

@@ -1945,9 +1945,10 @@ defineMixHCompForFields applyProj name params fsT fns rect = do
   reportSDoc "hcomp.rec" 60 $ text $ "sort = " ++ show (lTypeLevel rect)
 
   lang <- getLanguage
+  fun <- emptyFunctionData
   noMutualBlock $ addConstant theName $
     (defaultDefn defaultArgInfo theName theType lang
-           (FunctionDefn $ emptyFunctionData { _funTerminates = Just True, _funIsKanOp = Just name }))
+           (FunctionDefn $ fun{ _funTerminates = Just True, _funIsKanOp = Just name }))
           { defNoCompilation = True }
   --   ⊢ Γ = gamma = (δ : Δ) (ζ : MCstr) (_ : (i : I) -> MPartial ζ (R δ)) (_ : R δ)
   -- Γ ⊢     rtype = R δ

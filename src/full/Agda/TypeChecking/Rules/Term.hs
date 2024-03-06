@@ -421,7 +421,7 @@ checkBridge b@(A.TBind _ _ (x':|[]) xtyp) body ty = do
         info = getArgInfo x
     BridgeType s bridge level typ lhs rhs <- bridgeView ty --typ is underlying type line for het. bridge
     bridgeInterval <- primBridgeIntervalType
-    v <- addContext ([setLock IsLock x], bridgeInterval) $
+    v <- addContext ([setLock (IsLock LockOTick) x], bridgeInterval) $
            checkExpr body (El (raise 1 s) (raise 1 (unArg typ) `apply` [argN $ var 0]))
     biZero <- primBIZero
     biOne  <- primBIOne
