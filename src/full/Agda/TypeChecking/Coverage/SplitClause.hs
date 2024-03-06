@@ -13,7 +13,7 @@ import qualified Data.IntSet as IntSet
 
 import Agda.Syntax.Common
 import Agda.Syntax.Common.Pretty (prettyShow)
-import Agda.Syntax.Common.Pretty as P
+import qualified Agda.Syntax.Common.Pretty as P
 import Agda.Syntax.Internal hiding (DataOrRecord)
 
 import Agda.TypeChecking.Coverage.Match

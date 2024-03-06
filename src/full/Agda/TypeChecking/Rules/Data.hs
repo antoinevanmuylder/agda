@@ -1911,10 +1911,10 @@ defineMixHCompForFields applyProj name params fsT fns rect = do
   let delta = params
   iz <- primIZero
   io <- primIOne
-  imin <- getPrimitiveTerm "primIMin"
+  imin <- getPrimitiveTerm PrimIMin
   -- imax <- getPrimitiveTerm "primIMax"
-  tIMax <- getPrimitiveTerm "primIMax"
-  ineg <- getPrimitiveTerm "primINeg"
+  tIMax <- getPrimitiveTerm PrimIMax
+  ineg <- getPrimitiveTerm PrimINeg
   -- hcomp <- getPrimitiveTerm builtinHComp
   mhocom <- getPrimitiveTerm builtinMHComp
   transp <- getPrimitiveTerm builtinTrans

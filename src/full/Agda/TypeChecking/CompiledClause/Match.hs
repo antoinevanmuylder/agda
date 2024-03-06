@@ -22,7 +22,7 @@ import Agda.TypeChecking.Primitive.Base
 import Agda.Utils.Maybe
 import Agda.Utils.Monad
 import Agda.Syntax.Common.Pretty (prettyShow)
-import Agda.Syntax.Common.Pretty as P
+import qualified Agda.Syntax.Common.Pretty as P
 
 import Agda.Utils.Impossible
 

@@ -62,7 +62,7 @@ import Agda.Utils.Monad
 import Agda.Utils.Maybe
 import Agda.Utils.Permutation
 import Agda.Syntax.Common.Pretty (prettyShow)
-import Agda.Syntax.Common.Pretty as P
+import qualified Agda.Syntax.Common.Pretty as P
 import qualified Agda.Utils.ProfileOptions as Profile
 import Agda.Utils.BoolSet (BoolSet)
 import qualified Agda.Utils.BoolSet as BoolSet
@@ -547,7 +547,7 @@ compareGelTm cmp a' args@[l, bA0@(Arg _ bA0tm), bA1@(Arg _ bA1tm),
     captureIn body ri = --TODO-antva: duplicated code in extent beta
       let sigma = ([var (i+1) | i <- [0 .. ri - 1] ] ++ [var 0]) ++# raiseS (ri + 2) in
       Lam ldArgInfo $ Abs "r" $ applySubst sigma body
-    ldArgInfo = setLock IsLock defaultArgInfo
+    ldArgInfo = setLock (IsLock LockOTick) defaultArgInfo
 compareGelTm _ _ _ _ _ = __IMPOSSIBLE__
 
 
@@ -2377,7 +2377,7 @@ forallMixedFaces zeta kb k = do
     ifBlockeds :: MonadConversion m
                => CorBsplit -> [Term] -> (Blocker -> Term -> m a) -> (NotBlocked -> Term -> m a) -> m a
     ifBlockeds flag ts blocked unblocked = do
-      and <- getPrimitiveTerm "primIMin"
+      and <- getPrimitiveTerm PrimIMin
       io  <- primIOne
       let t = case flag of
             CSPLIT -> foldr (\ x r -> and `apply` [argN x,argN r]) io ts
@@ -2424,7 +2424,7 @@ bridgeGoK k xi biEps = do --biEps is either bi0 or bi1
 -- | 3 helper functions for path/bridge face methods above
 addBindings :: MonadConversion m => [(Dom (Name, Type), Term)] -> m a -> m a
 addBindings [] m = m
-addBindings ((Dom{domInfo = info,unDom = (nm,ty)},t):bs) m = addLetBinding info nm t ty (addBindings bs m)
+addBindings ((Dom{domInfo = info,unDom = (nm,ty)},t):bs) m = addLetBinding info Inserted nm t ty (addBindings bs m)
 
 -- | gives you a shortened context and a subst to the input ctx.
 --   (short,sigma) <- substContextN c [..(i,t)..]   then
@@ -2663,8 +2663,8 @@ compareTermOnMixedFace' k cmp zeta ty u v = do
   -- currently postponed is executed only if the split kind of this conjunction is CSPLIT.
   postponed dirs blocker psi = do
     phi <- runNamesT [] $ do
-             imin <- cl $ getPrimitiveTerm "primIMin"
-             ineg <- cl $ getPrimitiveTerm "primINeg"
+             imin <- cl $ getPrimitiveTerm PrimIMin
+             ineg <- cl $ getPrimitiveTerm PrimINeg
              psi <- open psi
              let phi = foldr (\ (i,b) r -> do i <- open (var i); pure imin <@> (if b then i else pure ineg <@> i) <@> r)
                           psi (IntMap.toList dirs) -- TODO Andrea: make a view?
