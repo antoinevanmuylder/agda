@@ -840,6 +840,7 @@ library
       Agda.Utils.CallStack.Base
       Agda.Utils.CallStack.Pretty
       Agda.Utils.Unsafe
+      Agda.TypeChecking.Primitive.Bridges
 
 -- Agda binary
 ---------------------------------------------------------------------------
