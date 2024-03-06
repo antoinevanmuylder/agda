@@ -284,7 +284,7 @@ checkFunDefS t ai extlam with i name withSub cs = do
           forM (zip cs [0..]) $ \ (c, clauseNo) -> do
             atClause name clauseNo t withSub c $ do
               (c,b) <- applyModalityToContextFunBody ai $ do
-                checkClause t withSub c              
+                checkClause t withSub c
               -- Andreas, 2013-11-23 do not solve size constraints here yet
               -- in case we are checking the body of an extended lambda.
               -- 2014-04-24: The size solver requires each clause to be
@@ -659,7 +659,7 @@ checkCubSystemCoverage f n t cs = do
           forallFaceMaps phi12 (\ _ _ -> __IMPOSSIBLE__) $ \_ sigma -> do
             -- gamma= ambient ctx, ie ends right < before (_ : IsOne _) -> ...
             -- by design of forallFaceMaps, we assume that sigma : shorter ctx -> gamma
-            -- and sigma sets substitutions such that phi12 (ie phi1 and phi2) holds  
+            -- and sigma sets substitutions such that phi12 (ie phi1 and phi2) holds
             let args = sigma `applySubst` teleArgs gamma
                 -- above args lists variables of gamma but where phi12 holds thanks to sigma (some vars are cst)
                 -- this means the the body function below yields something in t' as expected.
@@ -746,7 +746,7 @@ checkBdgSystemCoverage f n t cs = do
         dir :: (Int,Bool) -> Term
         dir (i,False) = biszero `apply` [argN $ var i]
         dir (i,True)  = bisone  `apply` [argN $ var i]
-        
+
         borI :: [Term] -> Term
         borI [] = bno
         borI [t] = t
@@ -794,7 +794,7 @@ checkBdgSystemCoverage f n t cs = do
       forM_ (initWithDefault __IMPOSSIBLE__ $
               initWithDefault __IMPOSSIBLE__ $ List.tails pcs3) $ \ ((psi1,cl1,(i1,b1)):pcs3') -> do
         forM_ pcs3' $ \ (psi2,cl2,(i2,b2)) -> do
-          
+
           let boolToBI :: Bool -> Term
               boolToBI False = bi0
               boolToBI True = bi1
@@ -809,7 +809,7 @@ checkBdgSystemCoverage f n t cs = do
           reportSDoc "tc.sys.cover" 30 $ "psi1 = " <+> (prettyTCM psi1) <+> ", psi2 = " <+> (prettyTCM psi2) <+> "goOn = " <+> (prettyTCM $ not stop)
           unless stop $ do
             thectx <- getContext --gamma has been pushed on this.
-            
+
             reportSDoc "tc.sys.cover" 10 $ "info of cur. clauses" <+> (nest 2 . vcat)
              [ "gamma              " <+> (prettyTCM gamma)
              , "thectx             " <+> (prettyTCM thectx)
@@ -833,7 +833,7 @@ checkBdgSystemCoverage f n t cs = do
             let (wk1 :: Substitution) = raiseFromS i1 1 --wk1 : gamma -> delta1. "forget psivar1" (ie sm kind of wkning)
                 (wk2 :: Substitution) = raiseFromS i2 1 --wk2 : gamma -> delta2.
                 cl1bodyInGamma = wk1 `applySubst` (maybe __IMPOSSIBLE__ id $ clauseBody cl1)
-                cl1TypeInGamma = wk1 `applySubst` (maybe __IMPOSSIBLE__ id $ clauseType cl1)                
+                cl1TypeInGamma = wk1 `applySubst` (maybe __IMPOSSIBLE__ id $ clauseType cl1)
                 cl2bodyInGamma = wk2 `applySubst` (maybe __IMPOSSIBLE__ id $ clauseBody cl2)
 
             -- we build sigma12 : Γ{where ψ1,ψ2 hold} → Δ₁ → Γ
@@ -844,9 +844,9 @@ checkBdgSystemCoverage f n t cs = do
             -- we pull cl1bodyInGamma, cl2bodyInGamma back in ctx delta12 and compare them!
             let finalCl1rhs = sigma12 `applySubst` cl1bodyInGamma
                 preRhsType  = sigma12 `applySubst` t --useless
-                rhsType     = unArg $ sigma12 `applySubst` cl1TypeInGamma            
+                rhsType     = unArg $ sigma12 `applySubst` cl1TypeInGamma
                 finalCl2rhs = sigma12 `applySubst` cl2bodyInGamma
-                
+
             reportSDoc "tc.sys.cover" 30 $  "coherent RHS's? ... " <+> (nest 2 . vcat)
               [ "thectx        = " <+> prettyTCM thectx
               , "wk1           = " <+> prettyTCM wk1
@@ -889,7 +889,7 @@ checkBdgSystemCoverage f n t cs = do
       reportSDoc "tc.sys.cover.sys" 20 $ "gamma,sys     =" <+> (fsep $ prettyTCM gamma : map prettyTCM sys)
       -- reportSDoc "tc.sys.cover.sys" 40 $ fsep $ (text . show) gamma : map (text . show) sys
       return (System gamma sys)
-      
+
     _ -> __IMPOSSIBLE__
 
 
@@ -962,8 +962,8 @@ checkMSystemCoverage f n t cs = do
 
         dir :: (Int,Bool) -> Term
         dir (i,False) = ineg `apply` [argN $ var i]
-        dir (i,True) = var i       
-        
+        dir (i,True) = var i
+
         borI :: [Term] -> Term
         borI [] = bno
         borI [t] = t
@@ -1016,14 +1016,14 @@ checkMSystemCoverage f n t cs = do
         , "cubAlphas   =" <+> prettyTCM cubAlphas
         , "bdgAlphas   =" <+> prettyTCM bdgAlphas
         , "cubCs       =" <+> prettyTCM cubCs
-        , "bdgCs       =" <+> prettyTCM bdgCs        
+        , "bdgCs       =" <+> prettyTCM bdgCs
         ]
 
       reportSDoc "tc.sys.cover" 40 $ "clauses, again, but clause contexts are displayed:"
       _ <- forM cs $ \c -> do
         addContext (clauseTel c) $ reportSDoc "tc.sys.cover" 40 $ nest 2 $ prettyTCM (clauseTel c)
         reportSDoc "tc.sys.cover" 40 $ nest 2 $ prettyTCM c
-        
+
 
       --code for cubical
       let
@@ -1037,12 +1037,12 @@ checkMSystemCoverage f n t cs = do
         , "cubPcs      =" <+> prettyTCM cubPcs
         ]
 
-      --code for bridges     
+      --code for bridges
       let
         bdgAlphas' = unpack' (bdgAlphas)
         psis :: [Term] -- 1 entry = a bridge hyperface
         psis = map (unpack . map bdir) (bdgAlphas)
-        psi = borI $ psis --bridge constraint reconstructed from clauses. 
+        psi = borI $ psis --bridge constraint reconstructed from clauses.
         bdgPcs = zip psis bdgCs
         bdgPcs3 = zip3 psis bdgCs bdgAlphas'
 
@@ -1059,7 +1059,7 @@ checkMSystemCoverage f n t cs = do
       reportSDoc "tc.sys.cover" 30 $ vcat
         [ "zeta = " <+> prettyTCM zeta ]
 
-     
+
       -- coverage check. the reconstructed bridge cstr (zeta := phi m∨ psi) matches the stated bridge constraint mcstr.
       tmcstr <- primMCstrType
       reportSDoc "tc.sys.cover" 10 $
@@ -1068,7 +1068,7 @@ checkMSystemCoverage f n t cs = do
 
 
       -- coherence check. rhs must agree where they overlap.
-      reportSDoc "tc.sys.coh" 20 $ "mixed coherence check for " <+> prettyTCM f <+> "..."      
+      reportSDoc "tc.sys.coh" 20 $ "mixed coherence check for " <+> prettyTCM f <+> "..."
 
       -- below, in order: path/bdg (mb conjunctive) clause (as in DNF clause), clause, split kind, clause LHS analysis
       zetasCsAlphas <- do -- (:: [(Term, Clause, PartialSplit, [(Int,Bool)])] )
@@ -1081,7 +1081,7 @@ checkMSystemCoverage f n t cs = do
                 Csplit -> (andI . (map dir)) theAnalysis
                 Bsplit -> (unpack . map bdir) theAnalysis
           return (theZeta , c , theKind , theAnalysis )
-              
+
       reportSDoc "tc.sys.coh" 30 $ vcat
         [ "coh chk traverses: " <+> (prettyTCM zetasCsAlphas) ]
 
@@ -1103,7 +1103,7 @@ checkMSystemCoverage f n t cs = do
           -- we first have to compute the intersection of zeta1 and zeta2
           -- if its empty, then the coherence check holds trivially
           unlessM (hasEmptyMeet zeta1asMCstr zeta2asMCstr) $ do
-          
+
           -- next we compute the substitution σ : Γ{zeta1 and zeta2} → Γ
           -- σ sets some vars in Γ following zeta1 and zeta2 = 1 (as mixed constraints)
           -- We are going to compare (clauseBody cl_i) in the domain context
@@ -1128,7 +1128,7 @@ checkMSystemCoverage f n t cs = do
               -- clAn1' = map (second (boolToInt splitKind1)) clAn1
               -- clAn2' = map (second (boolToInt splitKind2)) clAn2
               --ex: clAn12' = [ (j@1, i0)  , (r@2, bi0), (i@3, i1) ]
-              
+
           reportSDoc "tc.sys.coh" 40 $ nest 2 $ vcat
             [ "clAn12' = " <+> prettyTCM clAn12' ]
 
@@ -1206,7 +1206,7 @@ checkMSystemCoverage f n t cs = do
       reportSDoc "tc.sys.cover.sys" 20 $ "gamma,sys     =" <+> (fsep $ prettyTCM gamma : map prettyTCM sys)
       -- reportSDoc "tc.sys.cover.sys" 40 $ fsep $ (text . show) gamma : map (text . show) sys
       return (System gamma sys)
-      
+
     _ -> __IMPOSSIBLE__
 
 

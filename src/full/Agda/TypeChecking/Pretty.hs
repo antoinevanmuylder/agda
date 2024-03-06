@@ -205,7 +205,7 @@ instance {-# OVERLAPPABLE #-} PrettyTCM a => PrettyTCM [a] where
 instance PrettyTCM a => PrettyTCM (IntMap a) where
   prettyTCM = prettyTCM . IntMap.toList
 
-instance PrettyTCM BoolSet where 
+instance PrettyTCM BoolSet where
   prettyTCM = prettyTCM . BoolSet.toList
 
 {-# SPECIALIZE prettyTCM :: PrettyTCM a => [a] -> TCM Doc #-}

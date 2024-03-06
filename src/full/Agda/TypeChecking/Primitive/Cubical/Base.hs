@@ -390,12 +390,12 @@ decomposeInterval t = do
 -- | Decompose an interval expression @φ : I@ into a set of possible
 -- assignments for the variables mentioned in @φ@, together any leftover
 -- neutral terms that could not be put into 'IntervalView' form.
--- 
+--
 --   [ .. (bm_i, ts_i) .. ] <- decomposeInterval phi where phi = phi1 ∨ phi2 ...
 --   then:
 --   bm_i is describes a conjunction phi_i
 --   ts is used to store blocked terms
--- 
+--
 --   EX1: xyz ⊢ ~ x ∨ (y ∧ ~ z) ∨ i1
 --        [  ([(2,False)],[])  , ([(0,False), (1,True)],[])  , ([],[])  ]
 --   EX2: xyz ⊢ x ∧ (y ∨ z)

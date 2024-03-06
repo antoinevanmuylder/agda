@@ -1333,7 +1333,7 @@ instance KillRange Sort where
     LockUniv   -> LockUniv
     LevelUniv  -> LevelUniv
     IntervalUniv -> IntervalUniv
-    CstrUniv -> CstrUniv    
+    CstrUniv -> CstrUniv
     Univ u a   -> killRangeN (Univ u) a
     PiSort a s1 s2 -> killRangeN PiSort a s1 s2
     FunSort s1 s2 -> killRangeN FunSort s1 s2

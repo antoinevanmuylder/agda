@@ -272,7 +272,7 @@ sortOf t = do
           (b , c) <- fromMaybe __IMPOSSIBLE__ <$> isPathBridge a'
           sortOfE (c `absApp` r) (hd . (e:)) es
 
-          
+
 
 {-# INLINE sortOfType #-}
 -- | Reconstruct the minimal sort of a type (ignoring the sort annotation).

@@ -879,7 +879,7 @@ reduceTm rEnv bEnv !constInfo normalisation =
     isMhocom = case mhocom of -- QName -> Bool.
                Nothing -> const False
                Just q -> \ cmp -> (nameId $ qnameName q) == (nameId $ qnameName cmp)
-               
+
 
     -- If there's a non-standard equality (for instance doubly-indexed) we fall back to slow reduce
     -- for primErase and "unbind" refl.
@@ -1192,7 +1192,7 @@ reduceTm rEnv bEnv !constInfo normalisation =
 
           -- Case: literal
           Lit l -> matchLit l $ matchCatchall $ failedMatch f stack ctrl
-         
+
           -- Case: hcomp
           Def q [] | isJust $ lookupCon q bs -> matchCon' q (length spine) $ matchCatchall $ failedMatch f stack ctrl
           -- Case: hcomp before shifting es
@@ -1207,7 +1207,7 @@ reduceTm rEnv bEnv !constInfo normalisation =
           -- Next time, we fall into the above @Def q []@ where q = hcomp;
           -- Or we are stuck.
           --
-          -- Before this, we were doing a bad fallback in a Def q [] case.   
+          -- Before this, we were doing a bad fallback in a Def q [] case.
           --   fallbackAM $ Eval (Closure Unevaled (Def f []) emptyEnv
           --   (spine0 <> [Apply $ Arg i $ pureThunk cl] <> spine1)) ctrl
           -- The problem is that the above spine may not be big enough for f
@@ -1232,7 +1232,7 @@ reduceTm rEnv bEnv !constInfo normalisation =
 
           -- Case: not constructor or literal. In this case we are stuck.
           _ -> stuck
-      
+
       where
         -- If ffallThrough is set we take the catch-all (if any) rather than being stuck. I think
         -- this happens for partial functions with --cubical (@saizan: is this true?).
@@ -1540,5 +1540,4 @@ instance Pretty (ControlFrame s) where
   prettyPrec p (ApplyK spine)           = mparens (p > 9) $ "ApplyK" <?> prettyList spine
   prettyPrec p NormaliseK               = "NormaliseK"
   prettyPrec p (ArgK cl _)              = mparens (p > 9) $ sep [ "ArgK" <+> prettyPrec 10 cl ]
-
 

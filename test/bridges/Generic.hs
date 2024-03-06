@@ -73,7 +73,7 @@ endOfMain :: TCM ()
 endOfMain = do
   printInTCM $ P.text "\nend of main"
 
--- | the functions defined and imported by checked agda files. 
+-- | the functions defined and imported by checked agda files.
 showTheImports :: TCM ()
 showTheImports = do
   tcs <- getTCState
@@ -211,13 +211,13 @@ main = runTCMPrettyErrors $ do
   addVerb "antvascript:0"
 
   refoldingMhocom
-  
+
   -- hocomGlue
   -- testMixedMeet
   -- decIntervalBotTop
   -- testMixedForall
   -- mpartialJudgEqu3
-  
+
   endOfMain
 
 
@@ -231,7 +231,7 @@ main = runTCMPrettyErrors $ do
 --     Def q es -> printInTCMnice "its a def"
 --     Con h i es -> printInTCMnice "its a con"
 --     _ -> __IMPOSSIBLE__
-  
+
 --   endOfMain
 
 
@@ -272,7 +272,7 @@ showTheConcreteNames = do
   let themap = tcs ^. stConcreteNames -- Map Name C.Name
   printInTCM $ P.text $ show $  themap
 
-  
+
 
 experimentWithToDec :: TCM ()
 experimentWithToDec = do
@@ -303,11 +303,11 @@ understandDecomposeInterval = do
         decomp <- decomposeInterval todectm
         doc <- prettyTCM decomp
         printInTCM doc
-    
+
     -- reduced <- reduce $ maybe __IMPOSSIBLE__ id $ clauseBody toDecClause
     -- printInTCMnice reduced
-    
-  -- todecPre <-  getOnlyClause "todec" 
+
+  -- todecPre <-  getOnlyClause "todec"
   -- let todec = maybe __IMPOSSIBLE__ id $ todecPre
   -- printInTCM $ P.pretty todec
   -- printInTCM $ P.pretty $ clauseTel todec
@@ -328,7 +328,7 @@ understandDecomposeInterval = do
 --     f (INeg x)   = map (either (\ (x,y) -> Left (x,not y)) (Right . unview . INeg . argN)) <$> (f . view . unArg) x
 --     f (OTerm (Var i [])) = return [Left (i,True)]
 --     f (OTerm t)          = return [Right t]
-      
+
 
 
 -- | it is stated that TCEnv is read only. Is that really true?
@@ -369,7 +369,7 @@ testingConversion :: TCM()
 testingConversion = do
   addVerb "tc.conv.comparebdgface:30"
 
-  cs2pre <-  getOnlyClause "bpartial2" 
+  cs2pre <-  getOnlyClause "bpartial2"
   let cs2 = maybe __IMPOSSIBLE__ id $ cs2pre
   printInTCM $ P.pretty cs2
   printInTCM $ P.pretty $ clauseTel cs2
@@ -397,7 +397,7 @@ testingConversion2 = do
   cs1pre <- getOnlyClause "hey"
   let cs1 = maybe __IMPOSSIBLE__ id $ cs1pre
 
-  cs2pre <-  getOnlyClause "hey2" 
+  cs2pre <-  getOnlyClause "hey2"
   let cs2 = maybe __IMPOSSIBLE__ id $ cs2pre
 
   let thetype = maybe __IMPOSSIBLE__ unArg $ clauseType cs2
@@ -418,8 +418,8 @@ testingConversion3 = do
   cs1pre <- getOnlyClause "multi1"
   let cs1 = maybe __IMPOSSIBLE__ id $ cs1pre
 
-  cs2pre <-  getOnlyClause "multi2" 
-  let cs2 = maybe __IMPOSSIBLE__ id $ cs2pre  
+  cs2pre <-  getOnlyClause "multi2"
+  let cs2 = maybe __IMPOSSIBLE__ id $ cs2pre
 
   let thetype = maybe __IMPOSSIBLE__ unArg $ clauseType cs2
       cs1tm = maybe __IMPOSSIBLE__ id $ clauseBody cs1
@@ -493,7 +493,7 @@ whatIsMzero = mzero -- []
 testMixedMeet :: TCM ()
 testMixedMeet = do
   addVerb "tc.prim.bridges.hasEmptyMeet:50"
-  
+
   m1Tel <- clauseTel <$> getTheClause "mcstr1"
   m1 <- getTheTerm "mcstr1"
   m2 <- getTheTerm "mcstr2"
@@ -552,11 +552,11 @@ testMixedForall = do
     _ <- forallMixedFaces complex (\ _ _ _ -> __IMPOSSIBLE__) $ \ sigma -> do
       return ()
     newline
-    reportSDoc "antvascript:0" 0 $ text "DNF of mno"  
+    reportSDoc "antvascript:0" 0 $ text "DNF of mno"
     _ <- forallMixedFaces mno (\ _ _ _ -> __IMPOSSIBLE__) $ \ sigma -> do
       return ()
     newline
-    reportSDoc "antvascript:0" 0 $ text "DNF of myes"  
+    reportSDoc "antvascript:0" 0 $ text "DNF of myes"
     _ <- forallMixedFaces myes (\ _ _ _ -> __IMPOSSIBLE__) $ \ sigma -> do
       return ()
     return ()
@@ -565,7 +565,7 @@ mpartialJudgEqu1 :: TCM ()
 mpartialJudgEqu1 = do
   addVerb "tc.conv.forallmixed:40"
   addVerb "tc.conv.mixedFace:40"
-  
+
   ctx <- getTheCtx "mpartial1"
   typ <- getTheType "mpartial1"
   mp1 <- getTheTerm "mpartial1"
@@ -581,7 +581,7 @@ mpartialJudgEqu2 :: TCM ()
 mpartialJudgEqu2 = do
   addVerb "tc.conv.forallmixed:40"
   addVerb "tc.conv.mixedFace:40"
-  
+
   ctx <- getTheCtx "mmulti1"
   typ <- getTheType "mmulti1"
   mp1 <- getTheTerm "mmulti1"
@@ -596,7 +596,7 @@ mpartialJudgEqu3 :: TCM ()
 mpartialJudgEqu3 = do
   addVerb "tc.conv.forallmixed:40"
   addVerb "tc.conv.mixedFace:40"
-  
+
   ctx <- getTheCtx "am1"
   typ <- getTheType "am1"
   mp1 <- getTheTerm "am1"
@@ -630,10 +630,10 @@ hocomGlue = do
       NoReduction tm -> reportSDocDocs "antvascript" 0
         (text "noreduction") [ prettyTCM tm ]
       YesReduction _ tm -> reportSDocDocs "antvascript" 0
-        (text "yesreduction") [ prettyTCM tm ]      
+        (text "yesreduction") [ prettyTCM tm ]
     return ()
 
-  -- how to make an [Arg Term] 
+  -- how to make an [Arg Term]
   -- primTransHComp DoHComp (_ : Arg Term)
 
 
@@ -662,11 +662,11 @@ refoldingMhocom = do
   printInTCM $ P.text "simplified:"
   shole2 <- simplify hole2
   printInTCM $ P.pretty shole2
-  
+
 -- testMixedMeet :: TCM ()
 -- testMixedMeet = do
 --   addVerb "tc.prim.bridges.hasEmptyMeet:50"
-  
+
 --   m1Tel <- clauseTel <$> getTheClause "mcstr1"
 --   m1 <- getTheTerm "mcstr1"
 --   m2 <- getTheTerm "mcstr2"

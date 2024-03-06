@@ -77,7 +77,7 @@ match' ((c, es, patch) : stack) = do
     [ "c::CompiledClauses    = " <+> (return $ P.pretty c)
     , "es::MaybeReducedElims = " <+> (prettyTCM es)
     , "es (no hiding) = " <+> (prettyTCM $ map (g  . ignoreReduced) es) ]
-  
+
   let no blocking es = return $ NoReduction $ blocking $ patch $ map ignoreReduced es
       yes t          = flip YesReduction t <$> asksTC envSimplification
 
@@ -150,7 +150,7 @@ match' ((c, es, patch) : stack) = do
             let (ee,eeb) = caseMaybe mHcomp (e,eb) $ \ name -> --Elim, Blocked Elim
                              case ( Map.member name (conBranches bs) , mRefold ) of
                                ( True , Just rf ) -> (rf , rf <$ eb)
-                               _ -> (e, eb)  
+                               _ -> (e, eb)
             reportSDoc "tc.cc.match" 50 $ vcat $
               [ "e        = " <+> (return $ P.pretty e)
               , "eb       = " <+> (return $ P.pretty $ ignoreBlocking eb)

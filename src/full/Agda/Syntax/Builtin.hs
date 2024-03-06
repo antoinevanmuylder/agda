@@ -109,7 +109,7 @@ data BuiltinId
   | BuiltinMHolds
   | BuiltinMitHolds
   | BuiltinBPartial --those 3 also exist as PrimitiveId's
-  | BuiltinMPartial 
+  | BuiltinMPartial
   | BuiltinMPartialP
   | BuiltinMHoldsEmpty
   | BuiltinMHolds1
@@ -352,7 +352,7 @@ instance IsBuiltin BuiltinId where
     BuiltinMHoldsEmpty                       -> "MHOLDSEMPTY"
     BuiltinMHolds1                           -> "MHOLDS1"
     BuiltinMHolds2                           -> "MHOLDS2"
-    
+
     BuiltinSizeUniv                          -> "SIZEUNIV"
     BuiltinSize                              -> "SIZE"
     BuiltinSizeLt                            -> "SIZELT"
@@ -544,7 +544,7 @@ builtinsNoDef =
   , builtinMHolds
   , builtinMPartial
   , builtinMPartialP
-  
+
   , builtinProp
   , builtinSet
   , builtinStrictSet
@@ -584,7 +584,7 @@ builtinNat, builtinSuc, builtinZero, builtinNatPlus, builtinNatMinus,
   builtinBHolds, builtinBitHolds, builtinBPartial,
   builtinMCstr, builtinMHolds, builtinMitHolds, builtinMPartial,
   builtinMPartialP, builtinMHoldsEmpty, builtinMHolds1, builtinMHolds2,
-  
+
 
   builtinId, builtinReflId,
   builtinSizeUniv, builtinSize, builtinSizeLt,
@@ -1205,7 +1205,7 @@ builtinConId, builtinIdElim, builtinSubOut,
   builtinFaceForall, builtinComp, builtinPOr,
   builtinTrans,  builtinDepIMin,
   builtinIdFace, builtinIdPath, builtinHComp, builtinLockUniv,
-  
+
   builtinExtent, builtinGel, builtin_gel, builtin_ungel,
   builtinByes, builtinBno, builtinBisone, builtinBiszero, builtinBconj,
   builtinMno, builtinMyes, builtinMkmc,

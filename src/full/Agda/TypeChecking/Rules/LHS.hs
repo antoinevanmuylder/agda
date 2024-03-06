@@ -1004,14 +1004,14 @@ checkLHS mf = updateModality checkLHS_ where
   --  @ip@ : b,a1,a2 ⊢ (b,a1,a2) : Bool,A1,A2          current subst   curr tel → init tel
   --  @problem._problemEqs@    b=b, mkA1 x1 = a1 , mkA2 x2 x3 = a2     in gen, usr pattern=var in usr type
   --intermediate LHSState:
-  --  @tel@: (b:Bool),(x1:X1),(a2:A2)       
+  --  @tel@: (b:Bool),(x1:X1),(a2:A2)
   --  @ip@ : b,x1,a2: Bool,X1,A2 ⊢ (b,mkA1 x1,a2) : Bool,A1,A2
   --  @problem._problemEqs@    b=b, x1=x1 , mkA2 x2 x3 = a2
   --final LHSState
   --  @tel@: (b:Bool),(x1:X1),(x2:X2),(x3:X3)
   --  @ip@ : b,x1,x2,x3: Bool,X1,X2,X3 ⊢ (b,mkA1 x1,mkA2 x2 x3) : Bool,A1,A2      usr variables → init tel from usr type
   --  @problem._problemEqs@    b=b, x1=x1 , x2=x2, x3=x3
-  
+
     -- If the target type is irrelevant or in Prop,
     -- we need to check the lhs in irr. cxt. (see Issue 939).
  updateModality cont st@(LHSState tel ip problem target psplit _) = do

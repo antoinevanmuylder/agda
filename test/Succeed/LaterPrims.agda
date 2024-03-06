@@ -28,7 +28,7 @@ postulate
 ▸ A = (@tick x : Tick) → A x
 
 module tickTest {ℓ} {S : Set ℓ} where
- 
+
   -- no-diag : ( (@tick α β : Tick) → S ) → (@tick x : Tick) → S
   -- no-diag p x = p x x
 

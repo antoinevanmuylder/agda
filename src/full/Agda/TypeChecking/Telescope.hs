@@ -839,7 +839,7 @@ telViewUpToPathBridge n t = do
     Right t        -> return $ TelV EmptyTel t
   where
     absV a x (TelV tel t) = TelV (ExtendTel a (Abs x tel)) t
-    
+
 
 telView'UpToPathBridge :: Int -> Type -> TCM TelView
 telView'UpToPathBridge 0 t = return $ TelV EmptyTel t

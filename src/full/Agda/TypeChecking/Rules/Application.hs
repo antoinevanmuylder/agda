@@ -1785,7 +1785,7 @@ checkMpor c rs vs _ = do
           [l,a, zeta1, zeta2] <- mapM (open . unArg) [l,a,zeta1,zeta2]
           let zeta = cl primMixedOr <@> zeta1 <@> zeta2
           -- not all results are used. I have doubts about which one to use.
-          t1 <- mpPi' "o" zeta  $ \ o -> el' l (a <..> o) 
+          t1 <- mpPi' "o" zeta  $ \ o -> el' l (a <..> o)
           tbis  <- el's l $ primMPartialP <#> l <@> zeta <@> (ilam "o" (\ o -> (a <..> o)))
           tv <- mpPi' "o" zeta2 $ \ o -> el' l (a <..> (cl primMHolds2 <@> zeta1 <@> zeta2 <@> o))
           tter <- el's l $ primMPartialP <#> l <@> zeta1 <@> (ilam "o" $ \ o -> (a <..> (cl primMHolds1 <@> zeta1 <@> zeta2 <@> o)))
@@ -1793,10 +1793,10 @@ checkMpor c rs vs _ = do
 
       v <- blockArg tv (rs !!! 5) v $ do
         cohMpor tter u v zeta1 zeta2
-        
+
       return $ l : zeta1 : zeta2 : a : u : v : rest
    _ -> typeError . GenericDocError =<< prettyTCM c <+> "must be fully applied"
-   
+
   where
 
     (+*+) :: [a] -> [b] -> [(a,b)]
@@ -1804,7 +1804,7 @@ checkMpor c rs vs _ = do
       x <- alist
       y <- blist
       return (x,y)
-    
+
     -- | "ζ1 ∧ ζ2" ⊢ u = v : MpartialP (ζ1 ∨∨ ζ2) A
     --   This means that both ζi must be concrete (must be dnfs of path/bridge vars)? TODO-antva
     cohMpor :: Type -> (Arg Term) -> (Arg Term) -> (Arg Term) -> (Arg Term) -> TCM ()
@@ -1828,9 +1828,9 @@ checkMpor c rs vs _ = do
           , "zeta1 current cls as bools: " <+> (return $ P.pretty conjBools1)
           , "zeta2 current cls as bools: " <+> (return $ P.pretty conjBools2) ]
 
-        
+
         case (blks1 == [] && blks2 == []) of
-          
+
           False -> do
             typeError . GenericDocError =<<
               ("prim^mpor coh. check fails because of blocked mixed cstrs:" <+> (prettyTCM z1) <+> (prettyTCM z2))
@@ -1848,8 +1848,8 @@ checkMpor c rs vs _ = do
             bisone <- primBisone
             biszero <- primBiszero
             iand <- primIMin
-            
-            let 
+
+            let
                 -- (dbi, 0 or 1) mapsto a path ( :I) or bdg ( :BCstr) constraint.
                 boolToUnmixCstr :: CorBsplit -> (Int,Bool) -> Term
                 boolToUnmixCstr CSPLIT (dbi,True) = Var dbi []
@@ -1877,12 +1877,12 @@ checkMpor c rs vs _ = do
                 chi2 = boolsToMixCstr skind2 (IntMap.toAscList conjBools2)
 
             emptymeet <- hasEmptyMeet chi1 chi2
-            
+
             reportSDoc "tc.app.mpor" 30 $ nest 2 $ vcat
               [ "conjBools1 mapsto chi1: " <+> prettyTCM chi1
               , "conjBools2 mapsto chi2: " <+> prettyTCM chi2
               , "empty meet: " <+> prettyTCM emptymeet ]
-            
+
             unless emptymeet $ do --if the meet is empty, theres nothing to check.
 
             let boolToInt :: CorBsplit -> Bool -> Term --used?
@@ -1912,10 +1912,10 @@ checkMpor c rs vs _ = do
               [ "ctx = " <+> (return $ P.pretty ctx)
               , "ctx'= " <+> (return $ P.pretty ctx')
               , "sigma: ctx' -> ctx is " <+> (return $ P.pretty sigma) ]
-            
+
             resolved <- forM fcs $ \ (dbi,t) -> ( (,) <$> (lookupBV dbi) ) <*> return (sigma `applySubst`  t)
             updateContext sigma (const ctx') $ addBindings resolved $ do
-            
+
             let pullBackTy = sigma `applySubst` ty
                 pullBackU  = sigma `applySubst` u
                 pullBackV  = sigma `applySubst` v
@@ -1929,10 +1929,10 @@ checkMpor c rs vs _ = do
               , "    pb v  " <+> (prettyTCM pullBackV) ]
 
             equalTerm pullBackTy (unArg pullBackU) (unArg pullBackV)
-            
-                    
-      
-      
+
+
+
+
 
 -- | @prim^glue : ∀ {ℓ ℓ'} {A : Set ℓ} {φ : I}
 --              → {T : Partial φ (Set ℓ')} → {e : PartialP φ (λ o → T o ≃ A)}

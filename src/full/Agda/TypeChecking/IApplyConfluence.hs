@@ -147,9 +147,9 @@ checkIApplyConfluence f cl = case cl of
             --addContext clTel $ compareTermOnFace' k CmpEq phi trhs lhs body
             isCubicalVar <- addContext clTel $ do
               intval <- typeOfBV i
-              isInterval intval  
+              isInterval intval
             addContext clTel $ do
-              if isCubicalVar then (compareTermOnFace' k CmpEq phi trhs lhs body) -- (equalTermOnFace phi trhs lhs body) 
+              if isCubicalVar then (compareTermOnFace' k CmpEq phi trhs lhs body) -- (equalTermOnFace phi trhs lhs body)
               else (equalTermOnBridgeFace i trhs lhs body)
 
             --TODO-antva: remo

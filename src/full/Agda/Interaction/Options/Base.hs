@@ -1742,7 +1742,7 @@ pragmaOptions = concat
                     "enable global confluence checking of REWRITE rules (more restrictive than --local-confluence-check)"
     , Option []     ["no-confluence-check"] (NoArg noConfluenceCheckFlag)
                     "disable confluence checking of REWRITE rules (default)"
-    , Option []     ["cubical"] (NoArg $ cubicalFlag CFull)   
+    , Option []     ["cubical"] (NoArg $ cubicalFlag CFull)
                     "enable cubical features (e.g. overloads lambdas for paths), implies --cubical-compatible"
     , Option []     ["bridges"] (NoArg bridgesFlag)
                     "enable bridges features"

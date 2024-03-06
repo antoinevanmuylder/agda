@@ -256,7 +256,7 @@ primInteger, primIntegerPos, primIntegerNegSuc,
     primEmbd, primMixedOr, primMPartialP, primMHoldsEmpty, primMHolds1, primMHolds2, prim_mpor,
     primMHComp, primMComp, primTestPrim, primReflectMCstr, primPrsvMCstr, primAllMCstr, primAllMCstrCounit,
     primRefoldMhocom,
-    
+
     primNatPlus, primNatMinus, primNatTimes, primNatDivSucAux, primNatModSucAux,
     primNatEquality, primNatLess,
     -- Machine words
@@ -857,7 +857,7 @@ pathBridgeView' = do
 ------------------------------------------------------------------------
 -- * view functions for Bridge/path Interval as a term
 ------------------------------------------------------------------------
-    
+
 
 pathBridgeIntView' :: HasBuiltins m => m (Term -> PathBridgeIntView)
 pathBridgeIntView' = do
@@ -867,7 +867,7 @@ pathBridgeIntView' = do
     case t of
       Def q [] | Just q == cint -> PathInt
       Def q [] | Just q == bint -> BridgeInt
-      _ -> NoInt t 
+      _ -> NoInt t
 
 
 pathBridgeIntView :: HasBuiltins m => Term -> m PathBridgeIntView

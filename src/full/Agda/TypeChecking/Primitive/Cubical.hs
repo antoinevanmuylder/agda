@@ -172,7 +172,7 @@ primHComp' = do
     case bridges of
       False ->  do
         reportSDoc "tc.prim.hcomp" 20 $ text "Reading primHComp' cubical reduction def"
-        primTransHComp DoHComp ts nelims      
+        primTransHComp DoHComp ts nelims
       True -> do -- primMHComp {ℓ} {A} {φ b∨ bno} (λ i o → u i (reflct {φ} o)) u0
         reportSDoc "tc.prim.hcomp" 20 $ text "Reading primHComp' bridges reduction def"
         mixhcomp <- getTerm "" builtinMHComp
@@ -552,7 +552,7 @@ primTransHComp cmd ts nelims = do
                           bTbdg <@> i <..> (prsv <#> thephi' <..> o')
                       doHCompUKanOp operation ((Level la <$ s, argN thephi', argN bTcub, bA) <$ t) Head
                   -- transpMHComp (famThing l) (s, phi', bT, bA) (sphi , u0) -- __IMPOSSIBLE__
-                
+
             -- phi' is a line of MCstr
             -- cint <- primIntervalType
             -- maybe fallback redReturn =<< addContext ("iLn" :: String, defaultDom cint) $ do
@@ -574,7 +574,7 @@ primTransHComp cmd ts nelims = do
             --             _ -> throw
             --         OtherMCstr _ -> throw
             --       doHCompUKanOp operation ((Level la <$ s, intCstr, bT, bA) <$ t) Head
-                  
+
               -- transpMHComp (famThing l) (s, phi', bT, bA) (sphi , u0)
               -- operation ((Level la <$ s, phi', bT, bA) <$ t) Head
 
@@ -584,7 +584,7 @@ primTransHComp cmd ts nelims = do
             if nelims > 0 then doPathPKanOp operation l ((bA, x, y) <$ t) else fallback
 
           d | BridgeType _ _ _ bA x y <- bridgeV (El __DUMMY_SORT__ d), DoTransp <- cmd -> do
-            if nelims > 0 then transpBridgeP (famThing l) (bA, x, y) sphi u0  else fallback          
+            if nelims > 0 then transpBridgeP (famThing l) (bA, x, y) sphi u0  else fallback
 
           -- Identity types:
           Def q [Apply _ , Apply bA , Apply x , Apply y] | Just q == mId -> do
@@ -738,7 +738,7 @@ primTransHComp cmd ts nelims = do
               [ "literal? = " <+> (return $ P.pretty lt)
               , "constructor head? = " <+>  (return $ P.pretty h)
               , "simpl. u " <+> (return $ P.pretty $ ignoreBlocking su) ]
-            
+
             let u = unArg . ignoreBlocking $ su
             (b, ts) <- allComponentsBack unview phi u $ \ t ->
                         (isLit t == lt, isCon (constrForm t) == h)
@@ -750,7 +750,7 @@ primTransHComp cmd ts nelims = do
             reportSDoc "tc.prim.hcomp.data" 45 $ nest 2 $ vcat
               [ "flag list = " <+> (return $ P.pretty b)
               , "zip us bools = " <+> (return $ P.pretty $ map treat ts ) ]
-            
+
             let
               (lit,hd) = unzip b
 

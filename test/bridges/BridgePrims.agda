@@ -115,7 +115,7 @@ module AuxMhocom0 where
     primEmbd : I → MCstr
     primMixedOr : MCstr → MCstr → MCstr
 open AuxMhocom0 public
-  renaming ( primMixedOr to infixl 17 _∨∨_ 
+  renaming ( primMixedOr to infixl 17 _∨∨_
            ; primEmbd to embdI
            ; primPrsvMCstr to embdI⋆ --push fwd ( \* )
            ; primReflectMCstr to embdI*) --pull back
@@ -137,6 +137,4 @@ module MixedKan where
     primMHComp : ∀ {ℓ} {A : Type ℓ} {ζ : MCstr} (u : ∀ i → MPartial ζ A) (u0 : A) → A
 open MixedKan public
   renaming ( primMHComp to mhocom )
-
-
 

@@ -8,7 +8,7 @@ open import Agda.Builtin.Nat
 
 
 module decomposeInterval (x y z : I) where
-  
+
   toDec : I
   toDec = ~ x ∨ (y ∧ ~ z) ∨ i1
 
@@ -173,7 +173,7 @@ module _  (i : I) (@tick r : BI) (p : false ≡ true) (j : I) where
   am2pre (r = bi1) = notp i
 
   am2 = am2pre
-  
+
 
 
 -- module _ (ℓ : Level) (A : Type ℓ) (φ : I) (u : ∀ i → Partial φ A) (u0 : A) (b : Bool)  where

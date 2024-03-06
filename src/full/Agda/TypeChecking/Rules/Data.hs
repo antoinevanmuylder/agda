@@ -224,7 +224,7 @@ checkDataSort name s = setCurrentRange name $ do
       LockUniv     -> no
       LevelUniv    -> no
       IntervalUniv -> no
-      CstrUniv     -> no      
+      CstrUniv     -> no
       -- Blocked sorts.
       PiSort _ _ _ -> __IMPOSSIBLE__
       FunSort _ _  -> __IMPOSSIBLE__
@@ -1924,7 +1924,7 @@ defineMixHCompForFields applyProj name params fsT fns rect = do
 
   mixedOr <- getPrimitiveTerm builtinMixedOr
   embd <- getPrimitiveTerm builtinEmbd
-  
+
   reportSDoc "comp.rec" 20 $ text $ show params
   reportSDoc "comp.rec" 20 $ text $ show delta
   reportSDoc "comp.rec" 10 $ text $ show fsT
@@ -2112,7 +2112,7 @@ defineMixHCompD d con params names fsT t boundary = do
       setCompiledClauses theName cc
       setTerminates theName True
       return $ Just theName
-      
+
   where
     whenDefined False _ _ = return Nothing
     whenDefined True xs m = do

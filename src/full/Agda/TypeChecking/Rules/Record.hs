@@ -836,7 +836,7 @@ defineMixHCompR name params fsT fns rect = do
     , "field names" <+> (return $ P.pretty fns)
     , "field types" <+> (addContext params $ prettyTCM fsT)
     , "record type:" <+> (addContext params $ prettyTCM rect) ]
-  
+
   let project = (\ t fn -> t `applyE` [Proj ProjSystem fn])
   stuff <- fmap fst <$> defineMixHCompForFields0 Nothing project name params fsT fns rect
 
@@ -899,7 +899,7 @@ defineMixHCompR name params fsT fns rect = do
                          , clauseEllipsis    = NoEllipsis
                          , clauseWhereModule = Nothing
                          }
-           reportSDoc "tc.prim.mhcomp.rec" 25 $ "face clause: " <+> (return $ P.pretty c)                  
+           reportSDoc "tc.prim.mhcomp.rec" 25 $ "face clause: " <+> (return $ P.pretty c)
            reportSDoc "trans.rec.face" 17 $ text $ show c
            return c
   cs <- forM (zip3 fns clause_types bodies) $ \ (fname, clause_ty, body) -> do
@@ -920,7 +920,7 @@ defineMixHCompR name params fsT fns rect = do
                          , clauseEllipsis    = NoEllipsis
                          , clauseWhereModule = Nothing
                          }
-          reportSDoc "tc.prim.mhcomp.rec" 25 $ "proj clause: " <+> (return $ P.pretty c)          
+          reportSDoc "tc.prim.mhcomp.rec" 25 $ "proj clause: " <+> (return $ P.pretty c)
           -- reportSDoc "trans.rec" 17 $ text $ show c
           -- reportSDoc "trans.rec" 16 $ text "type =" <+> text (show (clauseType c))
           -- reportSDoc "trans.rec" 15 $ prettyTCM $ abstract gamma (unDom clause_ty)

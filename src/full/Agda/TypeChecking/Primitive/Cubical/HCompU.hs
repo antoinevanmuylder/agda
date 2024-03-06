@@ -135,7 +135,7 @@ doHCompUKanOp (TranspOp psi u0) (IsFam (la, phi, bT, bA)) tpos = do
     , "ctx          = " <+> (prettyTCM ctx)]
 
     -- , "headStop Head (phi i1) = " <+> ((return . P.pretty) =<< (headStop Head $ pure (unArg phi) <@> pure i1)) ]
-  
+
   let
     localUse = getBuiltinId builtinTrans ++ " for " ++ getBuiltinId builtinHComp ++ " of Set"
     getTermLocal :: IsBuiltin a => a -> m Term

@@ -226,14 +226,14 @@ coreBuiltins =
                                                                fiber
                                                              ))
                                                               (const $ const $ return ()))
-    
+
   , (builtinBridgeInterval     |-> BuiltinData (requireBridges "" >> (return $ sort LockUniv))
                                                [builtinBIZero,builtinBIOne])
-    
+
   , (builtinBIZero                            |-> BuiltinDataCons primBridgeIntervalType)
   , (builtinBIOne                             |-> BuiltinDataCons primBridgeIntervalType)
-  
-    
+
+
   , (builtinBridgeP                           |-> builtinPostulate ( (>>) (requireBridges "") $ runNamesT [] $
                                                   hPi' "l" (el primLevel) $ \l -> -- {l:Level} ;  l: NameT m Term
                                                   nPi' "A" (lPi' "x" primBridgeIntervalType $ \x -> (sort . tmSort <$> l)) $ \bA -> --A : (@tick x : BI) -> Set l
@@ -265,7 +265,7 @@ coreBuiltins =
   , (builtinMHolds2                           |-> BuiltinPostulate Relevant (runNamesT [] $
                                                                    nPi' "ζ1" (cl tmcstr) $ \ z1 ->
                                                                    nPi' "ζ2" (cl tmcstr) $ \ z2 ->
-                                                                   mPrepPi' "o2" z2 $ \ o2 ->                                                                                
+                                                                   mPrepPi' "o2" z2 $ \ o2 ->
                                                                    -- nPi' "o2" (elSSet $ cl primMHolds <@> z2) $ \ o2 ->
                                                                    (elSSet $ cl primMHolds <@> (cl primMixedOr <@> z1 <@> z2))))
 

@@ -378,13 +378,13 @@ compareTerm' cmp a m n =
     equalFun s a@(Pi dom b) m n | domIsFinite dom = do
        mp <- fmap getPrimName <$> getBuiltin' builtinIsOne
        mbholds <- fmap getPrimName <$> getBuiltin' builtinBHolds
-       mmholds <- fmap getPrimName <$> getBuiltin' builtinMHolds       
+       mmholds <- fmap getPrimName <$> getBuiltin' builtinMHolds
        let asFn = El s (Pi (dom { domIsFinite = False }) b)
        case unEl $ unDom dom of
           Def q [Apply phi]
               | Just q == mp -> compareTermOnFace cmp (unArg phi) asFn m n
               | Just q == mbholds -> compareTermOnBdgFace cmp (unArg phi) asFn m n
-              | Just q == mmholds -> compareTermOnMixedFace cmp (unArg phi) asFn m n              
+              | Just q == mmholds -> compareTermOnMixedFace cmp (unArg phi) asFn m n
           _                  -> equalFun s (unEl asFn) m n
 
     equalFun _ (Pi dom@Dom{domInfo = info} b) m n = do
@@ -402,7 +402,7 @@ compareTerm' cmp a m n =
       equalPathBridge pv bv a m n
     equalPathBridge :: (MonadConversion m) => PathView -> BridgeView -> Type -> Term -> Term -> m ()
     equalPathBridge (PathType s _ l a x y) BOType{} _ m n = do --the provided type is a path type
-        whenProfile Profile.Conversion $ tick "compare at path/bridge type"  
+        whenProfile Profile.Conversion $ tick "compare at path/bridge type"
         let name = "i" :: String
         interval <- el primInterval
         let (m',n') = raise 1 (m, n) `applyE` [IApply (raise 1 $ unArg x) (raise 1 $ unArg y) (var 0)]
@@ -509,7 +509,7 @@ compareGelTm cmp a' args@[l, bA0@(Arg _ bA0tm), bA1@(Arg _ bA1tm),
   localSDocsHigh (text "Compare Gel members")
     [ "m = " <+> (return $ P.pretty m)
     , "n = " <+> (return $ P.pretty n) ] --not reduced yet
-  
+
   (bm' , m') <- reduceWithBlocker m
   let fvm = allVars $ freeVarsIgnore IgnoreNot m' -- see extent beta for similar analysis
   mFresh <- semiFreshForFvars fvm ri
@@ -561,7 +561,7 @@ compareBCstrTm cmp lpsi rpsi = do
   rpsi' <- reduceB rpsi
   let lpsi = ignoreBlocking lpsi'
       rpsi = ignoreBlocking rpsi'
-  bcstr <- primBCstrType; 
+  bcstr <- primBCstrType;
   if (isBlocked lpsi' || isBlocked rpsi')
     then compareAtom CmpEq (AsTermsOf bcstr) lpsi rpsi
     else do
@@ -614,7 +614,7 @@ compareMCstrTm cmp zeta1 zeta2 = do
   where
     isBlocked Blocked{}    = True
     isBlocked NotBlocked{} = False
-    
+
 
 compareAtomDir :: MonadConversion m => CompareDirection -> CompareAs -> Term -> Term -> m ()
 compareAtomDir dir a = dirToCmp (`compareAtom` a) dir
@@ -644,7 +644,7 @@ compareAtom cmp t m n =
 
     -- Andreas: what happens if I cut out the eta expansion here?
     -- Answer: Triggers issue 245, does not resolve 348
-    
+
     -- TODO-antva: custom further syntactic check for record type conversion
     -- if 2 records r1 p1, r2 p2 are being compared we simplify both param lists p1 and p2
     -- and see if these simplified elims are syntactically equal.
@@ -667,7 +667,7 @@ compareAtom cmp t m n =
                       , "r2 = " <+> (prettyTCM instn) ]
                     ses <- mapM simplify es --TODO-antva: could even whnf here?
                     ses' <- mapM simplify es'
-                    syneqs <- forM (zip ses ses') $ \ (e , e') -> 
+                    syneqs <- forM (zip ses ses') $ \ (e , e') ->
                                 SynEq.checkSyntacticEquality e e' (\ _ _ -> return True) $ \ u v -> do
                                   localSDocs ("some simpl elims u/v of " <+> (prettyTCM f) <+> "are different")
                                     [ "u = " <+> (return $ P.pretty $ toExplicitArgs $ unArg $ maybe __IMPOSSIBLE__ id (isApplyElim u))
@@ -679,7 +679,7 @@ compareAtom cmp t m n =
               else fb
             _ -> fb
     -- maybeFurtherSynRecordConv (whenProfile Profile.Sharing $ tick "equal terms") $ do
-    
+
     (mb',nb') <- do
       mb' <- etaExpandBlocked =<< reduceB m
       nb' <- etaExpandBlocked =<< reduceB n
@@ -1953,7 +1953,7 @@ equalSort s1 s2 = do
             (LockUniv   , LockUniv   ) -> yes
             (LevelUniv  , LevelUniv  ) -> yes
             (IntervalUniv , IntervalUniv) -> yes
-            (CstrUniv , CstrUniv) -> yes            
+            (CstrUniv , CstrUniv) -> yes
             (Inf u m    , Inf u' n   ) ->
               if u == u' && (m == n || infInInf) then yes else no
 
@@ -2267,7 +2267,7 @@ forallFaceMaps t kb k = do
            , text $ P.prettyShow xs
            ]
     -- sigma: cxt' -> cxt. in the example above, cxt' is 2 units shorter and sigma sets z:=i0,x:=i1.
-    (cxt',sigma) <- substContextN cxt xs 
+    (cxt',sigma) <- substContextN cxt xs
     reportSDoc "conv.forall" 40 $
       fsep ["substContextN results"
            , "cxt' = " <+> prettyTCM cxt'
@@ -2385,7 +2385,7 @@ forallMixedFaces zeta kb k = do
       ifBlocked t blocked unblocked
 
 
-  
+
 
 
 -- | ≈builds σ : ctx <- ctx' (?direction) where ctx' is obtained from ctx by setting db var xi := biEps.
@@ -2440,17 +2440,17 @@ substContextN c ((i,t):xs) = do
     , "cstr list =  " <+> prettyTCM ((i,t):xs) ]
 
   (c', sigma) <- substContext i t c
-  
+
   reportSDoc "tc.conv.substctx" 50 $ "sCtxN, c' & sigma... " <+> (nest 2 . vcat)
     [ "c'      =  " <+> prettyTCM c'
     , "sigma   =  " <+> prettyTCM sigma ]
-    
+
   (c'', sigma')  <- substContextN c' (map (subtract 1 -*- applySubst sigma) xs)
-  
+
   reportSDoc "tc.conv.substctx" 50 $ "sCtxN, c'' & sigma'... " <+> (nest 2 . vcat)
     [ "c''      =  " <+> prettyTCM c''
     , "sigma'   =  " <+> prettyTCM sigma' ]
-    
+
   return (c'', applySubst sigma' sigma)
 
 
@@ -2576,8 +2576,8 @@ compareTermOnFace' k cmp phi ty u v = do
 -- | check that m and n agree when the bridge constraint psi holds.
 compareTermOnBdgFace :: MonadConversion m => Comparison -> Term -> Type -> Term -> Term -> m ()
 compareTermOnBdgFace cmp psi (El s (Pi psiholdsDom b)) m n = do
-  psi <- reduce psi 
-  bitholds <- primBitHolds 
+  psi <- reduce psi
+  bitholds <- primBitHolds
   canPsi <- asCanBCstr psi
   case canPsi of
     CanBno -> return () --when psi holds (impossible), m and n are equal.
@@ -2600,9 +2600,9 @@ compareTermOnBdgFace cmp psi (El s (Pi psiholdsDom b)) m n = do
       forM_ aslist  $ \ (xi , bfaces) -> do
         forM_ bfaces  $ \bfac -> do
           let biEps = boolToBI bfac
-          (\ xi biEps k -> bridgeGoK k xi biEps) xi biEps $ \sigma -> do            
+          (\ xi biEps k -> bridgeGoK k xi biEps) xi biEps $ \sigma -> do
             reportSLn "tc.conv.comparebdgface" 30 $ "type, m & n subst..."
-            reportSLn "tc.conv.comparebdgface" 30 $ "  " ++ (P.prettyShow $ (sigma `applySubst` b))            
+            reportSLn "tc.conv.comparebdgface" 30 $ "  " ++ (P.prettyShow $ (sigma `applySubst` b))
             reportSLn "tc.conv.comparebdgface" 30 $ "  " ++ (P.prettyShow $ (sigma `applySubst` m))
             reportSLn "tc.conv.comparebdgface" 30 $ "  " ++ (P.prettyShow $ (sigma `applySubst` n))
             equalTerm (sigma `applySubst` (unAbs b))
@@ -2610,12 +2610,12 @@ compareTermOnBdgFace cmp psi (El s (Pi psiholdsDom b)) m n = do
                       ((sigma `applySubst` n) `apply` [Arg defaultArgInfo bitholds])
   return ()
 compareTermOnBdgFace cmp psi _ m n = __IMPOSSIBLE__
-  
+
 
 compareTermOnBdgFace' :: MonadConversion m => (Comparison -> Type -> Term -> Term -> m ()) -> Comparison -> Term -> Type -> Term -> Term -> m ()
 compareTermOnBdgFace' k cmp psi ty u v = do  -- u,v : BPartial ψ ty[] ≈ (BHolds ψ) → ty _
   return ()
-  
+
 
 -- | equalTermOnBridgeFace (x) (x.ty) (x.u) (x.v) generates endpoints constraints
 --   u[x \bi0] = v[x \bi0] at ty[ x \bi0] ; u[x \bi1] = v[x \bi1] ty[ x \bi1]

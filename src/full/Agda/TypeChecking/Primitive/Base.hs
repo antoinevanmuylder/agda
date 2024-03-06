@@ -336,7 +336,7 @@ toExplicitArgs :: Term -> Term
 toExplicitArgs t = case t of
   (Var i es) -> Var i (forElims es)
   (Lam ai (Abs nm rest)) -> Lam (withArgInf ai) (Abs nm (toExplicitArgs rest))
-  (Lam ai (NoAbs nm rest)) -> Lam (withArgInf ai) (NoAbs nm (toExplicitArgs rest))  
+  (Lam ai (NoAbs nm rest)) -> Lam (withArgInf ai) (NoAbs nm (toExplicitArgs rest))
   (Def q es) -> Def q (forElims es)
   (Con ch ci es) -> Con ch ci (forElims es)
   (MetaV mid es) -> MetaV mid (forElims es)
