@@ -27,7 +27,7 @@ PARALLEL_TESTS := $(shell getconf _NPROCESSORS_ONLN)
 endif
 
 AGDA_BIN_SUFFIX = -$(VERSION)
-AGDA_TESTS_OPTIONS ?=-i -j$(PARALLEL_TESTS)
+AGDA_TESTS_OPTIONS ?=-j$(PARALLEL_TESTS)
 
 # A cabal/stack dictionary
 
