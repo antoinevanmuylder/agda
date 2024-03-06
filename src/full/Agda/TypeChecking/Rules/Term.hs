@@ -416,7 +416,7 @@ ifBridge ty fallback work = do
   if isBridgeType bv then work else fallback
 
 checkBridge :: A.TypedBinding -> A.Expr -> Type -> TCM Term
-checkBridge b@(A.TBind _ _ (x':|[]) xtyp) body ty = do
+checkBridge b@(A.TBind _ _ (x' :| []) xtyp) body ty = do
     let x    = updateNamedArg (A.unBind . A.binderName) x'
         info = getArgInfo x
     BridgeType s bridge level typ lhs rhs <- bridgeView ty --typ is underlying type line for het. bridge
@@ -473,9 +473,10 @@ checkLambda' cmp b xps typ body target = do
     [ "info           =" <+> (text . show) info
     ]
   TelV tel btyp <- telViewUpTo numbinds target
-  if size tel < numbinds || numbinds /= 1
-    then (if possiblePathBridge then trySeeingIfPathBridge else dontUseTargetType)
-    else useTargetType tel btyp
+  -- TODO-antva: remove
+  -- if size tel < numbinds || numbinds /= 1
+  --   then (if possiblePathBridge then trySeeingIfPathBridge else dontUseTargetType)
+  --   else useTargetType tel btyp
   if numbinds == 1 && not (null tel) then useTargetType tel btyp
   else if possiblePathBridge then trySeeingIfPathBridge
   else dontUseTargetType

@@ -345,7 +345,7 @@ primExtent' = do
             sbMtm <- simplify $ unArg bM
             let sLamM = captureIn sbMtm ri  -- λ r. M (where M has been simplified)
             let readableLamM = captureIn (unArg bM) ri --  λ r. M (where M is untouched)
-            reportSLn "tc.prim.extent" 30 $ "captureIn (( " ++ psh bM ++" )) (( " ++ psh ri ++ " ))"
+            reportSLn "tc.prim.extent" 30 $ "captureIn (( " ++ psh bM ++ " )) (( " ++ psh ri ++ " ))"
             reportSLn "tc.prim.extent" 30 $ "captureIn ((M)) ((r)) is " ++ psh lamM
             lamMBi0 <- reduce' $ readableLamM `apply` [argN bi0]
             reportSLn "tc.prim.extent" 30 $ "lamM bi0 is: " ++ psh lamMBi0
@@ -367,7 +367,7 @@ primExtent' = do
     -- precond: Γ0 , r:BI , Γ1 ⊢ M : ... and (semiFreshForFvars M @r) then
     -- postcond      Γ0, r:BI, Γ1 ⊢ (captureIn M @r) : (@tick r'' : BI) -> ...
     captureIn m ri =
-      let sigma = ([var (i+1) | i <- [0 .. ri - 1] ] ++ [var 0]) ++# raiseS (ri + 2) in
+      let sigma = ([var (i + 1) | i <- [0 .. ri - 1] ] ++ [var 0]) ++# raiseS (ri + 2) in
       Lam ldArgInfo $ Abs "r" $ applySubst sigma m
     ldArgInfo = setLock (IsLock LockOTick) defaultArgInfo
     fallback lA lB bA bB r bM' n0 n1 nn =
@@ -2004,7 +2004,7 @@ mixCombineSys' l ty xs = do
     combine [(psi, u)] = (,) <$> psi <*> u
     combine ((psi, u):xs) = do
       (phi, c) <- combine xs
-      (,) <$>  (pure mixedOr <@> psi <@> (pure phi) )<*> mkMpor l ty psi (pure phi) u (pure c)
+      (,) <$>  (pure mixedOr <@> psi <@> (pure phi) ) <*> mkMpor l ty psi (pure phi) u (pure c)
   combine xs
 
 
@@ -2049,7 +2049,7 @@ transpGel l (lgel, bA0, bA1, bR, r@(Arg rinfo rtm@(Var ri [])) ) phi u0 = do --
     -- | precond: Γ0 , r:BI , Γ1 ⊢ M : ... and (semiFreshForFvars M @r) then
     --   postcond      Γ0, r:BI, Γ1 ⊢ (captureIn M @r) : (@tick r'' : BI) -> ...
     captureIn m ri =
-      let sigma = ([var (i+1) | i <- [0 .. ri - 1] ] ++ [var 0]) ++# raiseS (ri + 2) in
+      let sigma = ([var (i + 1) | i <- [0 .. ri - 1] ] ++ [var 0]) ++# raiseS (ri + 2) in
       Lam ldArgInfo $ Abs "r" $ applySubst sigma m
 
   -- TODO-antva: we capture r in u0. Hence some freshness condition must be checked (Γ \ r , r ⊢ u0)
@@ -2337,7 +2337,7 @@ mhcompGel (l, bA0, bA1, bR, x@(Arg _ (Var dbi []))) szeta u u0 = do
     --   precond: Γ0 , r:BI , Γ1 ⊢ (r:BI), (M : ...)    and    (semiFreshForFvars M @r) then
     --   postcond      Γ0, r:BI, Γ1 ⊢ (captureIn M @r) : (@tick r'' : BI) -> ...
     captureIn m ri =
-      let sigma = ([var (i+1) | i <- [0 .. ri - 1] ] ++ [var 0]) ++# raiseS (ri + 2) in
+      let sigma = ([var (i + 1) | i <- [0 .. ri - 1] ] ++ [var 0]) ++# raiseS (ri + 2) in
       Lam lkDefaultArgInfo $ Abs "r" $ applySubst sigma m
 
     -- precond respected thanks to previous semifreshness analyses.

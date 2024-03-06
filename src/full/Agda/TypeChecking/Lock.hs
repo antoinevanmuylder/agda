@@ -75,7 +75,7 @@ checkLockedVars t ty lk lk_ty = catchConstraint (CheckLockedVars t ty lk lk_ty) 
     rigid = rigidVars fv
     -- flexible = IMap.keysSet $ flexibleVars fv
     termVars = allVars fv -- ISet.union rigid flexible
-    earlierVars = ISet.fromList [i+1 .. size cxt - 1]
+    earlierVars = ISet.fromList [(i + 1) .. size cxt - 1]
   reportSDoc "tc.term.lock" 50 $ vcat
      [ text "Displaying first fv analysis... holds iff termVars in earlierVars"
      , nest 2 $ text "rigid = " <+> pretty rigid

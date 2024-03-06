@@ -545,7 +545,7 @@ compareGelTm cmp a' args@[l, bA0@(Arg _ bA0tm), bA1@(Arg _ bA1tm),
           compareTerm cmp rtyp (mkUngel_m) (mkUngel_n)
   where
     captureIn body ri = --TODO-antva: duplicated code in extent beta
-      let sigma = ([var (i+1) | i <- [0 .. ri - 1] ] ++ [var 0]) ++# raiseS (ri + 2) in
+      let sigma = ([var (i + 1) | i <- [0 .. ri - 1] ] ++ [var 0]) ++# raiseS (ri + 2) in
       Lam ldArgInfo $ Abs "r" $ applySubst sigma body
     ldArgInfo = setLock (IsLock LockOTick) defaultArgInfo
 compareGelTm _ _ _ _ _ = __IMPOSSIBLE__

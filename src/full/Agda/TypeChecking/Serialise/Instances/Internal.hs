@@ -403,12 +403,14 @@ instance EmbPrj BuiltinSort where
     SortOmega a      -> icodeN 1 SortOmega a
     SortIntervalUniv -> icodeN 2 SortIntervalUniv
     SortLevelUniv    -> icodeN 3 SortLevelUniv
+    SortCstrUniv     -> icodeN 4 SortCstrUniv
 
   value = vcase \case
     [0, a] -> valuN SortUniv  a
     [1, a] -> valuN SortOmega a
     [2]    -> valuN SortIntervalUniv
     [3]    -> valuN SortLevelUniv
+    [4]    -> valuN SortCstrUniv
     _ -> malformed
 
 instance EmbPrj Defn where

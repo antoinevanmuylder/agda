@@ -892,15 +892,15 @@ telViewUpToPathBridgeBoundary i a = do
    (telv@(TelV tel b), bs) <- telViewUpToPathBridgeBoundary' i a
    return $ (telv, fullBoundary tel bs)
 
--- | arity of the type, including Pi, Path and Bridge
---   Does not reduce the type. see arityPiPath for a function
---   not handling Bridge.
-arityPiPathBridge :: Type -> TCM Int
-arityPiPathBridge t = do
-  t' <- piOrPathBridge t
-  case t' of
-    Left (_ , u) -> (+1) <$> arityPiPathBridge (unAbs u)
-    Right _ -> return 0
+-- -- | arity of the type, including Pi, Path and Bridge
+-- --   Does not reduce the type. see arityPiPath for a function
+-- --   not handling Bridge.
+-- arityPiPathBridge :: Type -> TCM Int
+-- arityPiPathBridge t = do
+--   t' <- piOrPathBridge t
+--   case t' of
+--     Left (_ , u) -> (+1) <$> arityPiPathBridge (unAbs u)
+--     Right _ -> return 0
 
 -- | @(TelV Γ b, [(i,t_i,u_i)]) <- telViewUpToPathBridgeBoundaryP n a@
 --  Input:  Δ ⊢ a
