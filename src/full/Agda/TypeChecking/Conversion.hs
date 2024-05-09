@@ -223,6 +223,7 @@ compareAs cmp a u v = do
           -- Amy, 2023-01-04, issue #6415: and not
           -- prim^unglue/prim^unglueU either! removing the unglue from a
           -- transport/hcomp may cause an infinite loop.
+          -- TODO-antva: this seems to be for compat btw cubical and first order
           cubicalProjs <- traverse getName' [builtin_unglue, builtin_unglueU]
           let
             notFirstOrder = isJust (isRelevantProjection_ def)
@@ -505,10 +506,6 @@ compareGelTm cmp a' args@[l, bA0@(Arg _ bA0tm), bA1@(Arg _ bA1tm),
   localSDocsLow (text "Compare Gel members")
     [ "m = " <+> (prettyTCM m)
     , "n = " <+> (prettyTCM n) ] --not reduced yet
-
-  localSDocsHigh (text "Compare Gel members")
-    [ "m = " <+> (return $ P.pretty m)
-    , "n = " <+> (return $ P.pretty n) ] --not reduced yet
 
   (bm' , m') <- reduceWithBlocker m
   let fvm = allVars $ freeVarsIgnore IgnoreNot m' -- see extent beta for similar analysis

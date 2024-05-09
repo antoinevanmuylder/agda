@@ -409,9 +409,9 @@ checkPath b@(A.TBind _r _tac (xp :| []) typ) body ty = do
       return t
 checkPath b body ty = __IMPOSSIBLE__
 
-
-ifBridge :: Type -> TCM a -> TCM a -> TCM a
-ifBridge ty fallback work = do
+-- TODO-antva: this is not a duplication of ifPath (?)
+myIfBridge :: Type -> TCM a -> TCM a -> TCM a
+myIfBridge ty fallback work = do
   bv <- bridgeView ty
   if isBridgeType bv then work else fallback
 
@@ -504,7 +504,7 @@ checkLambda' cmp b xps typ body target = do
                  ]
 
     bridgeFallback bridges t = do
-      ifBridge t dontUseTargetType $ if bridges
+      myIfBridge t dontUseTargetType $ if bridges
         then checkBridge b body t
         else genericError $ unwords
                [ "Option --bridges needed to build"
