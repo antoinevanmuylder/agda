@@ -501,7 +501,6 @@ compareGelTm cmp a' args@[l, bA0@(Arg _ bA0tm), bA1@(Arg _ bA1tm),
   -- the semi freshness of the Q arg (see CH gel eta) is checked by hand in this func
 
   let localSDocsLow = reportSDocDocs "tc.conv.gel" 25
-      localSDocsHigh = reportSDocDocs "tc.conv.gel" 40
 
   localSDocsLow (text "Compare Gel members")
     [ "m = " <+> (prettyTCM m)
