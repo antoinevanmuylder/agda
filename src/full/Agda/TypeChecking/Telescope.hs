@@ -918,6 +918,19 @@ telViewPathBridgeBoundaryP = telViewUpToPathBridgeBoundaryP (-1)
 telViewPathBridge :: PureTCM m => Type -> m TelView
 telViewPathBridge = telViewUpToPathBridge (-1)
 
-isPathBridge
-  :: PureTCM m => Type -> m (Maybe (Dom Type, Abs Type))
-isPathBridge t = either Just (const Nothing) <$> pathBridgeViewAsPi t
+-- | if t is a path or bridge type, isPathBridge t gives its interval + line.
+isPathBridge :: PureTCM m => Type -> m (Maybe (Dom Type, Abs Type))
+isPathBridge t = ifPathBridge t (\a b -> return $ Just (a,b)) (const $ return Nothing)
+
+-- | @ifPathBridge t yes no@ computes interval + line and applies cont @yes@, in case t is a path or bridge type.
+--   If t is a meta, @yes@ may be run when it solved (see @ifPathBridgeB@).
+ifPathBridge :: PureTCM m => Type -> (Dom Type -> Abs Type -> m a) -> (Type -> m a) -> m a
+ifPathBridge t yes no = ifPathBridgeB t yes $ no . ignoreBlocking
+
+{-# SPECIALIZE ifPathBridgeB :: Type -> (Dom Type -> Abs Type -> TCM a) -> (Blocked Type -> TCM a) -> TCM a #-}
+ifPathBridgeB :: PureTCM m => Type -> (Dom Type -> Abs Type -> m a) -> (Blocked Type -> m a) -> m a
+ifPathBridgeB t yes no = ifBlocked t
+  (\b t -> no $ Blocked b t)
+  (\nb t -> caseEitherM (pathBridgeViewAsPi'whnf <*> pure t)
+    (uncurry yes . fst)
+    (no . NotBlocked nb))

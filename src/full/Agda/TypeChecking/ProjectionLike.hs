@@ -462,7 +462,7 @@ inferNeutral u = do
         Apply (Arg ai v) ->
           ifPiType t (\_ b -> return $ b `absApp` v) __IMPOSSIBLE__
         IApply x y r ->
-          ifPath t (\_ b -> return $ b `absApp` r) __IMPOSSIBLE__
+          ifPathBridge t (\_ b -> return $ b `absApp` r) __IMPOSSIBLE__
         Proj o f -> do
           -- @projectTyped@ expects the type to be reduced.
           t <- reduce t
