@@ -1179,11 +1179,29 @@ primMHComp' = do
 
         Def q es -> do
           info <- getConstInfo q
-          let   lam_i = Lam defaultArgInfo . Abs "i"
+          let
+            lam_i = Lam defaultArgInfo . Abs "i"
 
+            -- When should Kan operations on a record value reduce?
+            doR r@Record{recEtaEquality' = eta} = case theEtaEquality eta of
+              -- If it's a no-eta, pattern-matching record, then the
+              -- Kan operations behave as they do for data types; Only
+              -- reduce when the base is a constructor
+              NoEta PatternMatching -> case unArg u0 of
+                Con{} -> True
+                _ -> False
+              -- For every other case, we can reduce into a value
+              -- defined by copatterns; However, this would expose the
+              -- internal name of transp/hcomp when printed, so hold
+              -- off until there are projections.
+              _ -> nelims > 0
+            doR _ = False
+
+          
           case theDef info of
+
             r@Record{recComp = kit}
-                | nelims > 0, Just as <- allApplyElims es, Just mhocomR <- nameOfMHComp kit -> do
+                | doR r, Just as <- allApplyElims es, Just mhocomR <- nameOfMHComp kit -> do
                     reportSDoc "tc.prim.mhcomp.rec" 25 $ text "about to compute mhocom at record"
                     redReturn $ (Def mhocomR []) `apply`
                                       (as ++ [ignoreBlocking sZeta, u, u0])
