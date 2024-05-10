@@ -1876,7 +1876,7 @@ transpBridgeP l (bA, x , y) phi u0 = do
   reportSLn "tc.prim.transp.bridge" 25 "transp at BridgeP fires"
   reportSDocDocs "tc.prim.transp.bridge" 40
     (text "rule for transporting at BridgeP fired with args...")
-    [ "level l = " <+> (return $ P.pretty l)
+    [ "level line l = " <+> (return $ P.pretty l)
     , "A : I → BI → Type is " <+> (return $ P.pretty  bA)
     , "x : i:I → A (i, bi0) = " <+> (return $ P.pretty x)
     , "y : i:I → A (i, bi0) = " <+> (return $ P.pretty y)
@@ -1915,7 +1915,7 @@ transpBridgeP l (bA, x , y) phi u0 = do
           lam "j" $ \ j -> -- j:BI
             comp l (lam "i" $ \ i -> bA <@> i <@> j)
               (combineCstrs (phi) j)
-              (lam "i'" $ \i -> mixCombineSys l (bA <@> i <@> j) -- i : I
+              (lam "i'" $ \i -> mixCombineSys (l <@> i) (bA <@> i <@> j) -- i : I
                 [ (phiAsMixed phi, ilam "o" (\o -> u0 <@@> (x <@> pure iz, y <@> pure iz, j)))
                 -- Note that here we have lines of endpoints which we must
                 -- apply to fix the endpoints:
