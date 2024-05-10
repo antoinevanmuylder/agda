@@ -409,7 +409,7 @@ checkPath b@(A.TBind _r _tac (xp :| []) typ) body ty = do
       return t
 checkPath b body ty = __IMPOSSIBLE__
 
--- TODO-antva: this is not a duplication of ifPath (?)
+-- TODO-antva: this is not a duplication of ifPath.
 myIfBridge :: Type -> TCM a -> TCM a -> TCM a
 myIfBridge ty fallback work = do
   bv <- bridgeView ty
@@ -473,10 +473,6 @@ checkLambda' cmp b xps typ body target = do
     [ "info           =" <+> (text . show) info
     ]
   TelV tel btyp <- telViewUpTo numbinds target
-  -- TODO-antva: remove
-  -- if size tel < numbinds || numbinds /= 1
-  --   then (if possiblePathBridge then trySeeingIfPathBridge else dontUseTargetType)
-  --   else useTargetType tel btyp
   if numbinds == 1 && not (null tel) then useTargetType tel btyp
   else if possiblePathBridge then trySeeingIfPathBridge
   else dontUseTargetType
