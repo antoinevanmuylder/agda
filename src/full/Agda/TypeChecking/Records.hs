@@ -413,7 +413,7 @@ typeElims a self (e : es) = do
     -- Andrea 02/08/2017: when going from patterns to elims we
     -- generate an Apply elim even for Path types, because we use VarP
     -- for both, so we have to allow for a Path type here.
-    Apply v -> ifNotPiOrPathType a __IMPOSSIBLE__ {- else -} $ \ a b -> do
+    Apply v -> ifNotPiOrPathBridgeType a __IMPOSSIBLE__ {- else -} $ \ a b -> do
       (ArgT a :) <$> typeElims (absApp b $ unArg v) (self `applyE` [e]) es
     Proj o f -> do
       a <- reduce a

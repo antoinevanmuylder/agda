@@ -636,9 +636,10 @@ ifNotPi = flip . ifPi
 ifNotPiType :: MonadReduce m => Type -> (Type -> m a) -> (Dom Type -> Abs Type -> m a) -> m a
 ifNotPiType = flip . ifPiType
 
-ifNotPiOrPathType :: (MonadReduce tcm, HasBuiltins tcm) => Type -> (Type -> tcm a) -> (Dom Type -> Abs Type -> tcm a) -> tcm a
-ifNotPiOrPathType t no yes = do
-  ifPiType t yes (\ t -> either (uncurry yes . fst) (const $ no t) =<< (pathViewAsPi'whnf <*> pure t))
+-- antva: replaces ifNotPiOrPathType.
+ifNotPiOrPathBridgeType :: (MonadReduce tcm, HasBuiltins tcm) => Type -> (Type -> tcm a) -> (Dom Type -> Abs Type -> tcm a) -> tcm a
+ifNotPiOrPathBridgeType t no yes = do
+  ifPiType t yes (\ t -> either (uncurry yes . fst) (const $ no t) =<< (pathBridgeViewAsPi'whnf <*> pure t))
 
 shouldBePath :: (PureTCM m, MonadBlock m, MonadTCError m) => Type -> m (Dom Type, Abs Type)
 shouldBePath t = ifPathB t
@@ -671,7 +672,7 @@ class PiApplyM a where
   {-# INLINE piApplyM #-}
 
 instance PiApplyM Term where
-  piApplyM' err t v = ifNotPiOrPathType t (\_ -> absurd <$> err) {-else-} $ \ _ b -> return $ absApp b v
+  piApplyM' err t v = ifNotPiOrPathBridgeType t (\_ -> absurd <$> err) {-else-} $ \ _ b -> return $ absApp b v
   {-# INLINABLE piApplyM' #-}
 
 {-# SPECIALIZE piApplyM' :: TCM Empty -> Type -> Term -> TCM Type #-}
@@ -855,9 +856,6 @@ telView'UpToPathBridge n t = do
     absV a x (TelV tel t) = TelV (ExtendTel a (Abs x tel)) t
 
 
-ifNotPiOrPathBridgeType :: (MonadReduce tcm, HasBuiltins tcm) => Type -> (Type -> tcm a) -> (Dom Type -> Abs Type -> tcm a) -> tcm a
-ifNotPiOrPathBridgeType t no yes = do
-  ifPiType t yes (\ t -> either (uncurry yes . fst) (const $ no t) =<< (pathBridgeViewAsPi'whnf <*> pure t))
 
 
 -- | Like @telViewUpToPathBridge@ but also returns the @Boundary@ expected
