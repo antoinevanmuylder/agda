@@ -19,6 +19,7 @@ import Data.Monoid
 import Agda.Syntax.Common
 import Agda.Syntax.Internal
 import Agda.Syntax.Internal.Pattern
+import Agda.Syntax.Common.Pretty as P
 
 import Agda.TypeChecking.Monad.Builtin
 import Agda.TypeChecking.Monad
@@ -934,3 +935,26 @@ ifPathBridgeB t yes no = ifBlocked t
   (\nb t -> caseEitherM (pathBridgeViewAsPi'whnf <*> pure t)
     (uncurry yes . fst)
     (no . NotBlocked nb))
+
+shouldBePathBridge :: (PureTCM m, MonadBlock m, MonadTCError m) => Type -> m (Dom Type, Abs Type)
+shouldBePathBridge t = ifPathBridgeB t
+  (curry return)
+  (fromBlocked >=> \case
+    El _ Dummy{} -> return (__DUMMY_DOM__, Abs "x" __DUMMY_TYPE__)
+    t -> typeError $ GenericDocError $ "should be bridge type: " <+> P.pretty t)
+
+ifPiOrPathBridgeB :: PureTCM m => Type -> (Dom Type -> Abs Type -> m a) -> (Blocked Type -> m a) -> m a
+ifPiOrPathBridgeB t yes no = ifPiTypeB t
+  (\a b -> yes a b)
+  (\bt -> caseEitherM (pathBridgeViewAsPi'whnf <*> pure (ignoreBlocking bt))
+    (uncurry yes . fst)
+    (no . (bt $>)))
+
+
+shouldBePiOrPathBridge :: (PureTCM m, MonadBlock m, MonadTCError m) => Type -> m (Dom Type, Abs Type)
+shouldBePiOrPathBridge t = ifPiOrPathBridgeB t
+  (curry return)
+  (fromBlocked >=> \case
+    El _ Dummy{} -> return (__DUMMY_DOM__, Abs "x" __DUMMY_TYPE__)
+    t -> typeError $ GenericDocError $ "should be Pi/Path/Bridge type: " <+> P.pretty t)
+

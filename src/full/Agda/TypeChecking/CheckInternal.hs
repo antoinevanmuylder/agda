@@ -174,7 +174,7 @@ instance CheckInternal Term where
         compareType cmp lt t
         return $ Lit l
       Lam ai vb  -> do
-        (a, b) <- shouldBePiOrPath t
+        (a, b) <- shouldBePiOrPathBridge t
         ai <- checkArgInfo action ai $ domInfo a
         let name = suggests [ Suggestion vb , Suggestion b ]
         addContext (name, a) $ do
@@ -288,14 +288,26 @@ inferSpine action t hd es = loop t hd id es
         ]
       case e of
         IApply x y r -> do
-          (a, b) <- shouldBePath t
+          mCint <- getBuiltinName' BuiltinInterval
+          mBdgInt <- getBuiltinName' BuiltinBridgeInterval
+          (a, b) <- shouldBePathBridge t
           r' <- checkInternal' action r CmpLeq (unDom a)
-          izero <- primIZero
-          ione  <- primIOne
-          x' <- checkInternal' action x CmpLeq (b `absApp` izero)
-          y' <- checkInternal' action y CmpLeq (b `absApp` ione)
-          let e' = IApply x' y' r'
-          loop (b `absApp` r) (hd . (e:)) (acc . (e':)) es
+          case (unEl $ unDom a :: Term) of
+            Def q [] | Just q <- mCint -> do
+              izero <- primIZero
+              ione  <- primIOne
+              x' <- checkInternal' action x CmpLeq (b `absApp` izero)
+              y' <- checkInternal' action y CmpLeq (b `absApp` ione)
+              let e' = IApply x' y' r'
+              loop (b `absApp` r) (hd . (e:)) (acc . (e':)) es
+            Def q [] | Just q <- mBdgInt -> do
+              biz <- primBIZero
+              bio <- primBIOne
+              x' <- checkInternal' action x CmpLeq (b `absApp` biz)
+              y' <- checkInternal' action y CmpLeq (b `absApp` bio)
+              let e' = IApply x' y' r'
+              loop (b `absApp` r) (hd . (e:)) (acc . (e':)) es              
+            _ -> __IMPOSSIBLE__
         Apply (Arg ai v) -> do
           (a, b) <- shouldBePi t
           ai <- checkArgInfo action ai $ domInfo a
