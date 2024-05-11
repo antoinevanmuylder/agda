@@ -1638,7 +1638,9 @@ funSort' = curry \case
   (LockUniv      , b            ) -> Right b
   -- No functions into lock types
   (a             , LockUniv     ) -> Left neverUnblock
-  -- No functions into constraint types
+  -- TODO-antva: add these two just to make it work. need to figure out soundness of this.
+  (CstrUniv      , CstrUniv     ) -> Right CstrUniv
+  (IntervalUniv  , CstrUniv     ) -> Right CstrUniv
   (a             , CstrUniv     ) -> Left neverUnblock
   (CstrUniv      , b            ) -> Right b
   -- @IntervalUniv@ behaves like @SSet@, but functions into @Type@ land in @Type@
