@@ -61,7 +61,13 @@ checkLockedVars t ty lk lk_ty = catchConstraint (CheckLockedVars t ty lk lk_ty) 
 
   -- Strategy: compute allowed variables, check that @t@ doesn't use more.
   mi <- getLockVar (unArg lk)
-  caseMaybe mi (typeError (DoesNotMentionTicks t ty lk)) $ \ i -> do
+
+  v <- bridgeIntervalView (unArg lk)
+  let stop = case v of
+        BIZero -> return ()
+        BIOne -> return ()
+        BOTerm _ -> (typeError (DoesNotMentionTicks t ty lk))
+  caseMaybe mi stop $ \ i -> do
 
   cxt <- getContext
   let toCheck = zip [0..] $ zipWith raise [1..] (take i cxt)
