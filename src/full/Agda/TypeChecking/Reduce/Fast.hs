@@ -37,6 +37,7 @@ module Agda.TypeChecking.Reduce.Fast
 
 import Prelude hiding ((!!))
 
+import Control.DeepSeq (deepseq)
 import Control.Applicative hiding (empty)
 import Control.Monad.ST
 import Control.Monad.ST.Unsafe (unsafeSTToIO, unsafeInterleaveST)
@@ -1157,20 +1158,26 @@ reduceTm rEnv bEnv !constInfo normalisation =
     -- branches contain a catch-all case we need to push a CatchAll on the match stack if picking
     -- one of the other branches.
     runAM' (Eval cl@(Closure (Value blk) t env spine) ctrl0@(CaseK f i bs spine0 spine1 stack : ctrl)) =
-      {-# SCC "runAM.CaseK" #-}
-      -- TODO-antva: remove garbage
-      -- let garbage = runReduce $
-      --       case t of
-      --         Def q es -> do
-      --           reportSDoc "tc.prim.bridges.refold" 30 $ TCP.text "Eval Value t + CaseK, t = Def q es info"
-      --           reportSDoc "tc.prim.bridges.refold" 30 $ TCP.nest 2 $ TCP.vcat
-      --             [ "bHComp bEnv = " TCP.<+> (TCP.prettyTCM $ bHComp bEnv)
-      --             , "bRefoldMhocom bEnv = " TCP.<+> (TCP.prettyTCM $ bRefoldMhocom bEnv)
-      --             , "isMhocom q = " TCP.<+> (TCP.prettyTCM $ isMhocom q) ]
-      --           return True
-      --         _ -> return True
+      -- let
+      --   -- TODO-antva: remove @garbage@ and deepseq call
+      --   garbage = runReduce $
+      --     case t of
+      --       Def q es -> do
+      --         reportSDoc "tc.prim.bridges.refold" 30 $ TCP.text "Eval Value t + CaseK, t = Def q es info"
+      --         reportSDoc "tc.prim.bridges.refold" 30 $ TCP.nest 2 $ TCP.vcat
+      --           [ "bHComp bEnv = " TCP.<+> (TCP.prettyTCM $ bHComp bEnv)
+      --           , "bRefoldMhocom bEnv = " TCP.<+> (TCP.prettyTCM $ bRefoldMhocom bEnv)
+      --           , "isMhocom q = " TCP.<+> (TCP.prettyTCM $ isMhocom q) ]
+      --         return True
+      --       _ -> return True
+
+      --   garbage2 :: Bool
+      --   garbage2 = case (True && False) of
+      --     True -> __IMPOSSIBLE
+      --     False -> __IMPOSSIBLE__  
       -- in
-      -- if garbage then
+      deepseq (runReduce $ reportSDoc "tc.prim.bridges.refold" 30 $ TCP.text "Eval Value t + CaseK, t = Def q es info") $
+      {-# SCC "runAM.CaseK" #-}
       case blk of
         Blocked{} | null [()|Con{} <- [t]] -> stuck -- we might as well check the blocking tag first
         _ -> case t of
